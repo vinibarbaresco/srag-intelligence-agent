@@ -217,8 +217,11 @@ class TestDegradacaoDeNoticias:
 
 
 class TestSelecaoDoInterpretador:
-    def test_sem_credencial_usa_via_deterministica(self, monkeypatch):
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    def test_sem_credencial_usa_via_deterministica(self):
+        # A conftest neutraliza OPENAI_API_KEY para toda a sessao.
+        from src.config import get_settings
+
+        assert get_settings().llm_enabled is False
         assert isinstance(get_interpreter(use_llm=True), DeterministicNarrator)
 
     def test_no_llm_forca_via_deterministica(self):

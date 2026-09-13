@@ -38,7 +38,11 @@ def configured_environment(data_root: Path, monkeypatch_session) -> None:
     monkeypatch_session.setenv("REPORTING_LAG_DAYS", "21")
     monkeypatch_session.setenv("GROWTH_WINDOW_DAYS", "30")
     monkeypatch_session.setenv("MIN_CELL_SIZE", "5")
-    monkeypatch_session.delenv("OPENAI_API_KEY", raising=False)
+    # Credencial vazia, e nao ausente: a variavel de ambiente tem precedencia
+    # sobre o arquivo .env no pydantic-settings, entao isto neutraliza uma chave
+    # real presente na maquina do desenvolvedor. Sem isso a suite deixaria de ser
+    # hermetica e poderia chamar a API da OpenAI durante os testes.
+    monkeypatch_session.setenv("OPENAI_API_KEY", "")
     reset_settings_cache()
 
 
