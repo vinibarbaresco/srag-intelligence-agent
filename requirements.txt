@@ -1,0 +1,26 @@
+# --- Camada de dados ---------------------------------------------------------
+pandas>=2.2
+pyarrow>=16.0
+duckdb>=1.0
+
+# --- Visualizacao ------------------------------------------------------------
+matplotlib>=3.8
+
+# --- Agente / LLM ------------------------------------------------------------
+langgraph>=0.2.40
+langchain-core>=0.3.0
+langchain-openai>=0.2.0
+
+# --- Configuracao e contratos ------------------------------------------------
+pydantic>=2.7
+pydantic-settings>=2.3
+python-dotenv>=1.0
+
+# --- Fontes externas ---------------------------------------------------------
+requests>=2.31
+
+# --- Documentacao (geracao do PDF da arquitetura) ----------------------------
+PyMuPDF>=1.24
+
+# --- Testes ------------------------------------------------------------------
+pytest>=8.0
