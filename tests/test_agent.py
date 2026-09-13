@@ -272,3 +272,50 @@ class TestRelatorio:
         assert state["metrics"] == {}
         assert state["external_context"] == {}
         assert state["warnings"] == []
+
+
+class TestPersistenciaDaAuditoria:
+    """A trilha e replicada no banco para permitir analise entre execucoes."""
+
+    def test_eventos_sao_replicados_na_tabela_audit_events(
+        self, synthetic_database, sem_noticias, monkeypatch
+    ):
+        from src.data.load_database import TABLE_AUDIT, connect
+
+        state = _run(monkeypatch, DeterministicNarrator())
+
+        with connect() as connection:
+            total, distintos = connection.execute(
+                f"SELECT count(*), count(DISTINCT seq) FROM {TABLE_AUDIT} "
+                "WHERE run_id = ?",
+                [state["run_id"]],
+            ).fetchone()
+
+        assert total == state["audit_summary"]["total_events"]
+        assert distintos == total  # sem duplicacao de sequencia
+
+    def test_replica_e_idempotente(self, synthetic_database, tmp_path):
+        from src.data.load_database import TABLE_AUDIT, connect
+        from src.observability.audit import AuditTrail
+
+        trail = AuditTrail(audit_dir=tmp_path)
+        trail.record(tool="qualquer", status="ok", result_summary="ok")
+
+        assert trail.persist_to_database() == 1
+        assert trail.persist_to_database() == 1  # reexecucao substitui
+
+        with connect() as connection:
+            total = connection.execute(
+                f"SELECT count(*) FROM {TABLE_AUDIT} WHERE run_id = ?", [trail.run_id]
+            ).fetchone()[0]
+        assert total == 1
+
+    def test_banco_indisponivel_nao_derruba_a_execucao(self, tmp_path):
+        from src.observability.audit import AuditTrail
+
+        trail = AuditTrail(audit_dir=tmp_path)
+        trail.record(tool="qualquer", status="ok", result_summary="ok")
+
+        # O relatorio e o JSONL ja existem; a replica apenas nao acontece.
+        assert trail.persist_to_database(database_path=tmp_path / "ausente.duckdb") == 0
+        assert trail.path.exists()

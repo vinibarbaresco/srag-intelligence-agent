@@ -3,8 +3,9 @@
 Cada execucao recebe um `run_id` unico. Todo no do grafo e toda tool registram
 um :class:`AuditEvent` com o que foi acionado, com quais parametros, quanto
 tempo levou, se houve erro e qual a fonte do dado. Os eventos sao persistidos em
-JSON Lines (`outputs/audit/<run_id>.jsonl`) e replicados no DuckDB para consulta
-analitica.
+JSON Lines (`outputs/audit/<run_id>.jsonl`), fonte primaria escrita evento a
+evento, e replicados ao final na tabela `audit_events` do DuckDB, para que
+varias execucoes possam ser comparadas com SQL.
 
 Por decisao de projeto **nao** se registra o raciocinio interno do modelo --
 apenas eventos operacionais e decisoes observaveis do sistema. Parametros passam
@@ -69,6 +70,9 @@ class AuditTrail:
     run_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     audit_dir: Path | None = None
     events: list[AuditEvent] = field(default_factory=list)
+    #: Eventos efetivamente replicados no banco, preenchido por
+    #: :meth:`persist_to_database`. Zero significa replica nao realizada.
+    persisted_events: int = 0
     _seq: int = field(default=0, repr=False)
 
     def __post_init__(self) -> None:
@@ -172,6 +176,74 @@ class AuditTrail:
         with self.path.open("a", encoding="utf-8") as handle:
             handle.write(event.to_json() + "\n")
 
+    def persist_to_database(self, database_path: Path | None = None) -> int:
+        """Replica a trilha na tabela `audit_events` do banco analitico.
+
+        O arquivo JSON Lines e a fonte primaria -- escrito evento a evento,
+        sobrevive a uma interrupcao no meio da execucao. Esta replica e gravada
+        ao final e existe para que varias execucoes possam ser comparadas com
+        SQL (duracao por tool, taxa de falha, evolucao ao longo do tempo).
+
+        A falha aqui nunca derruba a execucao: o relatorio ja esta gravado e a
+        trilha ja esta em disco. O problema e apenas registrado.
+
+        Args:
+            database_path: banco alternativo (usado pelos testes).
+
+        Returns:
+            Numero de eventos replicados; zero quando o banco esta indisponivel.
+        """
+        if not self.events:
+            return 0
+
+        # Import local: `load_database` e detalhe da camada de dados, e a
+        # auditoria precisa funcionar mesmo sem banco analitico montado.
+        from src.data.load_database import TABLE_AUDIT, connect
+
+        rows = [
+            (
+                event.run_id,
+                event.seq,
+                event.timestamp,
+                event.node,
+                event.tool,
+                json.dumps(event.parameters, ensure_ascii=False, default=str),
+                event.status,
+                event.duration_ms,
+                event.result_summary,
+                event.source,
+                event.error,
+            )
+            for event in self.events
+        ]
+
+        try:
+            with connect(read_only=False, path=database_path) as connection:
+                connection.execute(
+                    f"DELETE FROM {TABLE_AUDIT} WHERE run_id = ?", [self.run_id]
+                )
+                connection.executemany(
+                    f"""
+                    INSERT INTO {TABLE_AUDIT}
+                        (run_id, seq, timestamp, node, tool, parameters,
+                         status, duration_ms, result_summary, source, error)
+                    VALUES (?, ?, CAST(? AS TIMESTAMP), ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    rows,
+                )
+        except Exception as exc:  # a trilha em disco ja garante a auditabilidade
+            logger.warning(
+                "trilha nao replicada no banco analitico",
+                extra={"motivo": f"{type(exc).__name__}: {exc}"},
+            )
+            return 0
+
+        logger.info(
+            "trilha replicada no banco analitico",
+            extra={"run_id": self.run_id, "eventos": len(rows)},
+        )
+        return len(rows)
+
     def summary(self) -> dict[str, Any]:
         """Consolida a trilha para exibicao no relatorio."""
         by_status: dict[str, int] = {}
@@ -183,6 +255,7 @@ class AuditTrail:
             "by_status": by_status,
             "total_duration_ms": round(sum(e.duration_ms for e in self.events), 2),
             "audit_file": str(self.path),
+            "events_in_database": self.persisted_events,
         }
 
 

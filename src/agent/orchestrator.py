@@ -80,6 +80,11 @@ def run_report(
         final_state["report_paths"] = write_report(enriched)
         final_state["audit_summary"] = trail.summary()
 
+    # A replica no banco e o ultimo passo: o relatorio ja esta gravado e a
+    # trilha ja esta em disco, entao uma falha aqui nao compromete a entrega.
+    trail.persisted_events = trail.persist_to_database()
+    final_state["audit_summary"] = trail.summary()
+
     logger.info(
         "execucao concluida",
         extra={

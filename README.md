@@ -227,8 +227,15 @@ determinística — e o bloqueio aparece no relatório.
 
 Cada execução tem um `run_id` (UUID4). Cada nó e cada tool gravam um evento com `timestamp`, `seq`,
 `node`, `tool`, `parameters`, `status`, `duration_ms`, `result_summary`, `source` e `error`, em
-`outputs/audit/<run_id>.jsonl` e na tabela `audit_events` do DuckDB. Parâmetros passam pelo
-mascarador de dados pessoais antes de serem gravados.
+`outputs/audit/<run_id>.jsonl` — fonte primária, escrita evento a evento, que sobrevive a uma
+interrupção no meio da execução — e replicados ao final na tabela `audit_events` do DuckDB, o que
+permite comparar execuções com SQL. Parâmetros passam pelo mascarador de dados pessoais antes de
+serem gravados.
+
+```sql
+SELECT tool, count(*), round(avg(duration_ms), 1) AS ms_medio
+FROM audit_events WHERE tool IS NOT NULL GROUP BY tool ORDER BY ms_medio DESC;
+```
 
 **Não se registra chain-of-thought do modelo** — apenas eventos operacionais e decisões observáveis.
 
@@ -377,8 +384,9 @@ a 2030, para não bloquear frases legítimas como "os 4 indicadores".
    a linha de base histórica.
 4. **Recorte por faixa etária** — o dado já está na camada analítica; falta expô-lo como parâmetro
    de tool, com supressão por `MIN_CELL_SIZE`.
-5. **Auditoria consultável** — carregar os JSONL em `audit_events` ao final de cada execução e expor
-   um painel de execuções.
+5. **Painel de execuções** — a trilha já é consultável em `audit_events`; falta uma visão que
+   compare execuções ao longo do tempo (duração por tool, taxa de degradação, deriva dos
+   indicadores).
 6. **Camada de apresentação** — API ou interface web sobre o mesmo orquestrador.
 
 ---
