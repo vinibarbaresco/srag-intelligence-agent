@@ -99,3 +99,53 @@ class TestParametrizacaoDeConsulta:
         ).fetchone()[0]
         assert total == 0
         assert connection.execute(f"SELECT count(*) FROM {TABLE_CASES}").fetchone()[0] > 0
+
+
+class TestRegistroDeArquivoLocal:
+    """Ingestao de um CSV ja presente em disco, sem download."""
+
+    def test_ano_e_deduzido_do_nome_do_arquivo(self):
+        from src.data.download import infer_year
+
+        assert infer_year("INFLUD25_DATASUS-Versao26-06-2025.csv") == 2025
+        assert infer_year("INFLUD26-24-08-2026.csv") == 2026
+        assert infer_year("planilha_qualquer.csv") is None
+
+    def test_manifesto_registra_proveniencia_sem_copiar_o_arquivo(self, tmp_path):
+        import json
+
+        from src.config import get_settings
+        from src.data.download import register_local_file
+
+        origem = tmp_path / "INFLUD25-teste.csv"
+        origem.write_text("DT_SIN_PRI\n2025-01-01\n", encoding="latin-1")
+
+        year, path = register_local_file(origem)
+        assert year == 2025
+        assert path == origem.resolve()  # o arquivo permanece onde estava
+
+        entrada = json.loads(
+            get_settings().raw_manifest_path.read_text(encoding="utf-8")
+        )["2025"]
+        assert entrada["path"] == str(origem.resolve())
+        assert entrada["origin"].startswith("arquivo local")
+        assert len(entrada["sha256"]) == 64
+        assert entrada["url"] is None
+
+    def test_arquivo_inexistente_e_recusado(self, tmp_path):
+        from src.data.download import DownloadError, register_local_file
+
+        with pytest.raises(DownloadError, match="nao encontrado"):
+            register_local_file(tmp_path / "ausente.csv")
+
+    def test_ano_indeduzivel_exige_parametro_explicito(self, tmp_path):
+        from src.data.download import DownloadError, register_local_file
+
+        arquivo = tmp_path / "dados.csv"
+        arquivo.write_text("x\n", encoding="latin-1")
+
+        with pytest.raises(DownloadError, match="deduzir o ano"):
+            register_local_file(arquivo)
+
+        year, _ = register_local_file(arquivo, year=2024)
+        assert year == 2024

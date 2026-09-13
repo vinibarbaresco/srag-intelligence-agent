@@ -68,9 +68,16 @@ class TestContratoDeColunas:
 
 
 class TestParseDeDatas:
+    """A fonte ja publicou o mesmo campo em tres formatos distintos."""
+
     def test_formato_iso_com_sufixo_z(self):
         parsed = _parse_dates(pd.Series(["2026-04-30T00:00:00.000Z"], dtype="string"))
         assert parsed.iloc[0] == pd.Timestamp("2026-04-30")
+
+    def test_formato_iso_simples(self):
+        # Formato do INFLUD25 versao 26-06-2025, distribuido com o enunciado.
+        parsed = _parse_dates(pd.Series(["2024-12-29"], dtype="string"))
+        assert parsed.iloc[0] == pd.Timestamp("2024-12-29")
 
     def test_formato_brasileiro_como_fallback(self):
         parsed = _parse_dates(pd.Series(["30/04/2026"], dtype="string"))

@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from src.config import get_settings
 from src.observability.logging_config import configure_logging, get_logger
@@ -25,19 +26,35 @@ from src.observability.logging_config import configure_logging, get_logger
 logger = get_logger(__name__)
 
 
-def _run_setup(years: list[int] | None = None) -> int:
-    """Prepara dados, banco analitico e acervo de noticias."""
-    from src.data.download import DownloadError, download_years
+def _run_setup(
+    years: list[int] | None = None, csv_paths: list[Path] | None = None
+) -> int:
+    """Prepara dados, banco analitico e acervo de noticias.
+
+    Args:
+        years: anos a baixar do DATASUS; ignorado quando `csv_paths` e usado.
+        csv_paths: arquivos CSV ja presentes em disco, registrados em vez de
+            baixados. Util para quem recebeu o dataset junto com o enunciado.
+    """
+    from src.data.download import DownloadError, download_years, register_local_file
     from src.data.load_database import load_database
     from src.data.preprocess import preprocess
     from src.news.ingest import ingest_news
 
     settings = get_settings()
-    target_years = years or settings.srag_years
 
     try:
-        print(f"[1/4] Baixando dados do DATASUS (anos: {target_years})...")
-        download_years(target_years)
+        if csv_paths:
+            print(f"[1/4] Registrando {len(csv_paths)} arquivo(s) local(is)...")
+            target_years = []
+            for csv_path in csv_paths:
+                year, path = register_local_file(csv_path)
+                target_years.append(year)
+                print(f"      {year}: {path.name} ({path.stat().st_size / 1e6:.1f} MB)")
+        else:
+            target_years = years or settings.srag_years
+            print(f"[1/4] Baixando dados do DATASUS (anos: {target_years})...")
+            download_years(target_years)
 
         print("[2/4] Pre-processando e aplicando o contrato de colunas...")
         preprocess(target_years)
@@ -186,6 +203,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="anos do dataset a preparar (usado com --setup)",
     )
     parser.add_argument(
+        "--csv",
+        type=Path,
+        nargs="+",
+        default=None,
+        help=(
+            "CSV(s) de SRAG ja presentes em disco, usados no lugar do download "
+            "(usado com --setup)"
+        ),
+    )
+    parser.add_argument(
         "--audit",
         metavar="RUN_ID",
         default=None,
@@ -205,7 +232,7 @@ def main(argv: list[str] | None = None) -> int:
         return _show_audit(args.audit)
 
     if args.setup:
-        status = _run_setup(args.years)
+        status = _run_setup(args.years, args.csv)
         if status != 0:
             return status
 

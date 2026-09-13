@@ -4,8 +4,8 @@ Responsabilidades:
 
 1. **Minimizacao** -- apenas as colunas de :data:`ALLOWED_COLUMNS` sao lidas do
    disco; as demais 160+ colunas nunca entram em memoria.
-2. **Normalizacao de tipos** -- datas ISO-8601 (formato atual) com fallback para
-   `dd/mm/aaaa` (safras antigas), codigos categoricos como inteiros nulaveis.
+2. **Normalizacao de tipos** -- datas nos tres formatos ja publicados pela fonte
+   (ver :func:`_parse_dates`), codigos categoricos como inteiros nulaveis.
 3. **Tratamento explicito de ausencia** -- o codigo `9-Ignorado` e preservado
    como esta e excluido dos denominadores na camada de metricas; nunca e
    convertido em `Nao` nem em zero.
@@ -17,6 +17,9 @@ Uso::
 
     python -m src.data.preprocess
     python -m src.data.preprocess --years 2026 --chunk-size 100000
+
+Os anos processados sao lidos de `data/raw/manifest.json`, que registra tanto os
+arquivos baixados quanto os arquivos locais informados pelo usuario.
 """
 
 from __future__ import annotations
@@ -103,12 +106,18 @@ class QualityReport:
 
 
 def _parse_dates(series: pd.Series) -> pd.Series:
-    """Converte uma coluna de datas aceitando os dois formatos ja publicados.
+    """Converte uma coluna de datas aceitando os tres formatos ja publicados.
 
-    O DATASUS publica hoje datas em ISO-8601 com sufixo `Z`
-    (`2026-04-30T00:00:00.000Z`); safras anteriores usaram `dd/mm/aaaa`. O parse
-    tenta ISO primeiro e recorre ao formato brasileiro apenas nos valores que
-    sobraram, evitando a ambiguidade dia/mes.
+    O DATASUS ja distribuiu o mesmo campo de tres maneiras, conforme a safra do
+    arquivo:
+
+    * ISO-8601 com sufixo `Z` -- `2026-04-30T00:00:00.000Z` (publicacoes atuais);
+    * ISO-8601 simples -- `2024-12-29` (ex.: INFLUD25 versao 26-06-2025);
+    * formato brasileiro -- `30/04/2026` (safras antigas).
+
+    O parse tenta ISO primeiro, que cobre os dois primeiros, e recorre ao
+    formato brasileiro apenas nos valores restantes -- evitando que `03/04/2026`
+    seja interpretado como 3 de abril ou 4 de marco conforme o acaso.
     """
     text = series.astype("string").str.strip()
     text = text.replace({"": pd.NA})
@@ -318,9 +327,15 @@ def preprocess(years: list[int], chunk_size: int = _DEFAULT_CHUNK_SIZE) -> Path:
                 f"Ano {year} ausente do manifesto. Execute: "
                 f"python -m src.data.download --years {year}"
             )
-        path = settings.raw_dir / entry["filename"]
+        # Arquivos baixados ficam em data/raw; arquivos locais registrados
+        # permanecem onde estao e o manifesto guarda o caminho absoluto.
+        path = Path(entry.get("path") or settings.raw_dir / entry["filename"])
         if not path.exists():
-            raise FileNotFoundError(f"Arquivo bruto ausente: {path}")
+            raise FileNotFoundError(
+                f"Arquivo bruto ausente: {path}. Ele consta no manifesto "
+                f"(origem: {entry.get('origin', 'desconhecida')}) mas nao esta "
+                "acessivel; registre-o novamente."
+            )
         source_files.append(entry["filename"])
         frames.append(preprocess_year(path, year, report, chunk_size))
 

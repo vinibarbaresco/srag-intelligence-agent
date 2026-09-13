@@ -90,6 +90,19 @@ matplotlib · PyMuPDF · pytest
 Os arquivos **não são versionados** — são grandes e reproduzíveis. `src/data/download.py` os obtém
 sob demanda e registra proveniência (URL, tamanho, `sha256`, data) em `data/raw/manifest.json`.
 
+Quem já tiver o CSV em disco — é o caso de quem recebeu o arquivo junto com o enunciado — pode
+registrá-lo em vez de baixar. O arquivo não é copiado: o manifesto guarda o caminho original e o
+mesmo `sha256`, de modo que a proveniência de um relatório seja verificável seja qual for a origem
+do dado.
+
+```bash
+python main.py --setup --csv "INFLUD25_DATASUS-Versao26-06-2025.csv"
+```
+
+O parser de datas cobre os **três formatos** que a fonte já publicou para o mesmo campo:
+`2026-04-30T00:00:00.000Z` (publicações atuais), `2024-12-29` (versão de 26/06/2025) e `30/04/2026`
+(safras antigas).
+
 O portal não expõe API CKAN (`/api/3/action/*` retorna 404), e o nome do arquivo embute a data de
 republicação (`INFLUD26-24-08-2026.csv`). Por isso a URL **nunca é fixada no código**: é resolvida
 a cada execução na página do dataset, que é renderizada no servidor.
@@ -256,6 +269,7 @@ python main.py
 | `python main.py --no-llm` | Interpretação determinística, sem credencial |
 | `python main.py --audit <run_id>` | Trilha de auditoria de uma execução |
 | `python main.py --setup --years 2026` | Prepara apenas um ano |
+| `python main.py --setup --csv arquivo.csv` | Usa um CSV já em disco, sem baixar nada |
 
 Etapas isoladas: `python -m src.data.download`, `src.data.preprocess`, `src.data.load_database`,
 `src.news.ingest`. Documentação e diagrama: `python docs/gerar_documentacao.py`,

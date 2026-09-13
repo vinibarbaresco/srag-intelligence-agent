@@ -116,6 +116,14 @@ def build_transformation_doc() -> str:
         f"- **Dicionario oficial:** {DATASUS_DICTIONARY_URL}",
         f"- **Gerado em:** {date.today().isoformat()}",
         "",
+        "> A semantica dos campos foi conferida em **duas versoes independentes** "
+        "do dicionario oficial (a publicada com o dataset 2019-2026 e a versao "
+        "`Dicionario_de_Dados_SRAG_Hospitalizado`). A numeracao dos campos na "
+        "ficha difere entre elas -- `CLASSI_FIN` e o campo 78 numa e 80 na outra "
+        "-- mas os dominios dos codigos sao identicos, inclusive o de `UTI` "
+        "(`Internado em UTI?`, 1-Sim/2-Nao/9-Ignorado), que sustenta a decisao "
+        "de nao chamar aquele indicador de taxa de ocupacao.",
+        "",
         "## Principio",
         "",
         "Nenhum registro e removido ou alterado silenciosamente. Toda regra "
@@ -164,8 +172,10 @@ def build_transformation_doc() -> str:
         "",
         "| # | Regra | Comportamento | Registro no relatorio de qualidade |",
         "|---|-------|---------------|-------------------------------------|",
-        "| 1 | Parse de datas | ISO-8601 com sufixo `Z` (formato atual) e "
-        "`dd/mm/aaaa` como fallback | `datas_nao_parseaveis_por_coluna` |",
+        "| 1 | Parse de datas | Tres formatos ja publicados pela fonte para o "
+        "mesmo campo: `2026-04-30T00:00:00.000Z`, `2024-12-29` e `30/04/2026` "
+        "(este ultimo apenas como fallback, para nao criar ambiguidade "
+        "dia/mes) | `datas_nao_parseaveis_por_coluna` |",
         f"| 2 | Codigos de ausencia | O codigo {sorted(MISSING_CODES)} (Ignorado) e "
         "preservado e excluido de numeradores e denominadores; nunca vira `Nao` "
         "nem zero | `codigo_9_ignorado_por_coluna` |",

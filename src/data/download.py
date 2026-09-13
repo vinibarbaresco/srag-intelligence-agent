@@ -9,11 +9,17 @@ codigo: ela e resolvida a cada execucao.
 Cada download e registrado em `data/raw/manifest.json` com tamanho, sha256 e
 data, de modo que a base usada por um relatorio possa ser reproduzida depois.
 
+Tambem e possivel registrar um CSV que ja se tenha em disco -- o caso de quem
+recebeu o arquivo junto com o enunciado. O arquivo nao e copiado: entra no
+manifesto pelo caminho original, com o mesmo calculo de sha256, para que a
+proveniencia continue registrada seja qual for a origem.
+
 Uso::
 
     python -m src.data.download                 # anos definidos em SRAG_YEARS
     python -m src.data.download --years 2026
     python -m src.data.download --force         # reprocessa mesmo com cache
+    python -m src.data.download --local a.csv   # registra um arquivo local
 """
 
 from __future__ import annotations
@@ -101,6 +107,16 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(_CHUNK_SIZE), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+#: Extrai o ano do padrao de nome do DATASUS (`INFLUD25...` -> 2025).
+_YEAR_FROM_FILENAME = re.compile(r"INFLUD(?P<year>\d{2})", re.IGNORECASE)
+
+
+def infer_year(filename: str) -> int | None:
+    """Deduz o ano a partir do nome de arquivo do DATASUS."""
+    match = _YEAR_FROM_FILENAME.search(filename)
+    return 2000 + int(match.group("year")) if match else None
 
 
 def _load_manifest(path: Path) -> dict[str, dict]:
@@ -220,7 +236,9 @@ def download_years(years: list[int], *, force: bool = False) -> dict[int, Path]:
         manifest[str(year)] = {
             "year": year,
             "filename": resource.filename,
+            "path": str(path),
             "url": resource.url,
+            "origin": "download do Open DATASUS",
             "size_bytes": path.stat().st_size,
             "sha256": _sha256(path) if needs_hash else entry["sha256"],
             "downloaded_at": datetime.now(tz=timezone.utc).isoformat()
@@ -234,6 +252,58 @@ def download_years(years: list[int], *, force: bool = False) -> dict[int, Path]:
         extra={"anos": sorted(downloaded), "manifesto": str(settings.raw_manifest_path)},
     )
     return downloaded
+
+
+def register_local_file(path: Path, year: int | None = None) -> tuple[int, Path]:
+    """Registra no manifesto um CSV de SRAG ja presente em disco.
+
+    Serve para quem recebeu o arquivo pronto em vez de baixa-lo. O conteudo nao
+    e copiado -- o manifesto guarda o caminho original -- mas o sha256 e
+    calculado do mesmo modo, de forma que a proveniencia de um relatorio seja
+    verificavel independentemente da origem do dado.
+
+    Args:
+        path: caminho do CSV.
+        year: ano coberto pelo arquivo; deduzido do nome quando omitido.
+
+    Returns:
+        Par `(ano, caminho registrado)`.
+
+    Raises:
+        DownloadError: se o arquivo nao existir ou o ano nao puder ser deduzido.
+    """
+    settings = get_settings()
+    settings.ensure_directories()
+
+    path = path.expanduser().resolve()
+    if not path.is_file():
+        raise DownloadError(f"Arquivo nao encontrado: {path}")
+
+    year = year or infer_year(path.name)
+    if year is None:
+        raise DownloadError(
+            f"Nao foi possivel deduzir o ano de {path.name!r}. Informe "
+            "explicitamente com --year."
+        )
+
+    manifest = _load_manifest(settings.raw_manifest_path)
+    manifest[str(year)] = {
+        "year": year,
+        "filename": path.name,
+        "path": str(path),
+        "url": None,
+        "origin": "arquivo local fornecido pelo usuario",
+        "size_bytes": path.stat().st_size,
+        "sha256": _sha256(path),
+        "downloaded_at": datetime.now(tz=timezone.utc).isoformat(),
+    }
+    _save_manifest(settings.raw_manifest_path, manifest)
+
+    logger.info(
+        "arquivo local registrado",
+        extra={"ano": year, "arquivo": path.name, "bytes": path.stat().st_size},
+    )
+    return year, path
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -251,10 +321,26 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--force", action="store_true", help="rebaixa mesmo havendo cache valido"
     )
+    parser.add_argument(
+        "--local",
+        type=Path,
+        default=None,
+        help="registra um CSV ja presente em disco em vez de baixar",
+    )
+    parser.add_argument(
+        "--year",
+        type=int,
+        default=None,
+        help="ano do arquivo informado em --local (deduzido do nome se omitido)",
+    )
     args = parser.parse_args(argv)
 
     try:
-        paths = download_years(args.years, force=args.force)
+        if args.local is not None:
+            year, path = register_local_file(args.local, args.year)
+            paths = {year: path}
+        else:
+            paths = download_years(args.years, force=args.force)
     except DownloadError as exc:
         logger.error("download falhou", extra={"motivo": str(exc)})
         return 1
