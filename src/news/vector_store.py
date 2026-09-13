@@ -136,6 +136,27 @@ def upsert_articles(
     return len(rows)
 
 
+class EmbeddingBackendMismatch(RuntimeError):
+    """O acervo foi vetorizado com um backend diferente do backend atual.
+
+    Vetores de backends distintos nao sao comparaveis -- tem dimensoes e espacos
+    semanticos diferentes. Detectar isso explicitamente evita que o erro apareca
+    como uma falha obscura de dimensao vinda do banco.
+    """
+
+
+def stored_backend(path: Path | None = None) -> str | None:
+    """Backend de embedding com que o acervo atual foi vetorizado."""
+    try:
+        with connect(read_only=True, path=path) as connection:
+            row = connection.execute(
+                f"SELECT any_value(embedding_backend) FROM {TABLE_ARTICLES}"
+            ).fetchone()
+    except (FileNotFoundError, duckdb.Error):
+        return None
+    return row[0] if row else None
+
+
 def search(
     query: str,
     *,
@@ -156,8 +177,21 @@ def search(
     Returns:
         Noticias ordenadas por similaridade decrescente, cada uma com titulo,
         fonte, data, URL e o escore de similaridade.
+
+    Raises:
+        EmbeddingBackendMismatch: se o acervo foi vetorizado com outro backend.
     """
     embedder = embedder or get_embedder()
+
+    current = stored_backend(path)
+    if current is not None and current != embedder.backend:
+        raise EmbeddingBackendMismatch(
+            f"O acervo de noticias foi vetorizado com '{current}', mas a busca "
+            f"usa '{embedder.backend}'. Vetores de backends diferentes nao sao "
+            "comparaveis. Reexecute a ingestao para revetorizar o acervo: "
+            "python -m src.news.ingest"
+        )
+
     query_vector = embedder.embed([query])[0]
 
     predicates = ["embedding IS NOT NULL"]

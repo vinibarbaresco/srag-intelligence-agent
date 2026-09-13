@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 from src.news import vector_store
+from src.news.vector_store import EmbeddingBackendMismatch
 from src.observability.audit import audited
 from src.tools.schemas import NewsQuery
 
@@ -36,7 +37,7 @@ def search_srag_news(**kwargs: Any) -> dict[str, Any]:
             query.query, top_k=query.top_k, max_age_days=query.max_age_days
         )
         unavailable_reason = None
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, EmbeddingBackendMismatch) as exc:
         articles = []
         unavailable_reason = (
             f"{exc} O relatorio sera gerado sem contexto externo de noticias."

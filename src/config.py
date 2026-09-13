@@ -10,9 +10,10 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Annotated
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -39,7 +40,10 @@ class Settings(BaseSettings):
     min_cell_size: int = Field(default=5, ge=0)
 
     # --- Ingestao ------------------------------------------------------------
-    srag_years: list[int] = Field(default=[2025, 2026])
+    # `NoDecode` desliga o parse JSON automatico que o pydantic-settings aplica
+    # a campos de tipo composto. Sem ele, `SRAG_YEARS=2025,2026` no .env falha
+    # antes do validador abaixo ser chamado, porque nao e JSON valido.
+    srag_years: Annotated[list[int], NoDecode] = Field(default=[2025, 2026])
 
     # --- Noticias ------------------------------------------------------------
     news_max_age_days: int = Field(default=45, ge=1, le=365)
@@ -57,9 +61,19 @@ class Settings(BaseSettings):
     @field_validator("srag_years", mode="before")
     @classmethod
     def _parse_years(cls, value: object) -> object:
-        """Aceita `SRAG_YEARS=2025,2026` alem da forma lista nativa."""
+        """Aceita `SRAG_YEARS=2025,2026` alem da forma lista nativa.
+
+        Raises:
+            ValueError: se algum item nao for um ano inteiro.
+        """
         if isinstance(value, str):
-            return [int(part.strip()) for part in value.split(",") if part.strip()]
+            try:
+                return [int(part.strip()) for part in value.split(",") if part.strip()]
+            except ValueError as exc:
+                raise ValueError(
+                    f"SRAG_YEARS invalido: {value!r}. Use anos separados por "
+                    "virgula, por exemplo: SRAG_YEARS=2025,2026"
+                ) from exc
         return value
 
     # --- Caminhos ------------------------------------------------------------
