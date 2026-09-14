@@ -1,8 +1,8 @@
 # Catalogo de tools e guardrails
 
 > Documento gerado por `python docs/gerar_documentacao.py` a partir das definicoes do codigo. Nao edite a mao: altere a fonte e regere.
+> Reproduzivel: o conteudo depende apenas do codigo, nao da data de geracao. O CI falha se este arquivo divergir do que o codigo produz.
 
-- **Gerado em:** 2026-09-13
 
 ## Tools
 

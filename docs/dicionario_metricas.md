@@ -1,11 +1,11 @@
 # Dicionario de metricas
 
 > Documento gerado por `python docs/gerar_documentacao.py` a partir das definicoes do codigo. Nao edite a mao: altere a fonte e regere.
+> Reproduzivel: o conteudo depende apenas do codigo, nao da data de geracao. O CI falha se este arquivo divergir do que o codigo produz.
 
 - **Fonte:** Open DATASUS / SIVEP-Gripe (SRAG 2019-2026)
 - **Dataset:** https://dadosabertos.saude.gov.br/dataset/srag-2019-a-2026
 - **Dicionario oficial de dados:** https://s3.sa-east-1.amazonaws.com/ckan.saude.gov.br/SRAG/dicionario-de-dados-2019-a-2025.pdf
-- **Gerado em:** 2026-09-13
 
 ## Visao geral
 

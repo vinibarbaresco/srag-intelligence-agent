@@ -18,7 +18,6 @@ Uso::
 from __future__ import annotations
 
 import sys
-from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -50,6 +49,17 @@ _GENERATED_NOTE = (
     "definicoes do codigo. Nao edite a mao: altere a fonte e regere."
 )
 
+#: Nota sobre a ausencia de data de geracao.
+#:
+#: O documento nao carrega a data em que foi gerado de proposito: isso o
+#: tornaria irreprodutivel -- regerar amanha produziria um diff sem que nada
+#: tivesse mudado, e o CI que verifica se a documentacao esta em dia falharia
+#: todo dia. Quando cada documento mudou ja esta no historico do git.
+_REPRODUCIBILITY_NOTE = (
+    "> Reproduzivel: o conteudo depende apenas do codigo, nao da data de "
+    "geracao. O CI falha se este arquivo divergir do que o codigo produz."
+)
+
 
 def _escape(text: str) -> str:
     return text.replace("|", "\\|").replace("\n", " ")
@@ -61,11 +71,11 @@ def build_metrics_doc() -> str:
         "# Dicionario de metricas",
         "",
         _GENERATED_NOTE,
+        _REPRODUCIBILITY_NOTE,
         "",
         f"- **Fonte:** {DATASUS_SOURCE_LABEL}",
         f"- **Dataset:** {DATASUS_DATASET_URL}",
         f"- **Dicionario oficial de dados:** {DATASUS_DICTIONARY_URL}",
-        f"- **Gerado em:** {date.today().isoformat()}",
         "",
         "## Visao geral",
         "",
@@ -116,10 +126,10 @@ def build_transformation_doc() -> str:
         "# Regras de transformacao dos dados",
         "",
         _GENERATED_NOTE,
+        _REPRODUCIBILITY_NOTE,
         "",
         f"- **Fonte:** {DATASUS_SOURCE_LABEL}",
         f"- **Dicionario oficial:** {DATASUS_DICTIONARY_URL}",
-        f"- **Gerado em:** {date.today().isoformat()}",
         "",
         "> A semantica dos campos foi conferida em **duas versoes independentes** "
         "do dicionario oficial (a publicada com o dataset 2019-2026 e a versao "
@@ -304,8 +314,8 @@ def build_tools_doc() -> str:
         "# Catalogo de tools e guardrails",
         "",
         _GENERATED_NOTE,
+        _REPRODUCIBILITY_NOTE,
         "",
-        f"- **Gerado em:** {date.today().isoformat()}",
         "",
         "## Tools",
         "",

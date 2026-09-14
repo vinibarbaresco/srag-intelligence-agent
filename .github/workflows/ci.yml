@@ -1,0 +1,67 @@
+name: CI
+
+# Roda a cada push e em toda pull request para `main`.
+#
+# A suite e hermetica por construcao: usa uma base sintetica em diretorio
+# temporario, nao acessa a rede e neutraliza `OPENAI_API_KEY`. Por isso o CI
+# nao precisa de segredo algum nem dos 603 MB do DATASUS -- e nao fica sujeito
+# a instabilidade de fonte externa.
+on:
+  push:
+  pull_request:
+    branches: [main]
+
+# Um push novo na mesma branch cancela a execucao anterior: o que importa e o
+# estado atual do codigo, nao a fila de commits intermediarios.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  qualidade:
+    name: Lint e testes
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          # Mesma versao declarada em `target-version` no pyproject.toml.
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Ruff (lint)
+        run: python -m ruff check .
+
+      - name: Ruff (formatacao)
+        run: python -m ruff format --check .
+
+      - name: Testes
+        # Sem a chave, a via de interpretacao cai no narrador deterministico --
+        # que e exatamente o que os testes exercitam.
+        env:
+          OPENAI_API_KEY: ""
+        run: python -m pytest -q
+
+      - name: Documentacao gerada esta em dia
+        # Os documentos em docs/ sao derivados do codigo. Se uma definicao de
+        # metrica, regra de limpeza ou guardrail mudar sem que a documentacao
+        # seja regerada, este passo falha -- e a divergencia aparece no diff em
+        # vez de envelhecer em silencio.
+        run: |
+          python docs/gerar_documentacao.py
+          git diff --exit-code --stat docs/

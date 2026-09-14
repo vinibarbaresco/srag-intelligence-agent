@@ -1,10 +1,10 @@
 # Regras de transformacao dos dados
 
 > Documento gerado por `python docs/gerar_documentacao.py` a partir das definicoes do codigo. Nao edite a mao: altere a fonte e regere.
+> Reproduzivel: o conteudo depende apenas do codigo, nao da data de geracao. O CI falha se este arquivo divergir do que o codigo produz.
 
 - **Fonte:** Open DATASUS / SIVEP-Gripe (SRAG 2019-2026)
 - **Dicionario oficial:** https://s3.sa-east-1.amazonaws.com/ckan.saude.gov.br/SRAG/dicionario-de-dados-2019-a-2025.pdf
-- **Gerado em:** 2026-09-13
 
 > A semantica dos campos foi conferida em **duas versoes independentes** do dicionario oficial (a publicada com o dataset 2019-2026 e a versao `Dicionario_de_Dados_SRAG_Hospitalizado`). A numeracao dos campos na ficha difere entre elas -- `CLASSI_FIN` e o campo 78 numa e 80 na outra -- mas os dominios dos codigos sao identicos, inclusive o de `UTI` (`Internado em UTI?`, 1-Sim/2-Nao/9-Ignorado), que sustenta a decisao de nao chamar aquele indicador de taxa de ocupacao.
 
