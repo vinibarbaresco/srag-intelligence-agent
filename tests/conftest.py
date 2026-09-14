@@ -64,7 +64,9 @@ def _build_synthetic_frame() -> pd.DataFrame:
     * na janela atual, 60 casos encerrados dos quais 15 sao obitos por SRAG
       -> mortalidade esperada de 25%;
     * 100 hospitalizados na janela atual com UTI informado, 40 admitidos em UTI
-      -> taxa de admissao esperada de 40%;
+      -> taxa de admissao esperada de 40%. Uma dessas 40 estadias tem datas
+      incoerentes: continua contando na taxa de admissao, mas fica fora do
+      censo diario (39 estadias utilizaveis);
     * 120 casos com informacao vacinal de covid, 30 vacinados
       -> cobertura declarada esperada de 25%.
 
@@ -124,7 +126,13 @@ def _build_synthetic_frame() -> pd.DataFrame:
                 "idade_anos": 45.0,
                 "faixa_etaria": "40-49",
                 "ano_referencia": symptoms.year,
+                # As flags de coerencia sao definidas explicitamente aqui: a base
+                # sintetica e construida coerente, e os casos problematicos sao
+                # adicionados de proposito no fim de `_build_synthetic_frame`.
                 "flag_data_invalida": False,
+                "flag_internacao_inconsistente": False,
+                "flag_uti_inconsistente": False,
+                "flag_evolucao_inconsistente": False,
             }
         )
 
@@ -191,6 +199,15 @@ def _build_synthetic_frame() -> pd.DataFrame:
 
     # --- Registro de outra UF, para validar o filtro --------------------------
     add(current_start + timedelta(days=1), uf="RJ", evolucao=1, hospital=1, uti=2)
+
+    # --- Uma das estadias em UTI fica incoerente ------------------------------
+    # O registro ja existente e corrompido, em vez de um novo ser acrescentado:
+    # assim as contagens documentadas acima continuam valendo, e o unico efeito
+    # e o esperado -- a estadia sai do censo diario, mas o caso permanece na
+    # base, na view analitica e na taxa de admissao em UTI.
+    incoerente = rows[100]  # primeiro registro da janela atual, com UTI = 1
+    incoerente["DT_SAIDUTI"] = incoerente["DT_ENTUTI"] - pd.Timedelta(days=2)
+    incoerente["flag_uti_inconsistente"] = True
 
     return pd.DataFrame(rows)
 

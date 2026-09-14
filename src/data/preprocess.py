@@ -44,6 +44,7 @@ from src.config import (
 from src.data.schema import (
     AGE_BANDS,
     ALLOWED_COLUMNS,
+    COHERENCE_FLAGS,
     CATEGORICAL_COLUMNS,
     DATE_COLUMNS,
     GEOGRAPHIC_COLUMNS,
@@ -73,8 +74,7 @@ class QualityReport:
     null_counts: Counter = field(default_factory=Counter)
     ignored_code_counts: Counter = field(default_factory=Counter)
     unknown_uf: int = 0
-    inconsistent_timeline: int = 0
-    rows_flagged: int = 0
+    coherence_flags: Counter = field(default_factory=Counter)
     age_out_of_range: int = 0
 
     def to_dict(self, *, source_files: list[str]) -> dict:
@@ -85,18 +85,33 @@ class QualityReport:
             "rows_read": self.rows_read,
             "rows_written": self.rows_written,
             "rows_dropped": self.rows_read - self.rows_written,
-            "rows_flagged_invalid_date": self.rows_flagged,
+            "coherence_flags": {
+                name: {
+                    "registros": self.coherence_flags[name],
+                    "percentual": (
+                        round(self.coherence_flags[name] / self.rows_read * 100, 3)
+                        if self.rows_read
+                        else 0.0
+                    ),
+                    "significado": description,
+                    "exclui_da_view_analitica": name == "flag_data_invalida",
+                }
+                for name, description in COHERENCE_FLAGS.items()
+            },
             "rules": {
                 "datas_nao_parseaveis_por_coluna": dict(self.invalid_dates),
                 "valores_nulos_por_coluna": dict(self.null_counts),
                 "codigo_9_ignorado_por_coluna": dict(self.ignored_code_counts),
                 "uf_fora_do_dominio": self.unknown_uf,
-                "linha_do_tempo_inconsistente": self.inconsistent_timeline,
                 "idade_fora_do_intervalo_plausivel": self.age_out_of_range,
             },
             "notes": [
                 "Nenhum registro e excluido: inconsistencias sao marcadas em "
-                "flag_data_invalida e permanecem na base.",
+                "flags de coerencia e permanecem na base.",
+                "As flags sao por dimensao. Apenas flag_data_invalida exclui o "
+                "registro da view analitica, porque sem eixo temporal nenhuma "
+                "metrica pode situar o caso. As demais sao respeitadas apenas "
+                "pelas metricas que dependem daquela dimensao.",
                 "O codigo 9 (Ignorado) e preservado e excluido dos denominadores "
                 "na camada de metricas, nunca convertido em 'Nao' ou zero.",
                 "Colunas com dados pessoais nao sao lidas do arquivo bruto "
@@ -214,44 +229,68 @@ def transform_chunk(chunk: pd.DataFrame, year: int, report: QualityReport) -> pd
     frame["faixa_etaria"] = _age_band(frame["idade_anos"])
 
     frame["ano_referencia"] = year
-    frame["flag_data_invalida"] = _flag_invalid_timeline(frame, report)
-    report.rows_flagged += int(frame["flag_data_invalida"].sum())
+    for name, values in _coherence_flags(frame).items():
+        frame[name] = values
+        report.coherence_flags[name] += int(values.sum())
     report.rows_written += len(frame)
 
     assert_no_denied_columns(list(frame.columns))
     return frame
 
 
-def _flag_invalid_timeline(frame: pd.DataFrame, report: QualityReport) -> pd.Series:
-    """Marca registros com linha do tempo impossivel.
+def _coherence_flags(frame: pd.DataFrame) -> dict[str, pd.Series]:
+    """Avalia a coerencia do registro, uma flag por dimensao.
 
-    Regras derivadas das restricoes declaradas no dicionario de dados:
+    As regras vem das restricoes declaradas no dicionario oficial (por exemplo:
+    "data de entrada na UTI deve ser maior ou igual a data dos primeiros
+    sintomas") e de impossibilidades logicas diretas.
 
-    * data dos primeiros sintomas anterior ao inicio da serie publicada;
-    * data dos primeiros sintomas posterior a data de digitacao;
-    * data de evolucao anterior a data dos primeiros sintomas;
-    * saida da UTI anterior a entrada na UTI.
+    A separacao por dimensao e deliberada. Uma data de internacao impossivel
+    compromete indicadores de internacao, mas nao a contagem de casos, que
+    depende apenas de `DT_SIN_PRI`. Um unico booleano forcaria descartar o
+    registro inteiro -- 4.452 registros a mais, na base de referencia -- por um
+    defeito que nao afeta a maior parte das metricas.
 
-    Os registros continuam na base -- apenas sinalizados.
+    Nenhum registro e removido: as flags apenas descrevem o que ha de errado,
+    e cada metrica decide o que e relevante para si.
+
+    Args:
+        frame: bloco ja com as colunas de data convertidas.
+
+    Returns:
+        Mapa `nome da flag -> serie booleana`, nas chaves de `COHERENCE_FLAGS`.
     """
     floor = pd.Timestamp(MIN_VALID_DATE)
     symptoms = frame["DT_SIN_PRI"]
     typed = frame["DT_DIGITA"]
+    admission = frame["DT_INTERNA"]
+    icu_in, icu_out = frame["DT_ENTUTI"], frame["DT_SAIDUTI"]
+    outcome = frame["DT_EVOLUCA"]
 
-    invalid = pd.Series(False, index=frame.index)
-    invalid |= symptoms.notna() & (symptoms < floor)
-    invalid |= symptoms.notna() & typed.notna() & (symptoms > typed)
-    invalid |= (
-        frame["DT_EVOLUCA"].notna() & symptoms.notna() & (frame["DT_EVOLUCA"] < symptoms)
-    )
-    invalid |= (
-        frame["DT_SAIDUTI"].notna()
-        & frame["DT_ENTUTI"].notna()
-        & (frame["DT_SAIDUTI"] < frame["DT_ENTUTI"])
-    )
+    # --- Eixo temporal primario ---------------------------------------------
+    invalid_axis = symptoms.isna()
+    invalid_axis |= symptoms.notna() & (symptoms < floor)
+    invalid_axis |= symptoms.notna() & typed.notna() & (symptoms > typed)
 
-    report.inconsistent_timeline += int(invalid.sum())
-    return invalid
+    # --- Internacao -----------------------------------------------------------
+    invalid_admission = admission.notna() & symptoms.notna() & (admission < symptoms)
+    invalid_admission |= (frame["HOSPITAL"] == 1) & admission.isna()
+
+    # --- UTI ------------------------------------------------------------------
+    invalid_icu = icu_in.notna() & symptoms.notna() & (icu_in < symptoms)
+    invalid_icu |= icu_in.notna() & icu_out.notna() & (icu_out < icu_in)
+    invalid_icu |= (frame["UTI"] == 1) & icu_in.isna()
+
+    # --- Evolucao -------------------------------------------------------------
+    invalid_outcome = outcome.notna() & symptoms.notna() & (outcome < symptoms)
+    invalid_outcome |= frame["EVOLUCAO"].isin([1, 2, 3]) & outcome.isna()
+
+    return {
+        "flag_data_invalida": invalid_axis.fillna(False).astype(bool),
+        "flag_internacao_inconsistente": invalid_admission.fillna(False).astype(bool),
+        "flag_uti_inconsistente": invalid_icu.fillna(False).astype(bool),
+        "flag_evolucao_inconsistente": invalid_outcome.fillna(False).astype(bool),
+    }
 
 
 def _available_columns(path: Path) -> set[str]:

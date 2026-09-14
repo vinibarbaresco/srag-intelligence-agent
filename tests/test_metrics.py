@@ -100,6 +100,39 @@ class TestUTI:
         assert all("pacientes_em_uti" in point for point in census)
         assert max(point["pacientes_em_uti"] for point in census) > 0
 
+    def test_estadia_incoerente_sai_do_censo_mas_nao_da_taxa_de_admissao(
+        self, connection
+    ):
+        """Flags por dimensao: o defeito exclui do que depende dele, e so."""
+        from src.metrics.epidemiology import icu_stay_completeness
+
+        result = icu_metrics(connection, SP)
+        completude = result.components["completude_da_permanencia_em_uti"]
+
+        # A taxa de admissao segue com as 40 admissoes da base sintetica...
+        assert result.numerator == 40
+        # ...mas o censo diario usa apenas as 39 estadias coerentes.
+        assert completude["admissoes_em_uti"] == 40
+        assert completude["estadias_utilizaveis_no_censo"] == 39
+        assert completude["excluidas_por_inconsistencia"] == 1
+
+        assert icu_stay_completeness(connection, SP) == completude
+
+    def test_completude_da_permanencia_quantifica_a_imputacao(self, connection):
+        completude = icu_metrics(connection, SP).components[
+            "completude_da_permanencia_em_uti"
+        ]
+        utilizaveis = completude["estadias_utilizaveis_no_censo"]
+
+        soma = (
+            completude["saida_registrada"]
+            + completude["permanencia_imputada_pela_data_de_evolucao"]
+            + completude["permanencia_imputada_ate_a_data_de_corte"]
+        )
+        assert soma == utilizaveis  # toda estadia cai em exatamente um caso
+        assert completude["percentual_com_saida_registrada"] is not None
+        assert "superestima" in completude["efeito_da_imputacao"]
+
     def test_indicador_nomeia_o_que_mede(self):
         definition = DEFINITIONS_BY_KEY["icu_admission_rate"]
         assert "NAO e taxa de ocupacao" in definition.limitations[0]

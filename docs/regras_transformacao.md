@@ -93,8 +93,21 @@ Enumeradas explicitamente para que a decisao de nao processa-las fique auditavel
 | 3 | Normalizacao de idade | `NU_IDADE_N` + `TP_IDADE` convertidos para anos; valores fora de [0, 120] anulados | `idade_fora_do_intervalo_plausivel` |
 | 4 | Agregacao de idade | Faixas: 0-4, 5-11, 12-17, 18-29, 30-39, 40-49, 50-59, 60-69, 70-79, 80+ | - |
 | 5 | Validacao de UF | Valor fora das 27 siglas e anulado | `uf_fora_do_dominio` |
-| 6 | Coerencia temporal | Sintomas antes de 2019-01-01, sintomas depois da digitacao, evolucao antes dos sintomas, saida de UTI antes da entrada | `linha_do_tempo_inconsistente` |
-| 7 | Recorte analitico | A view `srag_analytics` exclui registros marcados e sem data de sintomas; a tabela `srag_cases` os preserva | diferenca entre as duas contagens |
+| 6 | Coerencia por dimensao | Quatro flags independentes (detalhadas abaixo) em vez de um unico veredito de validade | `coherence_flags` |
+| 7 | Recorte analitico | A view `srag_analytics` exclui apenas os registros com `flag_data_invalida`; a tabela `srag_cases` preserva todos | diferenca entre as duas contagens |
+
+## Flags de coerencia
+
+Um unico booleano `registro invalido` seria grosseiro demais: uma data de internacao impossivel nao deveria excluir o registro da contagem de casos, que depende apenas de `DT_SIN_PRI`. Na base de referencia isso descartaria 4.452 registros por um defeito irrelevante para a maior parte das metricas.
+
+Por isso a coerencia e avaliada por dimensao. Cada metrica exclui somente o que compromete o seu proprio calculo, e o volume de cada problema aparece no relatorio em vez de sumir num descarte agregado.
+
+| Flag | Exclui da view analitica | Significado |
+|------|--------------------------|-------------|
+| `flag_data_invalida` | sim | eixo temporal primario inutilizavel: DT_SIN_PRI ausente, anterior ao inicio da serie ou posterior a data de digitacao. Unica flag que exclui o registro da view analitica, porque sem ela nenhuma metrica pode situar o caso no tempo. |
+| `flag_internacao_inconsistente` | nao | DT_INTERNA anterior aos primeiros sintomas, ou HOSPITAL=1 sem data de internacao. Afeta apenas indicadores que dependem da internacao. |
+| `flag_uti_inconsistente` | nao | DT_ENTUTI anterior aos primeiros sintomas, DT_SAIDUTI anterior a DT_ENTUTI, ou UTI=1 sem data de entrada. Afeta o censo de UTI, que depende da permanencia. |
+| `flag_evolucao_inconsistente` | nao | DT_EVOLUCA anterior aos primeiros sintomas, ou caso encerrado (EVOLUCAO em 1,2,3) sem data de evolucao. Nao afeta a taxa de mortalidade, que usa o codigo e nao a data, mas afeta a imputacao de permanencia em UTI. |
 
 ## Janela de analise
 

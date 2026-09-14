@@ -179,9 +179,43 @@ MISSING_CODES: Final[frozenset[int]] = frozenset({9})
 DERIVED_COLUMNS: Final[tuple[str, ...]] = (
     "idade_anos",        # idade normalizada em anos a partir de NU_IDADE_N/TP_IDADE
     "faixa_etaria",      # faixa etaria agregada (nao expoe idade exata)
-    "flag_data_invalida",  # marca registro com inconsistencia temporal
     "ano_referencia",    # ano do arquivo de origem
 )
+
+#: Flags de coerencia, uma por dimensao do registro.
+#:
+#: Sao separadas de proposito. Um unico booleano "registro invalido" seria
+#: grosseiro demais: uma data de internacao impossivel nao deveria invalidar o
+#: registro para a contagem de casos, que depende apenas de `DT_SIN_PRI`. Com
+#: flags por dimensao, cada metrica exclui somente o que de fato compromete o
+#: seu calculo, e o volume de cada problema fica visivel no relatorio de
+#: qualidade em vez de sumir num descarte agregado.
+COHERENCE_FLAGS: Final[dict[str, str]] = {
+    "flag_data_invalida": (
+        "eixo temporal primario inutilizavel: DT_SIN_PRI ausente, anterior ao "
+        "inicio da serie ou posterior a data de digitacao. Unica flag que "
+        "exclui o registro da view analitica, porque sem ela nenhuma metrica "
+        "pode situar o caso no tempo."
+    ),
+    "flag_internacao_inconsistente": (
+        "DT_INTERNA anterior aos primeiros sintomas, ou HOSPITAL=1 sem data de "
+        "internacao. Afeta apenas indicadores que dependem da internacao."
+    ),
+    "flag_uti_inconsistente": (
+        "DT_ENTUTI anterior aos primeiros sintomas, DT_SAIDUTI anterior a "
+        "DT_ENTUTI, ou UTI=1 sem data de entrada. Afeta o censo de UTI, que "
+        "depende da permanencia."
+    ),
+    "flag_evolucao_inconsistente": (
+        "DT_EVOLUCA anterior aos primeiros sintomas, ou caso encerrado "
+        "(EVOLUCAO em 1,2,3) sem data de evolucao. Nao afeta a taxa de "
+        "mortalidade, que usa o codigo e nao a data, mas afeta a imputacao de "
+        "permanencia em UTI."
+    ),
+}
+
+#: Conjunto completo de colunas derivadas, incluindo as flags de coerencia.
+ALL_DERIVED_COLUMNS: Final[tuple[str, ...]] = DERIVED_COLUMNS + tuple(COHERENCE_FLAGS)
 
 AGE_BANDS: Final[tuple[tuple[int, int, str], ...]] = (
     (0, 4, "0-4"),

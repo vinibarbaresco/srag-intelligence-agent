@@ -36,9 +36,14 @@ VIEW_ANALYTICS = "srag_analytics"
 
 #: Definicao canonica do recorte analitico, compartilhada por todas as metricas.
 #:
-#: `flag_data_invalida` marca registros com linha do tempo impossivel. Eles
-#: permanecem em `srag_cases` (transparencia) mas ficam fora da view usada pelos
-#: indicadores (correcao) -- a diferenca entre as duas contagens e reportada.
+#: Apenas `flag_data_invalida` exclui o registro: sem eixo temporal utilizavel
+#: nenhuma metrica consegue situar o caso. As demais flags de coerencia seguem
+#: disponiveis como colunas, para que cada metrica exclua somente o que
+#: compromete o seu proprio calculo -- uma data de internacao impossivel nao
+#: deve derrubar o registro da contagem de casos.
+#:
+#: Os registros excluidos permanecem em `srag_cases`, e a diferenca entre as
+#: duas contagens e reportada.
 _ANALYTICS_VIEW_SQL = f"""
 CREATE OR REPLACE VIEW {VIEW_ANALYTICS} AS
 SELECT
@@ -53,6 +58,10 @@ SELECT
     (EVOLUCAO IN (1, 2, 3))                          AS caso_encerrado,
     (HOSPITAL = 1)                                   AS foi_hospitalizado,
     (UTI = 1)                                        AS teve_admissao_uti,
+    -- Estadia utilizavel para o censo diario: exige data de entrada e ausencia
+    -- de inconsistencia na dimensao UTI.
+    (UTI = 1 AND DT_ENTUTI IS NOT NULL
+             AND NOT flag_uti_inconsistente)         AS estadia_uti_utilizavel,
     (UTI IN (1, 2))                                  AS uti_informado,
     (VACINA_COV = 1)                                 AS vacinado_covid,
     (VACINA_COV IN (1, 2))                           AS vacina_covid_informada,
@@ -60,7 +69,6 @@ SELECT
     (VACINA IN (1, 2))                               AS vacina_influenza_informada
 FROM {TABLE_CASES}
 WHERE flag_data_invalida = FALSE
-  AND DT_SIN_PRI IS NOT NULL
 """
 
 _AUDIT_TABLE_SQL = f"""

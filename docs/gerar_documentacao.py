@@ -33,6 +33,7 @@ from src.data.schema import (  # noqa: E402
     AGE_BANDS,
     ALLOWED_COLUMNS,
     CODE_LABELS,
+    COHERENCE_FLAGS,
     DENIED_COLUMNS,
     MISSING_CODES,
 )
@@ -186,12 +187,31 @@ def build_transformation_doc() -> str:
         f"{', '.join(label for _, _, label in AGE_BANDS)} | - |",
         "| 5 | Validacao de UF | Valor fora das 27 siglas e anulado | "
         "`uf_fora_do_dominio` |",
-        "| 6 | Coerencia temporal | Sintomas antes de 2019-01-01, sintomas depois "
-        "da digitacao, evolucao antes dos sintomas, saida de UTI antes da entrada "
-        "| `linha_do_tempo_inconsistente` |",
-        "| 7 | Recorte analitico | A view `srag_analytics` exclui registros "
-        "marcados e sem data de sintomas; a tabela `srag_cases` os preserva | "
-        "diferenca entre as duas contagens |",
+        "| 6 | Coerencia por dimensao | Quatro flags independentes (detalhadas "
+        "abaixo) em vez de um unico veredito de validade | `coherence_flags` |",
+        "| 7 | Recorte analitico | A view `srag_analytics` exclui apenas os "
+        "registros com `flag_data_invalida`; a tabela `srag_cases` preserva "
+        "todos | diferenca entre as duas contagens |",
+        "",
+        "## Flags de coerencia",
+        "",
+        "Um unico booleano `registro invalido` seria grosseiro demais: uma data "
+        "de internacao impossivel nao deveria excluir o registro da contagem de "
+        "casos, que depende apenas de `DT_SIN_PRI`. Na base de referencia isso "
+        "descartaria 4.452 registros por um defeito irrelevante para a maior "
+        "parte das metricas.",
+        "",
+        "Por isso a coerencia e avaliada por dimensao. Cada metrica exclui "
+        "somente o que compromete o seu proprio calculo, e o volume de cada "
+        "problema aparece no relatorio em vez de sumir num descarte agregado.",
+        "",
+        "| Flag | Exclui da view analitica | Significado |",
+        "|------|--------------------------|-------------|",
+        *(
+            f"| `{name}` | {'sim' if name == 'flag_data_invalida' else 'nao'} | "
+            f"{_escape(description)} |"
+            for name, description in COHERENCE_FLAGS.items()
+        ),
         "",
         "## Janela de analise",
         "",

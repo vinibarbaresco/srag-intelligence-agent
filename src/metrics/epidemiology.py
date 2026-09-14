@@ -340,6 +340,9 @@ def icu_metrics(
         "uti_nao_informado": icu_absent,
         "admitidos_sem_data_de_entrada_em_uti": icu_no_date,
         "censo_diario_pico_pacientes_em_uti": peak,
+        "completude_da_permanencia_em_uti": icu_stay_completeness(
+            connection, filters, window_days=window
+        ),
         "censo_diario": census,
         "taxa_de_ocupacao_de_leitos_de_uti": {
             "value": None,
@@ -373,6 +376,72 @@ def icu_metrics(
     )
 
 
+def icu_stay_completeness(
+    connection: Any,
+    filters: AnalyticFilters | None = None,
+    window_days: int | None = None,
+) -> dict[str, Any]:
+    """Mede como a permanencia em UTI foi determinada em cada estadia.
+
+    O censo diario precisa de uma data de saida. Quando ela falta, a permanencia
+    e imputada -- primeiro pela data de evolucao, depois pela data de corte. A
+    ultima imputacao e a mais fragil: assume que o paciente seguia internado, o
+    que superestima o censo nos dias recentes.
+
+    Medir a proporcao de cada caso transforma essa fragilidade em numero
+    declarado no relatorio, em vez de uma ressalva generica.
+    """
+    filters = filters or AnalyticFilters()
+    window = window_days or get_settings().growth_window_days
+    cutoff = analysis_cutoff(connection)
+    start = cutoff - timedelta(days=window - 1)
+
+    clause, parameters = filters.where_clause()
+    row = connection.execute(
+        f"""
+        SELECT
+            count(*) FILTER (WHERE teve_admissao_uti),
+            count(*) FILTER (WHERE estadia_uti_utilizavel),
+            count(*) FILTER (WHERE estadia_uti_utilizavel
+                             AND data_saida_uti IS NOT NULL),
+            count(*) FILTER (WHERE estadia_uti_utilizavel
+                             AND data_saida_uti IS NULL
+                             AND data_evolucao IS NOT NULL),
+            count(*) FILTER (WHERE estadia_uti_utilizavel
+                             AND data_saida_uti IS NULL
+                             AND data_evolucao IS NULL),
+            count(*) FILTER (WHERE teve_admissao_uti AND flag_uti_inconsistente)
+        FROM {VIEW_ANALYTICS}
+        WHERE data_sintomas BETWEEN ? AND ? AND {clause}
+        """,
+        [start, cutoff, *parameters],
+    ).fetchone()
+
+    admissoes, utilizaveis, com_saida, por_evolucao, ate_corte, inconsistentes = (
+        int(value) for value in row
+    )
+    return {
+        "admissoes_em_uti": admissoes,
+        "estadias_utilizaveis_no_censo": utilizaveis,
+        "excluidas_por_inconsistencia": inconsistentes,
+        "excluidas_por_falta_de_data_de_entrada": admissoes - utilizaveis - inconsistentes,
+        "saida_registrada": com_saida,
+        "permanencia_imputada_pela_data_de_evolucao": por_evolucao,
+        "permanencia_imputada_ate_a_data_de_corte": ate_corte,
+        "percentual_com_saida_registrada": (
+            _ratio(com_saida, utilizaveis) if utilizaveis else None
+        ),
+        "percentual_imputado_ate_o_corte": (
+            _ratio(ate_corte, utilizaveis) if utilizaveis else None
+        ),
+        "efeito_da_imputacao": (
+            "Estadias sem data de saida nem de evolucao sao tratadas como ainda "
+            "em curso ate a data de corte, o que superestima o censo nos dias "
+            "mais recentes da janela."
+        ),
+    }
+
+
 def icu_patient_census(
     connection: Any,
     filters: AnalyticFilters | None = None,
@@ -404,8 +473,7 @@ def icu_patient_census(
                     CAST(? AS DATE)
                 ) AS saida
             FROM {VIEW_ANALYTICS}
-            WHERE teve_admissao_uti
-              AND data_entrada_uti IS NOT NULL
+            WHERE estadia_uti_utilizavel
               AND {clause}
         )
         SELECT calendario.dia, count(estadias.entrada)

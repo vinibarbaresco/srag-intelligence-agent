@@ -46,6 +46,7 @@ def render_markdown(state: dict[str, Any]) -> str:
         _indicators_section(state),
         _series_section(state),
         _charts_section(state),
+        _data_quality_section(state),
         _interpretation_section(state),
         _news_section(state),
         _limitations_section(state),
@@ -169,12 +170,37 @@ def _components_block(key: str, components: dict[str, Any]) -> list[str]:
         ]
     elif key == "icu_admission_rate":
         occupancy = components.get("taxa_de_ocupacao_de_leitos_de_uti", {})
+        completeness = components.get("completude_da_permanencia_em_uti", {})
         lines += [
             f"- **Hospitalizados no periodo:** {components.get('hospitalizados_no_periodo')}",
             f"- **Admitidos em UTI:** {components.get('admitidos_em_uti')}",
             f"- **UTI ignorado (codigo 9):** {components.get('uti_ignorado')}",
             f"- **Pico do censo diario em UTI:** "
             f"{components.get('censo_diario_pico_pacientes_em_uti')} pacientes",
+        ]
+
+        if completeness:
+            lines += [
+                "",
+                "**Qualidade da permanencia em UTI usada no censo:**",
+                "",
+                f"- Estadias utilizaveis: "
+                f"{completeness.get('estadias_utilizaveis_no_censo')} de "
+                f"{completeness.get('admissoes_em_uti')} admissoes "
+                f"({completeness.get('excluidas_por_inconsistencia')} excluidas por "
+                "datas incoerentes)",
+                f"- Com data de saida registrada: "
+                f"{completeness.get('saida_registrada')} "
+                f"({completeness.get('percentual_com_saida_registrada')}%)",
+                f"- Permanencia imputada pela data de evolucao: "
+                f"{completeness.get('permanencia_imputada_pela_data_de_evolucao')}",
+                f"- **Permanencia imputada ate a data de corte: "
+                f"{completeness.get('permanencia_imputada_ate_a_data_de_corte')} "
+                f"({completeness.get('percentual_imputado_ate_o_corte')}%)** - "
+                f"{completeness.get('efeito_da_imputacao')}",
+            ]
+
+        lines += [
             "",
             f"> **Taxa de ocupacao de leitos de UTI: nao calculavel.** "
             f"{occupancy.get('unavailable_reason')}",
@@ -309,6 +335,72 @@ def _news_section(state: dict[str, Any]) -> str:
         f"ultima ingestao em {store.get('ultima_ingestao')}.*",
     ]
     return "\n".join(blocks)
+
+
+def _data_quality_section(state: dict[str, Any]) -> str:
+    """Resumo do tratamento aplicado aos dados brutos.
+
+    Le `data/processed/quality_report.json`, produzido pela ingestao. Sem este
+    bloco, o tratamento de dados ficaria invisivel no entregavel -- e uma regra
+    de limpeza que ninguem consegue auditar equivale a nao ter regra.
+    """
+    settings = get_settings()
+    path = settings.quality_report_path
+    if not path.exists():
+        return ""
+
+    try:
+        report = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return ""
+
+    lines = [
+        "## Qualidade e tratamento dos dados",
+        "",
+        f"- **Arquivos de origem:** {', '.join(report.get('source_files', []))}",
+        f"- **Registros lidos:** {report.get('rows_read'):,}".replace(",", "."),
+        f"- **Registros descartados:** {report.get('rows_dropped')} "
+        "(nenhum registro e removido silenciosamente)",
+        "",
+        "### Flags de coerencia",
+        "",
+        "Marcadas por dimensao, nao como um unico veredito. Apenas a flag do "
+        "eixo temporal exclui o registro da camada analitica; as demais sao "
+        "respeitadas somente pelas metricas que dependem daquela dimensao.",
+        "",
+        "| Flag | Registros | % | Exclui da analise | Significado |",
+        "|------|-----------|---|-------------------|-------------|",
+    ]
+
+    for name, detail in (report.get("coherence_flags") or {}).items():
+        exclui = "sim" if detail.get("exclui_da_view_analitica") else "nao"
+        significado = str(detail.get("significado", "")).replace("|", "\\|")
+        lines.append(
+            f"| `{name}` | {detail.get('registros')} | "
+            f"{detail.get('percentual')}% | {exclui} | {significado} |"
+        )
+
+    rules = report.get("rules") or {}
+    ignored = rules.get("codigo_9_ignorado_por_coluna") or {}
+    relevantes = {
+        column: count
+        for column, count in ignored.items()
+        if count and column in {"UTI", "EVOLUCAO", "VACINA_COV", "VACINA", "HOSPITAL"}
+    }
+    if relevantes:
+        lines += [
+            "",
+            "### Codigo 9 (Ignorado) nos campos usados pelos indicadores",
+            "",
+            "Preservado como esta e excluido de numeradores e denominadores; "
+            "nunca convertido em `Nao` nem em zero.",
+            "",
+            "| Campo | Registros com codigo 9 |",
+            "|-------|------------------------|",
+        ]
+        lines += [f"| `{column}` | {count} |" for column, count in relevantes.items()]
+
+    return "\n".join(lines)
 
 
 def _limitations_section(state: dict[str, Any]) -> str:

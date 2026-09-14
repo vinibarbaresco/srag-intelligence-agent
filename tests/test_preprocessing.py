@@ -141,9 +141,10 @@ class TestRegistrosInconsistentes:
         )
         assert len(frame) == 1  # o registro permanece na base
         assert bool(frame["flag_data_invalida"].iloc[0]) is True
-        assert report.inconsistent_timeline == 1
+        assert report.coherence_flags["flag_data_invalida"] == 1
 
-    def test_saida_de_uti_antes_da_entrada_e_marcada(self):
+    def test_saida_de_uti_antes_da_entrada_marca_apenas_a_dimensao_uti(self):
+        """O eixo temporal segue valido: o caso continua contando como caso."""
         frame = transform_chunk(
             _raw_chunk(
                 DT_ENTUTI="2026-05-15T00:00:00.000Z",
@@ -152,6 +153,30 @@ class TestRegistrosInconsistentes:
             2026,
             QualityReport(),
         )
+        assert bool(frame["flag_uti_inconsistente"].iloc[0]) is True
+        assert bool(frame["flag_data_invalida"].iloc[0]) is False
+
+    def test_internacao_antes_dos_sintomas_marca_apenas_a_internacao(self):
+        frame = transform_chunk(
+            _raw_chunk(
+                DT_SIN_PRI="2026-05-10T00:00:00.000Z",
+                DT_INTERNA="2026-05-05T00:00:00.000Z",
+            ),
+            2026,
+            QualityReport(),
+        )
+        assert bool(frame["flag_internacao_inconsistente"].iloc[0]) is True
+        assert bool(frame["flag_data_invalida"].iloc[0]) is False
+
+    def test_caso_encerrado_sem_data_de_evolucao_e_marcado(self):
+        frame = transform_chunk(
+            _raw_chunk(EVOLUCAO="2", DT_EVOLUCA=""), 2026, QualityReport()
+        )
+        assert bool(frame["flag_evolucao_inconsistente"].iloc[0]) is True
+        assert bool(frame["flag_data_invalida"].iloc[0]) is False
+
+    def test_sem_data_de_sintomas_invalida_o_eixo_temporal(self):
+        frame = transform_chunk(_raw_chunk(DT_SIN_PRI=""), 2026, QualityReport())
         assert bool(frame["flag_data_invalida"].iloc[0]) is True
 
     def test_registro_valido_nao_e_marcado(self):
@@ -174,3 +199,16 @@ class TestRelatorioDeQualidade:
         assert payload["rows_dropped"] == 0
         assert payload["rules"]["codigo_9_ignorado_por_coluna"]["UTI"] == 1
         assert any("Nenhum registro e excluido" in note for note in payload["notes"])
+
+    def test_cada_flag_e_reportada_com_volume_e_significado(self):
+        from src.data.schema import COHERENCE_FLAGS
+
+        report = QualityReport()
+        transform_chunk(_raw_chunk(), 2026, report)
+        flags = report.to_dict(source_files=["INFLUD26.csv"])["coherence_flags"]
+
+        assert set(flags) == set(COHERENCE_FLAGS)
+        assert all(d["significado"] for d in flags.values())
+        # Apenas a flag do eixo temporal exclui o registro da view analitica.
+        excluem = [n for n, d in flags.items() if d["exclui_da_view_analitica"]]
+        assert excluem == ["flag_data_invalida"]

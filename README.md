@@ -122,10 +122,26 @@ Documentação completa: [`docs/regras_transformacao.md`](docs/regras_transforma
 *denylist* explícita — enumeradas para que a decisão de excluí-las fique auditável, e cobertas por
 teste de regressão. A idade é agregada em faixa etária; a granularidade geográfica máxima é a UF.
 
-**Nada é removido silenciosamente.** Registros inconsistentes são **marcados**
-(`flag_data_invalida`), não excluídos. Toda regra vira contagem em
-`data/processed/quality_report.json`. Na execução de referência: 534.308 linhas lidas, **0
-descartadas**, 89 marcadas por linha do tempo impossível.
+**Nada é removido silenciosamente.** Registros inconsistentes são **marcados**, não excluídos.
+Toda regra vira contagem em `data/processed/quality_report.json`, e o relatório traz uma seção de
+qualidade dos dados. Na execução de referência: 534.308 linhas lidas, **0 descartadas**.
+
+**Coerência por dimensão, não um veredito único.** Quatro flags independentes, porque uma data de
+internação impossível não deve excluir o registro da contagem de casos, que depende apenas de
+`DT_SIN_PRI` — um booleano único descartaria 4.452 registros por um defeito irrelevante para a
+maioria das métricas. Só a flag do eixo temporal exclui da camada analítica:
+
+| Flag | Registros | % | Exclui da análise |
+|---|---|---|---|
+| `flag_data_invalida` | 89 | 0,02% | **sim** |
+| `flag_internacao_inconsistente` | 11.700 | 2,19% | não |
+| `flag_uti_inconsistente` | 4.194 | 0,79% | não |
+| `flag_evolucao_inconsistente` | 39.174 | 7,33% | não |
+
+**Imputação declarada, não escondida.** O censo de UTI precisa de uma data de saída; quando ela
+falta, a permanência é imputada pela data de evolução e, na ausência dela, até a data de corte. Na
+janela recente **32,2% das estadias caem nesse último caso**, o que superestima o censo — o número
+vai no relatório, junto do indicador.
 
 **Ausência é ausência.** O código `9-Ignorado` é preservado e excluído de numeradores e
 denominadores — nunca convertido em `Não` ou zero. O volume de ignorados é reportado junto de cada
