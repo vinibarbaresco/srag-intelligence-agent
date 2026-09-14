@@ -22,20 +22,20 @@ from typing import Final
 DATE_COLUMNS: Final[tuple[str, ...]] = (
     "DT_SIN_PRI",  # 2  - data dos primeiros sintomas (eixo epidemiologico)
     "DT_INTERNA",  # 49 - data da internacao
-    "DT_ENTUTI",   # 54 - data de entrada na UTI
+    "DT_ENTUTI",  # 54 - data de entrada na UTI
     "DT_SAIDUTI",  # 55 - data de saida da UTI
     "DT_EVOLUCA",  # 83 - data da alta ou do obito
-    "DT_DIGITA",   # -  - data de digitacao (base do corte por atraso)
+    "DT_DIGITA",  # -  - data de digitacao (base do corte por atraso)
 )
 
 CATEGORICAL_COLUMNS: Final[tuple[str, ...]] = (
-    "CS_SEXO",     # 10 - sexo
-    "TP_IDADE",    # 14 - unidade da idade (1-dia, 2-mes, 3-ano)
-    "HOSPITAL",    # 48 - houve internacao
-    "UTI",         # 53 - internado em UTI (admissao, NAO ocupacao de leito)
+    "CS_SEXO",  # 10 - sexo
+    "TP_IDADE",  # 14 - unidade da idade (1-dia, 2-mes, 3-ano)
+    "HOSPITAL",  # 48 - houve internacao
+    "UTI",  # 53 - internado em UTI (admissao, NAO ocupacao de leito)
     "CLASSI_FIN",  # 80 - classificacao final do caso
-    "EVOLUCAO",    # 82 - evolucao do caso
-    "VACINA",      # 40 - vacina contra gripe na ultima campanha
+    "EVOLUCAO",  # 82 - evolucao do caso
+    "VACINA",  # 40 - vacina contra gripe na ultima campanha
     "VACINA_COV",  # 36 - recebeu vacina COVID-19
 )
 
@@ -53,11 +53,7 @@ NUMERIC_COLUMNS: Final[tuple[str, ...]] = (
 VACCINE_DATE_COLUMNS: Final[tuple[str, ...]] = ()
 
 ALLOWED_COLUMNS: Final[tuple[str, ...]] = (
-    DATE_COLUMNS
-    + CATEGORICAL_COLUMNS
-    + GEOGRAPHIC_COLUMNS
-    + NUMERIC_COLUMNS
-    + VACCINE_DATE_COLUMNS
+    DATE_COLUMNS + CATEGORICAL_COLUMNS + GEOGRAPHIC_COLUMNS + NUMERIC_COLUMNS + VACCINE_DATE_COLUMNS
 )
 
 #: Colunas avaliadas no dicionario e **deliberadamente nao selecionadas**.
@@ -107,9 +103,9 @@ DENIED_COLUMNS: Final[dict[str, str]] = {
     "CS_ETINIA": "etnia indigena (dado sensivel, nao necessario as metricas)",
     "CS_RACA": "raca/cor (dado sensivel; nenhum indicador estratifica por raca)",
     "CS_GESTANT": "idade gestacional (dado sensivel de saude sem uso nas metricas)",
-    "DOSE_1_COV": "data de dose vacinal (quase-identificador; metricas usam o indicador, nao a data)",
-    "DOSE_2_COV": "data de dose vacinal (quase-identificador; metricas usam o indicador, nao a data)",
-    "DOSE_REF": "data de dose vacinal (quase-identificador; metricas usam o indicador, nao a data)",
+    "DOSE_1_COV": "data de dose vacinal (quase-identificador; so o indicador vacinal e usado)",
+    "DOSE_2_COV": "data de dose vacinal (quase-identificador; so o indicador vacinal e usado)",
+    "DOSE_REF": "data de dose vacinal (quase-identificador; so o indicador vacinal e usado)",
     "LOTE_1_COV": "lote do imunizante (rastreavel ao individuo)",
     "LOTE_2_COV": "lote do imunizante (rastreavel ao individuo)",
     "LOTE_REF": "lote do imunizante (rastreavel ao individuo)",
@@ -160,8 +156,8 @@ MISSING_CODES: Final[frozenset[int]] = frozenset({9})
 
 #: Colunas derivadas criadas por `preprocess.py` (nao existem no arquivo bruto).
 DERIVED_COLUMNS: Final[tuple[str, ...]] = (
-    "faixa_etaria",      # faixa etaria agregada; a idade exata nao e persistida
-    "ano_referencia",    # ano do arquivo de origem
+    "faixa_etaria",  # faixa etaria agregada; a idade exata nao e persistida
+    "ano_referencia",  # ano do arquivo de origem
 )
 
 #: Flags de coerencia, uma por dimensao do registro.
@@ -232,8 +228,7 @@ ADJUSTMENT_CODES: Final[dict[str, str]] = {
         "inutilizavel e foi substituido por nulo"
     ),
     "idade_anulada": (
-        "idade normalizada fora do intervalo plausivel [0, 120] anos; "
-        "substituida por nulo"
+        "idade normalizada fora do intervalo plausivel [0, 120] anos; substituida por nulo"
     ),
     "data_ilegivel": (
         "valor de data presente no arquivo bruto mas nao interpretavel em "
@@ -243,10 +238,7 @@ ADJUSTMENT_CODES: Final[dict[str, str]] = {
 
 #: Conjunto completo de colunas derivadas.
 ALL_DERIVED_COLUMNS: Final[tuple[str, ...]] = (
-    DERIVED_COLUMNS
-    + tuple(COHERENCE_FLAGS)
-    + DERIVED_SEMANTIC_COLUMNS
-    + (ADJUSTMENT_COLUMN,)
+    DERIVED_COLUMNS + tuple(COHERENCE_FLAGS) + DERIVED_SEMANTIC_COLUMNS + (ADJUSTMENT_COLUMN,)
 )
 
 AGE_BANDS: Final[tuple[tuple[int, int, str], ...]] = (
@@ -264,9 +256,33 @@ AGE_BANDS: Final[tuple[tuple[int, int, str], ...]] = (
 
 UF_CODES: Final[frozenset[str]] = frozenset(
     {
-        "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA",
-        "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN",
-        "RS", "RO", "RR", "SC", "SP", "SE", "TO",
+        "AC",
+        "AL",
+        "AP",
+        "AM",
+        "BA",
+        "CE",
+        "DF",
+        "ES",
+        "GO",
+        "MA",
+        "MT",
+        "MS",
+        "MG",
+        "PA",
+        "PB",
+        "PR",
+        "PE",
+        "PI",
+        "RJ",
+        "RN",
+        "RS",
+        "RO",
+        "RR",
+        "SC",
+        "SP",
+        "SE",
+        "TO",
     }
 )
 
@@ -283,6 +299,4 @@ def assert_no_denied_columns(columns: list[str]) -> None:
     violations = sorted(set(columns) & set(DENIED_COLUMNS))
     if violations:
         details = "; ".join(f"{name} ({DENIED_COLUMNS[name]})" for name in violations)
-        raise ValueError(
-            f"Colunas com dados pessoais chegaram a camada analitica: {details}"
-        )
+        raise ValueError(f"Colunas com dados pessoais chegaram a camada analitica: {details}")

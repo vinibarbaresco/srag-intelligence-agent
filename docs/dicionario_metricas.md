@@ -17,7 +17,9 @@
 | `icu_bed_occupancy_rate` | - | leitos de UTI ocupados | leitos de UTI disponiveis (capacidade instalada) | nao |
 | `icu_patient_census` | DT_ENTUTI, DT_SAIDUTI, DT_EVOLUCA | pacientes de SRAG com permanencia em UTI cobrindo o dia | nao aplicavel (contagem absoluta, nao proporcao) | sim |
 | `vaccination_coverage_among_cases` | VACINA_COV, VACINA, DT_SIN_PRI | casos com vacinacao declarada como 1-Sim | casos com a informacao vacinal preenchida (1-Sim ou 2-Nao) | sim |
-| `population_vaccination_coverage` | - | pessoas vacinadas na populacao de referencia | populacao total de referencia | nao |
+| `population_vaccination_coverage` | - | doses aplicadas na campanha, na UF e no ano de referencia (SI-PNI) | populacao-alvo da campanha ou populacao residente (IBGE) | sim |
+| `incidence_rate` | DT_SIN_PRI, SG_UF_NOT | casos com DT_SIN_PRI na janela analisada | populacao residente estimada (IBGE) da UF ou do Brasil, no ano mais proximo | sim |
+| `seasonal_excess` | DT_SIN_PRI | casos na janela atual menos a mediana dos anos de baseline na mesma janela | mediana dos casos na mesma janela de calendario nos anos de baseline | sim |
 | `daily_cases` | DT_SIN_PRI | casos com DT_SIN_PRI igual ao dia | nao aplicavel (contagem absoluta) | sim |
 | `monthly_cases` | DT_SIN_PRI | casos com DT_SIN_PRI no mes | nao aplicavel (contagem absoluta) | sim |
 
@@ -127,20 +129,53 @@
 
 ### `population_vaccination_coverage` - Taxa de vacinacao da populacao
 
-- **Definicao:** Proporcao da populacao de referencia com esquema vacinal completo: pessoas vacinadas / populacao total x 100.
-- **Numerador:** pessoas vacinadas na populacao de referencia
-- **Denominador:** populacao total de referencia
+- **Definicao:** Doses aplicadas na campanha (referencia externa SI-PNI, por UF e ano) sobre a populacao-alvo da campanha -- ou, na ausencia dela, sobre a populacao residente estimada pelo IBGE -- x 100.
+- **Numerador:** doses aplicadas na campanha, na UF e no ano de referencia (SI-PNI)
+- **Denominador:** populacao-alvo da campanha ou populacao residente (IBGE)
 - **Campos utilizados:** nenhum
-- **Periodo:** nao aplicavel
+- **Periodo:** ano de referencia da campanha mais proximo da data de corte analitica
 - **Unidade:** %
-- **Tratamento de dados ausentes:** nao aplicavel
-
-> **NAO CALCULAVEL COM ESTE DATASET.** Nao e possivel calcular a taxa de vacinacao da populacao com os dados disponiveis: o SIVEP-Gripe so contem informacao vacinal de pessoas notificadas com SRAG, o que nao representa a populacao geral. Como aproximacao, e reportada a cobertura vacinal declarada entre os casos notificados, com o viés de selecao explicitado.
+- **Tratamento de dados ausentes:** Sem o arquivo de referencia de doses aplicadas, o indicador e declarado nao calculavel com o motivo. Nunca e estimado a partir dos casos.
 
 **Limitacoes:**
 
-- O dataset SRAG cobre apenas pessoas que adoeceram e foram notificadas; nao ha qualquer denominador populacional.
-- O calculo exigiria integrar SI-PNI (doses aplicadas) e estimativas populacionais do IBGE.
+- O SIVEP-Gripe nao contem este dado: numerador e denominador vem de fontes externas (SI-PNI e IBGE), com sua propria defasagem.
+- Doses aplicadas sao um proxy de pessoas vacinadas; em campanhas de dose unica (influenza) a aproximacao e boa, em esquemas de multiplas doses (covid-19) ela superestima a cobertura.
+- Quando nao ha populacao-alvo informada, o denominador e a populacao total, o que subestima a cobertura do publico-alvo.
+
+### `incidence_rate` - Incidencia de SRAG notificada por 100 mil habitantes
+
+- **Definicao:** Casos de SRAG com primeiros sintomas na janela analisada, por 100 mil habitantes: casos / populacao residente estimada (IBGE) x 100.000.
+- **Numerador:** casos com DT_SIN_PRI na janela analisada
+- **Denominador:** populacao residente estimada (IBGE) da UF ou do Brasil, no ano mais proximo
+- **Campos utilizados:** `DT_SIN_PRI`, `SG_UF_NOT`
+- **Periodo:** ultimos GROWTH_WINDOW_DAYS dias ate a data de corte analitica
+- **Unidade:** por 100 mil hab.
+- **Tratamento de dados ausentes:** Sem a referencia populacional carregada, o indicador e declarado nao calculavel; nunca se usa um denominador aproximado.
+
+**Limitacoes:**
+
+- Incidencia de casos NOTIFICADOS de SRAG (majoritariamente hospitalizados), nao de infeccao respiratoria na populacao.
+- A populacao e a estimativa anual do IBGE mais proxima da data de corte; o ano usado e publicado junto do indicador.
+- Permite comparar UFs de tamanhos diferentes, o que a contagem absoluta nao permite.
+- A serie recente e incompleta por atraso de notificacao: casos com sintomas nos ultimos dias ainda nao foram digitados. As janelas excluem os dias mais recentes (REPORTING_LAG_DAYS) e usam como referencia a maior data de digitacao da base, nunca a data de hoje.
+
+### `seasonal_excess` - Excesso de casos sobre o baseline sazonal
+
+- **Definicao:** Variacao percentual dos casos da janela atual em relacao a MEDIANA dos casos observados na mesma janela de calendario nos anos de baseline: (casos_atuais - mediana_baseline) / mediana_baseline x 100.
+- **Numerador:** casos na janela atual menos a mediana dos anos de baseline na mesma janela
+- **Denominador:** mediana dos casos na mesma janela de calendario nos anos de baseline
+- **Campos utilizados:** `DT_SIN_PRI`
+- **Periodo:** janela atual e a mesma janela (mes/dia) em cada ano de BASELINE_YEARS
+- **Unidade:** %
+- **Tratamento de dados ausentes:** Anos de baseline sem nenhum caso na base sao considerados ausentes e excluidos; com menos de BASELINE_MIN_YEARS anos presentes o indicador e declarado nao calculavel.
+
+**Limitacoes:**
+
+- 2020 e 2021 ficam fora do baseline por padrao: a pandemia de covid-19 multiplicou as notificacoes de SRAG e um baseline que os incluisse rotularia qualquer ano normal como 'abaixo do esperado'.
+- Mede se a janela atual esta acima ou abaixo do padrao historico da mesma epoca do ano -- e o que distingue surto de sazonalidade. A taxa de aumento de casos, que compara janelas consecutivas, nao faz essa distincao.
+- Mudancas de criterio de notificacao e de cobertura da vigilancia entre os anos afetam a comparacao; os anos efetivamente usados sao publicados.
+- A serie recente e incompleta por atraso de notificacao: casos com sintomas nos ultimos dias ainda nao foram digitados. As janelas excluem os dias mais recentes (REPORTING_LAG_DAYS) e usam como referencia a maior data de digitacao da base, nunca a data de hoje.
 
 ### `daily_cases` - Numero diario de casos de SRAG
 

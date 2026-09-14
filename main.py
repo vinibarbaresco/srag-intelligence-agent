@@ -128,11 +128,29 @@ def _print_summary(state: dict) -> None:
     for metric in (state.get("metrics") or {}).values():
         value = metric.get("value")
         unit = metric.get("unit", "")
-        rendered = "nao calculavel" if value is None else f"{value}{'%' if unit == '%' else ''}"
+        rendered = (
+            "nao calculavel"
+            if value is None
+            else f"{value}{'%' if unit == '%' else (' ' + unit if unit else '')}"
+        )
         print(
             f"  - {metric['metric']:36s} {rendered:>16s}"
             f"   (n={metric.get('numerator')}/{metric.get('denominator')})"
         )
+
+    alerts = state.get("alerts") or {}
+    if alerts:
+        print(f"\nAlertas: nivel {str(alerts.get('nivel')).upper()} - {alerts.get('resumo')}")
+        for item in alerts.get("disparados") or []:
+            print(f"  ! {item.get('mensagem')}")
+        history = alerts.get("historico") or {}
+        if history.get("execucao_anterior"):
+            changes = ", ".join(
+                f"{key} {item['variacao']:+}"
+                for key, item in (history.get("variacao") or {}).items()
+                if item.get("variacao") is not None
+            )
+            print(f"  vs. execucao anterior ({history['execucao_anterior'][:8]}): {changes}")
 
     print("\nSeries:")
     for key, series in (state.get("series") or {}).items():
@@ -219,7 +237,19 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="imprime a trilha de auditoria da execucao informada e encerra",
     )
+    parser.add_argument(
+        "--fail-on-alert",
+        action="store_true",
+        help=(
+            "encerra com codigo 2 quando alguma regra de alerta dispara; e o sinal "
+            "usado pela execucao agendada"
+        ),
+    )
     return parser
+
+
+#: Codigo de saida quando --fail-on-alert encontra regra disparada.
+EXIT_ALERT = 2
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -255,6 +285,9 @@ def main(argv: list[str] | None = None) -> int:
         use_llm=not args.no_llm,
     )
     _print_summary(dict(state))
+
+    if args.fail_on_alert and (state.get("alerts") or {}).get("total_disparados"):
+        return EXIT_ALERT
     return 0
 
 

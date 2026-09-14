@@ -81,9 +81,7 @@ def clean_chunk(
     report.rows_read += len(chunk)
     frame = chunk.copy()
 
-    context = CleaningContext(
-        year=year, report=report, adjustments=AdjustmentLog(frame.index)
-    )
+    context = CleaningContext(year=year, report=report, adjustments=AdjustmentLog(frame.index))
 
     for rule in rules:
         frame = rule.apply(frame, context)

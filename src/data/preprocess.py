@@ -62,9 +62,7 @@ def _available_columns(path: Path) -> set[str]:
     return set(header.columns)
 
 
-def preprocess_year(
-    path: Path, year: int, report: QualityReport, chunk_size: int
-) -> pd.DataFrame:
+def preprocess_year(path: Path, year: int, report: QualityReport, chunk_size: int) -> pd.DataFrame:
     """Le e transforma um arquivo anual completo, em blocos."""
     logger.info("processando arquivo", extra={"arquivo": path.name, "ano": year})
 
@@ -122,8 +120,7 @@ def preprocess(
     manifest_path = settings.raw_manifest_path
     if not manifest_path.exists():
         raise FileNotFoundError(
-            "data/raw/manifest.json nao encontrado. Execute primeiro: "
-            "python -m src.data.download"
+            "data/raw/manifest.json nao encontrado. Execute primeiro: python -m src.data.download"
         )
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
@@ -192,9 +189,7 @@ def preprocess(
     trail.record(
         node="preprocess",
         status="ok",
-        result_summary=(
-            f"{report.rows_written} linhas gravadas, {report.adjusted_rows} ajustadas"
-        ),
+        result_summary=(f"{report.rows_written} linhas gravadas, {report.adjusted_rows} ajustadas"),
         parameters={"anos": sorted(years)},
         source=DATASUS_SOURCE_LABEL,
     )
@@ -232,8 +227,7 @@ def _append_history(path: Path, payload: dict) -> None:
         "rows_adjusted": payload["rows_adjusted"],
         "adjustments": payload["adjustments"]["por_codigo"],
         "coherence_flags": {
-            name: detail["registros"]
-            for name, detail in payload["coherence_flags"].items()
+            name: detail["registros"] for name, detail in payload["coherence_flags"].items()
         },
     }
     with path.open("a", encoding="utf-8") as handle:

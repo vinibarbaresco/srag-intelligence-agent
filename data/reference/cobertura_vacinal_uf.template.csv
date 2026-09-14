@@ -1,0 +1,4 @@
+uf,ano,campanha,doses_aplicadas,populacao_alvo,fonte,url
+# Preencha a partir da extracao oficial do SI-PNI / LocalizaSUS e salve como
+# cobertura_vacinal_uf.csv (sem estas linhas de comentario).
+# campanha: influenza | covid19. populacao_alvo e opcional.

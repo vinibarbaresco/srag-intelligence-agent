@@ -2,3 +2,6 @@
 
 # Qualidade estatica. Mantido separado para nao aumentar a instalacao minima.
 ruff>=0.12,<1
+
+# Cliente HTTP de teste da API (fastapi.testclient).
+httpx>=0.27,<1

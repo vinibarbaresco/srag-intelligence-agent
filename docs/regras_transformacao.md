@@ -52,9 +52,9 @@ Enumeradas explicitamente para que a decisao de nao processa-las fique auditavel
 | `CS_ETINIA` | etnia indigena (dado sensivel, nao necessario as metricas) |
 | `CS_GESTANT` | idade gestacional (dado sensivel de saude sem uso nas metricas) |
 | `CS_RACA` | raca/cor (dado sensivel; nenhum indicador estratifica por raca) |
-| `DOSE_1_COV` | data de dose vacinal (quase-identificador; metricas usam o indicador, nao a data) |
-| `DOSE_2_COV` | data de dose vacinal (quase-identificador; metricas usam o indicador, nao a data) |
-| `DOSE_REF` | data de dose vacinal (quase-identificador; metricas usam o indicador, nao a data) |
+| `DOSE_1_COV` | data de dose vacinal (quase-identificador; so o indicador vacinal e usado) |
+| `DOSE_2_COV` | data de dose vacinal (quase-identificador; so o indicador vacinal e usado) |
+| `DOSE_REF` | data de dose vacinal (quase-identificador; so o indicador vacinal e usado) |
 | `DT_NASC` | data de nascimento (quase-identificador direto) |
 | `ESTRANG` | indicador de nacionalidade estrangeira |
 | `ID_MN_INTE` | municipio da unidade de internacao |

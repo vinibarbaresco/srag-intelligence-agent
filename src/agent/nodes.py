@@ -14,9 +14,17 @@ from src.agent.llm import Interpreter
 from src.agent.state import SRAGState
 from src.config import get_settings
 from src.guardrails.input_guard import validate_request as guard_request
-from src.guardrails.output_guard import EvidenceSet, build_evidence, validate_output
+from src.guardrails.output_guard import (
+    EvidenceSet,
+    OutputValidation,
+    build_evidence,
+    validate_output,
+)
 from src.guardrails.pii import scrub_text
 from src.guardrails.policies import ALL_POLICIES, DISCLAIMER, UNCERTAINTY_STATEMENT
+from src.guardrails.semantic_judge import DisabledJudge, SemanticJudge
+from src.monitoring.alerts import evaluate_alerts
+from src.monitoring.history import build_entry, compare_runs, previous_run, record_run
 from src.observability.audit import STATUS_BLOCKED, STATUS_DEGRADED, STATUS_OK, AuditTrail
 from src.observability.logging_config import get_logger
 from src.tools.registry import call_tool, openai_tool_specs
@@ -30,6 +38,8 @@ MANDATORY_METRIC_TOOLS: tuple[str, ...] = (
     "get_mortality_rate",
     "get_icu_metrics",
     "get_vaccination_metrics",
+    "get_incidence_rate",
+    "get_seasonal_baseline",
     "get_notification_completeness",
 )
 
@@ -61,9 +71,13 @@ class GraphContext:
         trail: AuditTrail,
         interpreter: Interpreter,
         news_refresher: Callable[..., dict[str, Any]] | None = None,
+        judge: SemanticJudge | None = None,
     ) -> None:
         self.trail = trail
         self.interpreter = interpreter
+        #: Revisor semantico da saida (segunda camada). `DisabledJudge` quando
+        #: nao ha credencial ou a revisao foi desativada -- e isso e declarado.
+        self.judge = judge or DisabledJudge()
         #: Rotina que atualiza o acervo de noticias antes da consulta. Injetada
         #: para que o no nao dependa da implementacao concreta (rede + Vector
         #: DB) e para que os testes a substituam sem patch por string.
@@ -274,8 +288,37 @@ def make_search_news(context: GraphContext):
     return node
 
 
+def make_evaluate_alerts(context: GraphContext):
+    """No 5 -- avalia as regras de alerta e compara com a execucao anterior.
+
+    Deterministico: le os indicadores ja calculados, aplica os limiares da
+    configuracao e consulta o historico de execucoes do mesmo recorte. O
+    resultado entra no estado como DADO e, por isso, passa a compor o conjunto
+    de evidencias que a interpretacao pode citar.
+    """
+
+    def node(state: SRAGState) -> dict[str, Any]:
+        trail = context.trail
+        with trail.step(node="evaluate_alerts") as audit:
+            alerts = evaluate_alerts(state.get("metrics", {}), state.get("diagnostics", {}))
+            previous = previous_run(state.get("uf"), state.get("classification"))
+            entry = build_entry(dict(state), alerts)
+            alerts["historico"] = compare_runs(entry, previous)
+            record_run(entry)
+            audit["summary"] = (
+                f"nivel {alerts['nivel']}: {alerts['total_disparados']} regra(s) disparada(s), "
+                f"{len(alerts['atencao'])} ponto(s) de atencao"
+            )
+            if alerts["nivel"] != "normal":
+                audit["status"] = STATUS_DEGRADED
+
+        return {"alerts": alerts}
+
+    return node
+
+
 def make_validate_evidence(context: GraphContext):
-    """No 5 -- consolida o conjunto de valores que o relatorio pode citar."""
+    """No 6 -- consolida o conjunto de valores que o relatorio pode citar."""
 
     def node(state: SRAGState) -> dict[str, Any]:
         trail = context.trail
@@ -284,6 +327,7 @@ def make_validate_evidence(context: GraphContext):
                 **state.get("metrics", {}),
                 **state.get("diagnostics", {}),
                 **state.get("series", {}),
+                "alerts": state.get("alerts", {}),
             }
             evidence = build_evidence(payloads)
             context.evidence = evidence
@@ -318,7 +362,7 @@ def make_validate_evidence(context: GraphContext):
 
 
 def make_generate_interpretation(context: GraphContext):
-    """No 6 -- produz a interpretacao e a submete aos guardrails de saida."""
+    """No 7 -- produz a interpretacao e a submete aos guardrails de saida."""
 
     def node(state: SRAGState) -> dict[str, Any]:
         trail = context.trail
@@ -331,6 +375,7 @@ def make_generate_interpretation(context: GraphContext):
             "diagnosticos": state.get("diagnostics", {}),
             "series": _compact_series(state.get("series", {})),
             "contexto_externo": _untrusted_news(state.get("external_context", {})),
+            "alertas": _compact_alerts(state.get("alerts", {})),
             "avisos": state.get("warnings", []),
         }
 
@@ -354,7 +399,10 @@ def make_generate_interpretation(context: GraphContext):
                 source = f"{narrator.source} (fallback: {type(exc).__name__})"
                 audit["status"] = STATUS_DEGRADED
 
+            usage = interpreter.usage_report()
             audit["summary"] = f"interpretacao gerada por {source} ({len(text)} caracteres)"
+            if usage:
+                audit["summary"] += f"; {usage['tokens_total']} tokens"
 
         evidence = context.evidence
         if evidence is None:
@@ -363,30 +411,53 @@ def make_generate_interpretation(context: GraphContext):
                     **state.get("metrics", {}),
                     **state.get("diagnostics", {}),
                     **state.get("series", {}),
+                    "alerts": state.get("alerts", {}),
                 }
             )
 
+        warnings: list[str] = []
         with trail.step(node="apply_output_guardrails") as audit:
             validation = validate_output(text, evidence)
+            semantic = None
+            # Segunda camada: so sobre texto de modelo ja aprovado lexicalmente.
+            if validation.allowed and source == interpreter.source and _is_model_text(source):
+                semantic = context.judge.review(text, llm_context)
+                if semantic.error:
+                    warnings.append(
+                        "Revisao semantica da saida indisponivel nesta execucao "
+                        f"({semantic.error}); prevaleceram apenas as verificacoes lexicais."
+                    )
+                elif not semantic.allowed:
+                    validation = OutputValidation(
+                        allowed=False, text=text, violations=semantic.violations()
+                    )
+                else:
+                    warnings.extend(semantic.advisories())
             audit["summary"] = (
                 "saida aprovada"
                 if validation.allowed
                 else f"saida bloqueada por {validation.blocked_by}"
             )
+            if semantic is not None and semantic.available:
+                audit["summary"] += f"; revisao semantica: {semantic.source}"
             if not validation.allowed:
                 audit["status"] = STATUS_BLOCKED
 
         guardrail_report = {
             "politicas_ativas": [policy.to_dict() for policy in ALL_POLICIES],
             "resultado": validation.to_dict(),
+            "revisao_semantica": _semantic_block(semantic, context.judge, source),
             "disclaimer": DISCLAIMER,
         }
+        llm_usage = _usage_block(interpreter, context.judge)
 
         if validation.allowed:
             return {
                 "interpretation": text,
                 "interpretation_source": source,
                 "guardrail_report": guardrail_report,
+                "llm_usage": llm_usage,
+                "warnings": warnings,
             }
 
         # Saida reprovada: o texto do modelo e descartado e a via deterministica
@@ -430,14 +501,74 @@ def make_generate_interpretation(context: GraphContext):
             "interpretation": fallback_text,
             "interpretation_source": f"deterministic-template (substituiu {source})",
             "guardrail_report": guardrail_report,
+            "llm_usage": llm_usage,
             "warnings": [
+                *warnings,
                 "A interpretacao gerada pelo modelo foi bloqueada pelos guardrails "
                 f"({', '.join(validation.blocked_by)}) e substituida pela redacao "
-                "deterministica."
+                "deterministica.",
             ],
         }
 
     return node
+
+
+def _semantic_block(verdict: Any, judge: SemanticJudge, source: str) -> dict[str, Any]:
+    """Descreve, para o relatorio, o que aconteceu com a revisao semantica."""
+    if not _is_model_text(source):
+        return {
+            "revisor": "nao aplicavel",
+            "executada": False,
+            "aprovado": None,
+            "achados": [],
+            "erro": None,
+            "motivo": "texto produzido pela via deterministica, sem modelo",
+        }
+    if verdict is None:
+        return {
+            "revisor": judge.source,
+            "executada": False,
+            "aprovado": None,
+            "achados": [],
+            "erro": None,
+            "motivo": "texto reprovado nas verificacoes lexicais antes da revisao",
+        }
+    return verdict.to_dict()
+
+
+def _is_model_text(source: str) -> bool:
+    """Indica se a fonte da interpretacao e um modelo de linguagem."""
+    return not source.startswith("deterministic-template")
+
+
+def _usage_block(interpreter: Interpreter, judge: SemanticJudge) -> dict[str, Any]:
+    """Consolida o consumo de tokens do interpretador e do revisor."""
+    interpreter_usage = interpreter.usage_report()
+    judge_usage = judge.usage_report()
+    total = sum(item["custo_estimado_usd"] for item in (interpreter_usage, judge_usage) if item)
+    return {
+        "interpretador": interpreter_usage,
+        "revisor_semantico": judge_usage,
+        "custo_total_estimado_usd": round(total, 6),
+    }
+
+
+def _compact_alerts(alerts: dict[str, Any]) -> dict[str, Any]:
+    """Entrega ao modelo so o veredito, os disparos e a variacao entre execucoes."""
+    if not alerts:
+        return {}
+    history = alerts.get("historico") or {}
+    return {
+        "nivel": alerts.get("nivel"),
+        "resumo": alerts.get("resumo"),
+        "disparados": [
+            {"regra": item.get("regra"), "mensagem": item.get("mensagem")}
+            for item in alerts.get("disparados") or []
+        ],
+        "atencao": [item.get("mensagem") for item in alerts.get("atencao") or []],
+        "variacao_desde_a_execucao_anterior": history.get("variacao") or {},
+        "mensagem_do_historico": history.get("mensagem"),
+    }
 
 
 def _untrusted_news(context: dict[str, Any]) -> dict[str, Any]:

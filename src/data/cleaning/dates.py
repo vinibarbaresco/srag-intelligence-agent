@@ -57,9 +57,7 @@ class ParseDateColumns(CleaningRule):
             if column not in frame.columns:
                 continue
 
-            present_before = (
-                frame[column].astype("string").str.strip().replace({"": pd.NA}).notna()
-            )
+            present_before = frame[column].astype("string").str.strip().replace({"": pd.NA}).notna()
             frame[column] = parse_dates(frame[column])
 
             unreadable = present_before & frame[column].isna()

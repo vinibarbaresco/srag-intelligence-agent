@@ -30,7 +30,7 @@ import json
 import re
 import sys
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import requests
@@ -95,9 +95,7 @@ def discover_resources(dataset_url: str = DATASUS_DATASET_URL) -> dict[int, Remo
             "O layout da pagina pode ter mudado."
         )
 
-    logger.info(
-        "recursos resolvidos", extra={"anos": sorted(resources), "fonte": dataset_url}
-    )
+    logger.info("recursos resolvidos", extra={"anos": sorted(resources), "fonte": dataset_url})
     return resources
 
 
@@ -241,7 +239,7 @@ def download_years(years: list[int], *, force: bool = False) -> dict[int, Path]:
             "origin": "download do Open DATASUS",
             "size_bytes": path.stat().st_size,
             "sha256": _sha256(path) if needs_hash else entry["sha256"],
-            "downloaded_at": datetime.now(tz=timezone.utc).isoformat()
+            "downloaded_at": datetime.now(tz=UTC).isoformat()
             if needs_hash
             else entry["downloaded_at"],
         }
@@ -282,8 +280,7 @@ def register_local_file(path: Path, year: int | None = None) -> tuple[int, Path]
     year = year or infer_year(path.name)
     if year is None:
         raise DownloadError(
-            f"Nao foi possivel deduzir o ano de {path.name!r}. Informe "
-            "explicitamente com --year."
+            f"Nao foi possivel deduzir o ano de {path.name!r}. Informe explicitamente com --year."
         )
 
     manifest = _load_manifest(settings.raw_manifest_path)
@@ -295,7 +292,7 @@ def register_local_file(path: Path, year: int | None = None) -> tuple[int, Path]
         "origin": "arquivo local fornecido pelo usuario",
         "size_bytes": path.stat().st_size,
         "sha256": _sha256(path),
-        "downloaded_at": datetime.now(tz=timezone.utc).isoformat(),
+        "downloaded_at": datetime.now(tz=UTC).isoformat(),
     }
     _save_manifest(settings.raw_manifest_path, manifest)
 
@@ -318,9 +315,7 @@ def main(argv: list[str] | None = None) -> int:
         default=settings.srag_years,
         help="anos a baixar (padrao: valor de SRAG_YEARS no .env)",
     )
-    parser.add_argument(
-        "--force", action="store_true", help="rebaixa mesmo havendo cache valido"
-    )
+    parser.add_argument("--force", action="store_true", help="rebaixa mesmo havendo cache valido")
     parser.add_argument(
         "--local",
         type=Path,

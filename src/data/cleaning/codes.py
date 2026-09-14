@@ -50,9 +50,7 @@ class NormalizeCategoricalCodes(CleaningRule):
             frame[column] = pd.to_numeric(frame[column], errors="coerce").astype("Int16")
             context.report.null_counts[column] += int(frame[column].isna().sum())
             for code in MISSING_CODES:
-                context.report.ignored_code_counts[column] += int(
-                    (frame[column] == code).sum()
-                )
+                context.report.ignored_code_counts[column] += int((frame[column] == code).sum())
 
             domain = CODE_LABELS.get(column)
             if domain:

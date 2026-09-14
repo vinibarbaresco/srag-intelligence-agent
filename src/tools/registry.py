@@ -105,6 +105,28 @@ TOOLS: Final[tuple[ToolSpec, ...]] = (
         category="indicador",
     ),
     ToolSpec(
+        name="get_incidence_rate",
+        description=(
+            "Incidencia de SRAG notificada por 100 mil habitantes na janela "
+            "analisada, com denominador populacional do IBGE. Permite comparar "
+            "UFs de tamanhos diferentes."
+        ),
+        input_model=MetricQuery,
+        handler=metric_tools.get_incidence_rate,
+        category="indicador",
+    ),
+    ToolSpec(
+        name="get_seasonal_baseline",
+        description=(
+            "Excesso de casos sobre o baseline sazonal: variacao da janela atual "
+            "em relacao a mediana da mesma janela de calendario nos anos de "
+            "referencia (2020-2021 excluidos). Distingue surto de sazonalidade."
+        ),
+        input_model=MetricQuery,
+        handler=metric_tools.get_seasonal_baseline,
+        category="indicador",
+    ),
+    ToolSpec(
         name="get_notification_completeness",
         description=(
             "Perfil do atraso de notificacao observado na base (percentis em "

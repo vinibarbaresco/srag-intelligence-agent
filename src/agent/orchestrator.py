@@ -10,6 +10,7 @@ from src.agent.llm import get_interpreter
 from src.agent.nodes import GraphContext
 from src.agent.report import write_report
 from src.agent.state import SRAGState, initial_state
+from src.guardrails.semantic_judge import get_semantic_judge
 from src.news.ingest import ingest_news
 from src.observability.audit import STATUS_ERROR, AuditTrail
 from src.observability.logging_config import get_logger
@@ -62,7 +63,12 @@ def run_report(
     """
     trail = AuditTrail(run_id=run_id or str(uuid.uuid4()))
     interpreter = get_interpreter(use_llm=use_llm)
-    context = GraphContext(trail=trail, interpreter=interpreter, news_refresher=ingest_news)
+    context = GraphContext(
+        trail=trail,
+        interpreter=interpreter,
+        news_refresher=ingest_news,
+        judge=get_semantic_judge(use_llm=use_llm),
+    )
 
     graph = build_graph(context, _make_report_node(context))
     state = initial_state(trail.run_id, request, uf=uf, classification=classification)

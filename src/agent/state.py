@@ -35,6 +35,9 @@ class SRAGState(TypedDict, total=False):
     # --- CONTEXTO EXTERNO: noticias, isoladas dos calculos -------------------
     external_context: dict[str, Any]
 
+    # --- DADO: alertas deterministicos e comparacao com a execucao anterior ---
+    alerts: dict[str, Any]
+
     # --- Verificacao de evidencia --------------------------------------------
     evidence: dict[str, Any]
 
@@ -42,6 +45,7 @@ class SRAGState(TypedDict, total=False):
     interpretation: str
     interpretation_source: str
     guardrail_report: dict[str, Any]
+    llm_usage: dict[str, Any]
 
     # --- Saida ---------------------------------------------------------------
     report_paths: dict[str, str]
@@ -73,10 +77,12 @@ def initial_state(
         series={},
         charts={},
         external_context={},
+        alerts={},
         evidence={},
         interpretation="",
         interpretation_source="",
         guardrail_report={},
+        llm_usage={},
         report_paths={},
         audit_summary={},
         warnings=[],

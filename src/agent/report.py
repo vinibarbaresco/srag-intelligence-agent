@@ -32,6 +32,8 @@ _INDICATOR_TITLES: dict[str, str] = {
     "mortality_rate": "2. Taxa de mortalidade",
     "icu_admission_rate": "3. UTI (admissao e censo)",
     "vaccination_coverage_among_cases": "4. Cobertura vacinal",
+    "incidence_rate": "5. Incidencia por 100 mil habitantes (complementar)",
+    "seasonal_excess": "6. Excesso sobre o baseline sazonal (complementar)",
 }
 
 _INDICATOR_ORDER: tuple[str, ...] = tuple(_INDICATOR_TITLES)
@@ -45,6 +47,7 @@ def render_markdown(state: dict[str, Any]) -> str:
     parts = [
         _header(state),
         _summary_table(state),
+        _alerts_section(state),
         _indicators_section(state),
         _series_section(state),
         _charts_section(state),
@@ -104,6 +107,66 @@ def _summary_table(state: dict[str, Any]) -> str:
             f"{metric.get('numerator', '-')} | {metric.get('denominator', '-')} | {status} |"
         )
     return "\n".join(lines)
+
+
+def _alerts_section(state: dict[str, Any]) -> str:
+    """Veredito das regras de alerta e variacao desde a execucao anterior."""
+    alerts = state.get("alerts") or {}
+    if not alerts:
+        return ""
+
+    level = str(alerts.get("nivel", "normal")).upper()
+    blocks = [
+        "## DADO - Alertas e acompanhamento",
+        "",
+        f"**Nivel consolidado: {level}.** {alerts.get('resumo')}",
+        "",
+        "| Regra | Indicador | Observado | Limiar | Disparada |",
+        "|-------|-----------|-----------|--------|-----------|",
+    ]
+    for item in alerts.get("regras_avaliadas") or []:
+        observed = item.get("valor_observado")
+        observed_text = "indisponivel" if observed is None else f"{observed}{item.get('unidade')}"
+        blocks.append(
+            f"| {item.get('regra')} | {item.get('indicador')} | {observed_text} | "
+            f"{item.get('limiar')}{item.get('unidade')} | "
+            f"{'**sim**' if item.get('disparada') else 'nao'} |"
+        )
+
+    for item in alerts.get("atencao") or []:
+        blocks.append("")
+        blocks.append(f"> **Atencao ({item.get('regra')}):** {item.get('mensagem')}")
+
+    history = alerts.get("historico") or {}
+    blocks += ["", "### Variacao desde a execucao anterior", ""]
+    if not history.get("execucao_anterior"):
+        blocks.append(history.get("mensagem", "Sem execucao anterior para este recorte."))
+        return "\n".join(blocks)
+
+    blocks += [
+        f"- **Execucao anterior:** `{history.get('execucao_anterior')}` "
+        f"(gerada em {str(history.get('gerada_em', ''))[:19]}, corte "
+        f"{history.get('data_corte_anterior')}; corte atual {history.get('data_corte_atual')})",
+        "",
+        "| Indicador | Anterior | Atual | Variacao |",
+        "|-----------|----------|-------|----------|",
+    ]
+    for key, item in (history.get("variacao") or {}).items():
+        blocks.append(
+            f"| {key} | {_dash(item.get('anterior'))} | {_dash(item.get('atual'))} | "
+            f"{_dash(item.get('variacao'))} |"
+        )
+    if history.get("mesma_data_de_corte"):
+        blocks += [
+            "",
+            "*As duas execucoes usam a mesma data de corte analitica: a variacao reflete "
+            "atualizacao da base pela fonte, nao passagem do tempo.*",
+        ]
+    return "\n".join(blocks)
+
+
+def _dash(value: Any) -> str:
+    return "-" if value is None else str(value)
 
 
 def _indicators_section(state: dict[str, Any]) -> str:
@@ -221,7 +284,6 @@ def _components_block(key: str, components: dict[str, Any]) -> list[str]:
     elif key == "vaccination_coverage_among_cases":
         covid = components.get("covid19", {})
         influenza = components.get("influenza", {})
-        population = components.get("taxa_de_vacinacao_da_populacao", {})
         lines += [
             f"- **Covid-19:** {covid.get('cobertura_declarada_pct')}% "
             f"({covid.get('vacinados')} de {covid.get('com_informacao')}), "
@@ -230,10 +292,64 @@ def _components_block(key: str, components: dict[str, Any]) -> list[str]:
             f"({influenza.get('vacinados')} de {influenza.get('com_informacao')}), "
             f"completude da informacao {influenza.get('completude_da_informacao_pct')}%",
             "",
+            *_population_coverage_lines(components.get("taxa_de_vacinacao_da_populacao") or {}),
+        ]
+    elif key == "incidence_rate":
+        lines += [
+            f"- **Casos na janela:** {components.get('casos_na_janela')}",
+            f"- **Populacao de referencia:** {components.get('populacao_de_referencia')} "
+            f"({components.get('fonte_da_populacao')}, estimativa de "
+            f"{components.get('ano_da_estimativa_populacional')})",
+        ]
+    elif key == "seasonal_excess":
+        excluded = components.get("anos_excluidos_por_definicao") or {}
+        lines += [
+            f"- **Casos na janela atual:** {components.get('casos_na_janela_atual')}",
+            f"- **Mediana do baseline:** {components.get('mediana_do_baseline')} "
+            f"(media: {components.get('media_do_baseline')})",
+            f"- **Anos considerados:** {components.get('anos_considerados')} "
+            f"(configurados: {components.get('anos_configurados')}; ausentes na base: "
+            f"{components.get('anos_ausentes_na_base')})",
+            f"- **Anos excluidos por definicao:** {excluded.get('anos')} -- "
+            f"{excluded.get('motivo')}",
+        ]
+        by_year = components.get("casos_por_ano_de_baseline") or {}
+        if by_year:
+            lines += [
+                "",
+                "| Ano | Janela comparada | Casos |",
+                "|-----|------------------|-------|",
+                *(
+                    f"| {year} | {item.get('inicio')} a {item.get('fim')} | {item.get('casos')} |"
+                    for year, item in sorted(by_year.items())
+                ),
+            ]
+
+    return lines
+
+
+def _population_coverage_lines(population: dict[str, Any]) -> list[str]:
+    """Bloco da taxa de vacinacao da populacao: calculada ou declarada indisponivel."""
+    if population.get("value", None) is None and not population.get("campanhas"):
+        return [
             f"> **Taxa de vacinacao da populacao: nao calculavel.** "
             f"{population.get('unavailable_reason')}",
         ]
 
+    lines = [
+        f"**Taxa de vacinacao da populacao** (referencia externa, ano "
+        f"{population.get('ano_da_referencia')}):",
+        "",
+    ]
+    for campaign, item in sorted((population.get("campanhas") or {}).items()):
+        if item.get("value") is None:
+            lines.append(f"- **{campaign}:** nao calculavel -- {item.get('unavailable_reason')}")
+            continue
+        lines.append(
+            f"- **{campaign}:** {item['value']}% ({item.get('numerator')} doses sobre "
+            f"{item.get('denominator')}, {item.get('denominador_descricao')}; fonte: "
+            f"{item.get('fonte')})"
+        )
     return lines
 
 
@@ -585,6 +701,43 @@ def _governance_section(state: dict[str, Any]) -> str:
 
     if guardrails.get("fallback"):
         blocks.append(f"**Fallback aplicado:** {guardrails['fallback']['motivo']}.")
+
+    semantic = guardrails.get("revisao_semantica") or {}
+    if semantic:
+        if semantic.get("executada"):
+            verdict = "aprovado" if semantic.get("aprovado") else "com achados"
+            status = f"executada por `{semantic.get('revisor')}` - {verdict}"
+            if semantic.get("achados"):
+                unique = dict.fromkeys(
+                    f"{item.get('categoria')}: {item.get('motivo')}" for item in semantic["achados"]
+                )
+                status += "; " + "; ".join(unique)
+        elif semantic.get("erro"):
+            status = f"indisponivel ({semantic['erro']}); prevaleceram as verificacoes lexicais"
+        elif semantic.get("revisor") == "nao aplicavel":
+            status = "nao aplicavel: texto produzido pela via deterministica, sem modelo"
+        else:
+            status = "nao executada (sem credencial ou desativada); somente verificacoes lexicais"
+        blocks.append(f"**Revisao semantica independente:** {status}.")
+
+    usage = state.get("llm_usage") or {}
+    blocks += ["", "### Consumo do modelo de linguagem", ""]
+    if not usage.get("interpretador") and not usage.get("revisor_semantico"):
+        blocks.append("Nenhuma chamada a modelo nesta execucao (via deterministica).")
+    else:
+        for label, key in (("Interpretador", "interpretador"), ("Revisor", "revisor_semantico")):
+            item = usage.get(key)
+            if item:
+                blocks.append(
+                    f"- **{label}** (`{item.get('modelo')}`): {item.get('chamadas')} chamada(s), "
+                    f"{item.get('tokens_entrada')} tokens de entrada, "
+                    f"{item.get('tokens_saida')} de saida, custo estimado "
+                    f"US$ {item.get('custo_estimado_usd')}"
+                )
+        blocks.append(
+            f"- **Custo total estimado:** US$ {usage.get('custo_total_estimado_usd')} "
+            "(precos de lista configurados; estimativa, nao fatura)"
+        )
 
     return "\n".join(blocks)
 

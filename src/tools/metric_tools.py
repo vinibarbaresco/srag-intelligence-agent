@@ -96,6 +96,38 @@ def get_vaccination_metrics(**kwargs: Any) -> dict[str, Any]:
     return annotate_rate_reliability(enforce_minimum_cell_size(result.to_dict()))
 
 
+@audited("get_incidence_rate", source=f"{DATASUS_SOURCE_LABEL} + IBGE")
+def get_incidence_rate(**kwargs: Any) -> dict[str, Any]:
+    """Casos notificados de SRAG por 100 mil habitantes na janela analisada.
+
+    O denominador e a populacao residente estimada pelo IBGE (referencia
+    externa versionada em `data/reference/`). Sem a referencia carregada, o
+    indicador e declarado nao calculavel -- nunca aproximado.
+    """
+    query = MetricQuery(**kwargs)
+    with connect() as connection:
+        result = epidemiology.incidence_rate(
+            connection, _filters(query), window_days=query.window_days
+        )
+    return enforce_minimum_cell_size(result.to_dict())
+
+
+@audited("get_seasonal_baseline", source=DATASUS_SOURCE_LABEL)
+def get_seasonal_baseline(**kwargs: Any) -> dict[str, Any]:
+    """Excesso (ou deficit) de casos sobre o baseline sazonal.
+
+    Compara a janela atual com a mesma janela de calendario nos anos de
+    baseline configurados (mediana). Distingue surto de sazonalidade -- algo
+    que a taxa de aumento entre janelas consecutivas nao consegue fazer.
+    """
+    query = MetricQuery(**kwargs)
+    with connect() as connection:
+        result = epidemiology.seasonal_baseline(
+            connection, _filters(query), window_days=query.window_days
+        )
+    return enforce_minimum_cell_size(result.to_dict())
+
+
 @audited("get_notification_completeness", source=DATASUS_SOURCE_LABEL)
 def get_notification_completeness(**kwargs: Any) -> dict[str, Any]:
     """Perfil do atraso de notificacao observado na base.

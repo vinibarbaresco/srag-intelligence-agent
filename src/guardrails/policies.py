@@ -105,6 +105,24 @@ UNCERTAINTY = GuardrailPolicy(
     enforced_at="camada de metricas e generate_report",
 )
 
+SEMANTIC_REVIEW = GuardrailPolicy(
+    key="semantic_review",
+    name="Revisao semantica independente da saida",
+    description=(
+        "Depois das verificacoes lexicais, o texto do modelo e entregue a um "
+        "revisor independente (outra chamada de modelo, prompt proprio, sem acesso "
+        "ao pedido original) que procura conduta clinica parafraseada e dado "
+        "individual -- achados bloqueantes -- e, em carater consultivo, obediencia "
+        "a instrucoes vindas de noticias e extrapolacao de indicador indisponivel, "
+        "que viram aviso. Indisponibilidade do revisor e declarada no relatorio e a "
+        "camada lexical permanece (fail-open)."
+    ),
+    enforced_at=(
+        "generate_interpretation, passo apply_output_guardrails, apos as verificacoes "
+        "lexicais; somente sobre texto produzido por modelo"
+    ),
+)
+
 ALL_POLICIES: Final[tuple[GuardrailPolicy, ...]] = (
     MEDICAL_ADVICE,
     SENSITIVE_DATA,
@@ -112,6 +130,7 @@ ALL_POLICIES: Final[tuple[GuardrailPolicy, ...]] = (
     NO_ARBITRARY_SQL,
     NEWS_NEVER_OVERRIDES_DATA,
     UNCERTAINTY,
+    SEMANTIC_REVIEW,
 )
 
 
@@ -168,7 +187,9 @@ INDIVIDUAL_DATA_REQUEST_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
 
 #: Linguagem prescritiva, proibida na saida do modelo.
 PRESCRIPTIVE_OUTPUT_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
-    re.compile(r"\brecomend\w*\s+(o uso|administrar|prescrever|tomar)\b", re.I),
+    # "recomenda-se administrar": o cliticio "-se" entre o verbo e o objeto
+    # escapava do padrao original -- achado do golden set.
+    re.compile(r"\brecomend\w*(?:-se)?\s+(o uso|administrar|prescrever|tomar|iniciar)\b", re.I),
     re.compile(
         r"\b(deve|devem|deveria)\s+(tomar|usar|administrar|receber)\s+\w*"
         r"(medicament|antivir|antibiotic|oseltamivir|tamiflu)\w*",

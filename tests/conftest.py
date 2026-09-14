@@ -27,6 +27,17 @@ REFERENCE_DATE = date(2026, 8, 23)
 #: Corte analitico esperado com REPORTING_LAG_DAYS = 21.
 EXPECTED_CUTOFF = REFERENCE_DATE - timedelta(days=21)
 
+#: Populacao sintetica por UF (IBGE simulado): SP 10 mi, RJ 5 mi, demais 1 mi.
+#: Total de 40 milhoes. O validador exige as 27 UFs, como a referencia real.
+SYNTHETIC_POPULATION = {"SP": 10_000_000, "RJ": 5_000_000}
+SYNTHETIC_POPULATION_DEFAULT = 1_000_000
+SYNTHETIC_POPULATION_YEAR = 2026
+
+#: Casos por ano de baseline na mesma janela de calendario da janela atual.
+#: Mediana = 150 = casos da janela atual em SP -> excesso de 0% no recorte SP e
+#: de (151 - 150) / 150 = 0,67% no nacional (o caso de RJ entra no numerador).
+SYNTHETIC_BASELINE_CASES = {2023: 180, 2024: 120}
+
 
 @pytest.fixture(scope="session")
 def data_root(tmp_path_factory: pytest.TempPathFactory) -> Path:
@@ -48,7 +59,29 @@ def configured_environment(data_root: Path, monkeypatch_session) -> None:
     # real presente na maquina do desenvolvedor. Sem isso a suite deixaria de ser
     # hermetica e poderia chamar a API da OpenAI durante os testes.
     monkeypatch_session.setenv("OPENAI_API_KEY", "")
+    # Referencias externas sinteticas: a populacao e gravada aqui, e a de
+    # cobertura vacinal aponta para um arquivo que so alguns testes criam.
+    population_path = data_root / "populacao_uf.csv"
+    _write_synthetic_population(population_path)
+    monkeypatch_session.setenv("POPULATION_REFERENCE_PATH", str(population_path))
+    monkeypatch_session.setenv(
+        "VACCINATION_REFERENCE_PATH", str(data_root / "cobertura_vacinal_uf.csv")
+    )
+    # 2022 configurado mas ausente na base sintetica: exercita a declaracao de
+    # anos ausentes sem impedir o calculo (minimo de 2 anos presentes).
+    monkeypatch_session.setenv("BASELINE_YEARS", "2022,2023,2024")
+    monkeypatch_session.setenv("BASELINE_MIN_YEARS", "2")
     reset_settings_cache()
+
+
+def _write_synthetic_population(path: Path) -> None:
+    from src.data.schema import UF_CODES
+
+    lines = ["uf,ano,populacao"]
+    for uf in sorted(UF_CODES):
+        population = SYNTHETIC_POPULATION.get(uf, SYNTHETIC_POPULATION_DEFAULT)
+        lines.append(f"{uf},{SYNTHETIC_POPULATION_YEAR},{population}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 @pytest.fixture(scope="session")
@@ -198,6 +231,17 @@ def _build_synthetic_frame() -> pd.DataFrame:
     incoerente = rows[100]  # primeiro registro da janela atual, com UTI = 1
     incoerente["DT_SAIDUTI"] = incoerente["DT_ENTUTI"] - pd.Timedelta(days=2)
     incoerente["flag_uti_inconsistente"] = True
+
+    # --- Anos de baseline: mesma janela de calendario, anos anteriores ---------
+    # Casos encerrados como cura e digitados 10 dias depois dos sintomas, para
+    # nao interferir em nenhuma janela recente (mortalidade, UTI, series).
+    for year, total in SYNTHETIC_BASELINE_CASES.items():
+        delta = year - cutoff.year
+        for index in range(total):
+            day = (current_start + timedelta(days=index % 30)).replace(
+                year=current_start.year + delta
+            )
+            add(day, evolucao=1, hospital=2, digitacao=day + timedelta(days=10))
 
     frame = pd.DataFrame(rows)
 

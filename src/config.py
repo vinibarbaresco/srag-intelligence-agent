@@ -60,6 +60,61 @@ class Settings(BaseSettings):
     # antes do validador abaixo ser chamado, porque nao e JSON valido.
     srag_years: Annotated[list[int], NoDecode] = Field(default=[2025, 2026])
 
+    # --- Baseline sazonal ----------------------------------------------------
+    # Anos usados como referencia historica para a mesma janela de calendario.
+    # 2020 e 2021 ficam SEMPRE fora: a pandemia de covid-19 multiplicou as
+    # notificacoes de SRAG e um baseline que os incluisse classificaria qualquer
+    # ano normal como "abaixo do esperado". 2019 nao entra no padrao por outro
+    # motivo: e o regime de vigilancia pre-pandemico, com cobertura de
+    # notificacao muito menor (48 mil casos no ano contra 270 mil ou mais a
+    # partir de 2022) -- comparavel em forma, nao em nivel. Pode ser incluido
+    # via BASELINE_YEARS; a mediana absorve um ano discrepante, mas nao dois.
+    baseline_years: Annotated[list[int], NoDecode] = Field(default=[2022, 2023, 2024])
+    # Minimo de anos efetivamente presentes na base para publicar o baseline.
+    baseline_min_years: int = Field(default=2, ge=1, le=10)
+
+    # --- Referencias externas ------------------------------------------------
+    # Arquivos de referencia versionados em data/reference/. Caminhos
+    # alternativos servem aos testes e a bases de referencia proprias.
+    population_reference_path: Path | None = Field(default=None)
+    vaccination_reference_path: Path | None = Field(default=None)
+
+    # --- Alertas -------------------------------------------------------------
+    # Limiares avaliados a cada execucao (src/monitoring/alerts.py). Um alerta
+    # disparado aparece no relatorio e, com --fail-on-alert, muda o codigo de
+    # saida -- e assim que a execucao agendada sinaliza uma mudanca de cenario.
+    alert_growth_threshold_pct: float = Field(default=20.0, ge=0)
+    alert_mortality_threshold_pct: float = Field(default=10.0, ge=0, le=100)
+    alert_baseline_excess_threshold_pct: float = Field(default=50.0, ge=0)
+
+    # --- Guardrail semantico -------------------------------------------------
+    # Segunda camada sobre a saida do modelo: um revisor independente (outro
+    # prompt, sem acesso ao texto do pedido original) procura conduta clinica,
+    # numero sem lastro e obediencia a instrucoes vindas de noticias. So atua
+    # quando ha credencial; sem ela, a camada lexical continua sozinha.
+    semantic_judge_enabled: bool = Field(default=True)
+    # Modelo do revisor. Na calibracao, gpt-4o-mini apontou "conduta clinica"
+    # em frases sobre vies estatistico e "instrucao externa" em resumos de
+    # manchetes com a fonte atribuida -- falsos positivos que derrubavam toda
+    # interpretacao para a via deterministica. gpt-4o aprovou os mesmos textos
+    # de forma estavel. O revisor le ~2 mil tokens por execucao, entao o
+    # modelo mais forte custa centavos; o redator continua sendo OPENAI_MODEL.
+    openai_judge_model: str = Field(default="gpt-4o")
+
+    # --- Custo do modelo -----------------------------------------------------
+    # Precos de lista por milhao de tokens, usados apenas para ESTIMAR o custo
+    # de cada execucao no relatorio. Padrao: gpt-4o-mini (USD). Ajuste ao
+    # trocar de modelo; o relatorio rotula o valor como estimativa.
+    openai_input_price_per_1m_tokens: float = Field(default=0.15, ge=0)
+    openai_output_price_per_1m_tokens: float = Field(default=0.60, ge=0)
+    # Precos do modelo do revisor (padrao: gpt-4o, USD).
+    openai_judge_input_price_per_1m_tokens: float = Field(default=2.50, ge=0)
+    openai_judge_output_price_per_1m_tokens: float = Field(default=10.00, ge=0)
+
+    # --- API HTTP ------------------------------------------------------------
+    api_host: str = Field(default="127.0.0.1")
+    api_port: int = Field(default=8000, ge=1, le=65535)
+
     # --- Noticias ------------------------------------------------------------
     news_max_age_days: int = Field(default=45, ge=1, le=365)
     news_max_results: int = Field(default=12, ge=1, le=100)
@@ -74,10 +129,10 @@ class Settings(BaseSettings):
     # dados nao fica junto do codigo.
     data_root: Path | None = Field(default=None)
 
-    @field_validator("srag_years", mode="before")
+    @field_validator("srag_years", "baseline_years", mode="before")
     @classmethod
     def _parse_years(cls, value: object) -> object:
-        """Aceita `SRAG_YEARS=2025,2026` alem da forma lista nativa.
+        """Aceita `SRAG_YEARS=2025,2026` (e `BASELINE_YEARS`) alem da lista nativa.
 
         Raises:
             ValueError: se algum item nao for um ano inteiro.
@@ -130,8 +185,39 @@ class Settings(BaseSettings):
         return self.outputs_dir / "audit"
 
     @property
+    def history_dir(self) -> Path:
+        return self.outputs_dir / "history"
+
+    @property
+    def run_history_path(self) -> Path:
+        """Historico de execucoes: uma linha JSON por relatorio gerado.
+
+        Permite comparar a execucao corrente com a anterior de mesmo recorte
+        (variacao dos indicadores entre relatorios) e alimenta os alertas.
+        """
+        return self.history_dir / "runs.jsonl"
+
+    @property
     def docs_dir(self) -> Path:
         return PROJECT_ROOT / "docs"
+
+    @property
+    def reference_dir(self) -> Path:
+        """Dados de referencia externos, pequenos e versionados com o codigo.
+
+        Nao segue `DATA_ROOT` de proposito: populacao do IBGE e cobertura
+        vacinal sao insumo do calculo, nao artefato de execucao, e precisam
+        acompanhar a versao do codigo que os interpreta.
+        """
+        return PROJECT_ROOT / "data" / "reference"
+
+    @property
+    def population_reference_file(self) -> Path:
+        return self.population_reference_path or (self.reference_dir / "populacao_uf.csv")
+
+    @property
+    def vaccination_reference_file(self) -> Path:
+        return self.vaccination_reference_path or (self.reference_dir / "cobertura_vacinal_uf.csv")
 
     @property
     def database_path(self) -> Path:
@@ -180,6 +266,7 @@ class Settings(BaseSettings):
             self.charts_dir,
             self.reports_dir,
             self.audit_dir,
+            self.history_dir,
         ):
             directory.mkdir(parents=True, exist_ok=True)
 

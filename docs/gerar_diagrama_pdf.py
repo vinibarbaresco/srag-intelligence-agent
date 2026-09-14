@@ -219,6 +219,8 @@ def build_diagram(output_path: Path) -> Path:
             "view srag_analytics: definicao unica",
             "  de caso, obito, UTI e vacinacao",
             "Conexao somente leitura",
+            "+ referencias: populacao IBGE (e",
+            "  cobertura SI-PNI, se fornecida)",
         ],
         stroke=ACCENT_DATA,
         fill=FILL_DATA,
@@ -302,7 +304,7 @@ def build_diagram(output_path: Path) -> Path:
 
     llm = draw_box(
         page,
-        Box(600, 498, 852, 604),
+        Box(600, 498, 852, 618),
         "7. LLM (OpenAI)",
         [
             "Usado para: planejar, selecionar tools,",
@@ -310,6 +312,7 @@ def build_diagram(output_path: Path) -> Path:
             "NUNCA para calcular numero.",
             "Porta `Interpreter`: adaptadores OpenAI e",
             "  deterministico; `Embedder`: OpenAI e hashing.",
+            "Revisor semantico independente da saida",
             "Fallback deterministico sem credencial",
             "(`--no-llm`), com a via registrada.",
         ],
@@ -347,8 +350,10 @@ def build_diagram(output_path: Path) -> Path:
             "outputs/charts/*.png",
             "",
             "Conteudo do relatorio:",
-            "  - 4 indicadores com numerador,",
-            "    denominador, periodo e fonte",
+            "  - 4 indicadores exigidos + 2 complementares",
+            "    (incidencia/100 mil, baseline sazonal)",
+            "  - alertas por limiar e variacao",
+            "    desde a execucao anterior",
             "  - 2 series temporais + 2 graficos",
             "  - interpretacao (INFERENCIA)",
             "  - noticias (CONTEXTO EXTERNO)",

@@ -79,6 +79,10 @@ class Interpreter(ABC):
             "planner": self.source,
         }
 
+    def usage_report(self) -> dict[str, Any] | None:
+        """Tokens consumidos e custo estimado; `None` quando nao ha modelo."""
+        return None
+
 
 class OpenAIInterpreter(Interpreter):
     """Planejamento e interpretacao via modelo da OpenAI."""
@@ -93,6 +97,21 @@ class OpenAIInterpreter(Interpreter):
             raise ValueError("OPENAI_API_KEY ausente.")
         self.source = f"openai:{self.model}"
         self._client = self._build_client()
+        self._usage = {"chamadas": 0, "tokens_entrada": 0, "tokens_saida": 0}
+
+    def _invoke(self, messages: list[tuple[str, str]]) -> Any:
+        """Chama o modelo e acumula o consumo de tokens informado na resposta."""
+        response = self._client.invoke(messages)
+        usage = getattr(response, "usage_metadata", None) or {}
+        self._usage["chamadas"] += 1
+        self._usage["tokens_entrada"] += int(usage.get("input_tokens", 0) or 0)
+        self._usage["tokens_saida"] += int(usage.get("output_tokens", 0) or 0)
+        return response
+
+    def usage_report(self) -> dict[str, Any] | None:
+        if not self._usage["chamadas"]:
+            return None
+        return estimate_cost(self._usage, self.model)
 
     def _build_client(self) -> Any:
         from langchain_openai import ChatOpenAI
@@ -128,7 +147,7 @@ class OpenAIInterpreter(Interpreter):
         )
 
         try:
-            response = self._client.invoke([("system", SYSTEM_PROMPT), ("human", prompt)])
+            response = self._invoke([("system", SYSTEM_PROMPT), ("human", prompt)])
             payload = _extract_json(str(response.content))
             return {
                 # O plano e registrado para auditoria; so nomes de tool sao
@@ -147,7 +166,7 @@ class OpenAIInterpreter(Interpreter):
         prompt = _INTERPRETATION_TEMPLATE.format(
             context=json.dumps(context, ensure_ascii=False, indent=2, default=str)
         )
-        response = self._client.invoke([("system", SYSTEM_PROMPT), ("human", prompt)])
+        response = self._invoke([("system", SYSTEM_PROMPT), ("human", prompt)])
         return str(response.content).strip()
 
 
@@ -179,6 +198,7 @@ class DeterministicNarrator(Interpreter):
         sections = [
             "### 1. Panorama geral",
             self._growth_paragraph(metrics.get("case_growth_rate"), series),
+            self._context_paragraph(metrics.get("incidence_rate"), metrics.get("seasonal_excess")),
             "",
             "### 2. Severidade e pressao assistencial",
             self._mortality_paragraph(metrics.get("mortality_rate")),
@@ -217,6 +237,42 @@ class DeterministicNarrator(Interpreter):
         if total is not None:
             text += f" No acumulado dos ultimos 12 meses foram {total} casos notificados."
         return text
+
+    def _context_paragraph(
+        self, incidence: dict[str, Any] | None, baseline: dict[str, Any] | None
+    ) -> str | None:
+        """Situa a janela: incidencia por habitante e posicao frente ao baseline."""
+        parts: list[str] = []
+        if incidence and incidence.get("value") is not None:
+            components = incidence.get("components", {})
+            parts.append(
+                f"Isso corresponde a {incidence['value']} casos notificados por 100 mil "
+                f"habitantes (populacao IBGE de "
+                f"{components.get('ano_da_estimativa_populacional')})."
+            )
+        if baseline and baseline.get("value") is not None:
+            components = baseline.get("components", {})
+            if baseline["value"] == 0:
+                position = "exatamente na mediana"
+            else:
+                direction = "acima" if baseline["value"] > 0 else "abaixo"
+                position = f"{abs(baseline['value'])}% {direction} da mediana"
+            parts.append(
+                f"Frente ao baseline sazonal, a janela esta {position} da mesma epoca em "
+                f"{len(components.get('anos_considerados') or [])} anos de referencia "
+                f"({_num(components.get('mediana_do_baseline'))} casos), o que "
+                + (
+                    "indica volume fora do padrao historico da estacao."
+                    if abs(baseline["value"]) >= 20
+                    else "e compativel com a sazonalidade esperada."
+                )
+            )
+        elif baseline and baseline.get("unavailable_reason"):
+            parts.append(
+                "A comparacao com o baseline sazonal nao esta disponivel: "
+                f"{baseline['unavailable_reason']}"
+            )
+        return " ".join(parts) if parts else None
 
     def _mortality_paragraph(self, metric: dict[str, Any] | None) -> str:
         if not metric:
@@ -275,7 +331,10 @@ class DeterministicNarrator(Interpreter):
         )
 
     def _news_paragraph(self, news: dict[str, Any]) -> str:
-        articles = news.get("articles") or []
+        # O contexto chega no formato "nao confiavel" (`_untrusted_news`), com a
+        # chave `noticias`; `articles` e aceito para chamadas diretas com o
+        # retorno bruto da tool.
+        articles = news.get("noticias") or news.get("articles") or []
         if not articles:
             return (
                 "Nenhuma noticia recente de fonte confiavel foi recuperada para o tema "
@@ -324,6 +383,49 @@ def get_interpreter(use_llm: bool = True) -> Interpreter:
             extra={"motivo": str(exc)},
         )
         return DeterministicNarrator()
+
+
+def estimate_cost(
+    usage: dict[str, int],
+    model: str,
+    *,
+    input_price: float | None = None,
+    output_price: float | None = None,
+) -> dict[str, Any]:
+    """Custo estimado de um consumo de tokens, com os precos configurados.
+
+    E uma ESTIMATIVA: usa os precos de lista definidos em `.env`
+    (`OPENAI_INPUT_PRICE_PER_1M_TOKENS`, `OPENAI_OUTPUT_PRICE_PER_1M_TOKENS`;
+    o revisor tem os seus proprios), nao a fatura. Serve para dar ordem de
+    grandeza por execucao e detectar crescimento de consumo entre versoes do
+    prompt.
+    """
+    settings = get_settings()
+    if input_price is None:
+        input_price = settings.openai_input_price_per_1m_tokens
+    if output_price is None:
+        output_price = settings.openai_output_price_per_1m_tokens
+    cost = (
+        usage["tokens_entrada"] / 1_000_000 * input_price
+        + usage["tokens_saida"] / 1_000_000 * output_price
+    )
+    return {
+        "modelo": model,
+        "chamadas": usage["chamadas"],
+        "tokens_entrada": usage["tokens_entrada"],
+        "tokens_saida": usage["tokens_saida"],
+        "tokens_total": usage["tokens_entrada"] + usage["tokens_saida"],
+        "custo_estimado_usd": round(cost, 6),
+        "precos_usd_por_1m_tokens": {"entrada": input_price, "saida": output_price},
+        "observacao": "estimativa com precos de lista configurados, nao a fatura",
+    }
+
+
+def _num(value: Any) -> Any:
+    """Escreve 21993.0 como 21993 sem alterar valores com casas decimais."""
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return value
 
 
 def _tool_names(value: Any) -> list[str]:

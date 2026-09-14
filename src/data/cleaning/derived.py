@@ -67,8 +67,6 @@ class DeriveSemanticFlags(CleaningRule):
 
         missing = sorted(set(DERIVED_SEMANTIC_COLUMNS) - set(frame.columns))
         if missing:  # pragma: no cover - erro de programacao, nao de dado
-            raise ValueError(
-                f"Regra de derivacao semantica nao produziu as colunas: {missing}"
-            )
+            raise ValueError(f"Regra de derivacao semantica nao produziu as colunas: {missing}")
 
         return frame

@@ -1,0 +1,16 @@
+{
+  "fonte": "IBGE - Populacao residente estimada (tabela 6579, variavel 9324)",
+  "url": "https://servicodados.ibge.gov.br/api/v3/agregados/6579/periodos/-3/variaveis/9324?localidades=N3[all]",
+  "agregado": "6579",
+  "variavel": "9324",
+  "periodo_solicitado": "-3",
+  "anos_obtidos": [
+    2024,
+    2025,
+    2026
+  ],
+  "obtido_em": "2026-09-14T04:15:04.149115+00:00",
+  "arquivo": "populacao_uf.csv",
+  "linhas": 81,
+  "sha256": "8ab1e5d02523cfc84bc0ec9b918bd97549119e29d32d780319c1f79d34824ed2"
+}

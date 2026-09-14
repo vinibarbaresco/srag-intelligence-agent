@@ -30,8 +30,8 @@ _EVIDENCE = build_evidence(
 
 
 class TestPoliticasDeclaradas:
-    def test_as_seis_politicas_estao_declaradas(self):
-        assert len(ALL_POLICIES) == 6
+    def test_as_sete_politicas_estao_declaradas(self):
+        assert len(ALL_POLICIES) == 7
         assert {policy.key for policy in ALL_POLICIES} == {
             "medical_advice",
             "sensitive_data",
@@ -39,6 +39,7 @@ class TestPoliticasDeclaradas:
             "no_arbitrary_sql",
             "news_never_overrides_data",
             "uncertainty",
+            "semantic_review",
         }
 
     def test_cada_politica_declara_onde_e_aplicada(self):

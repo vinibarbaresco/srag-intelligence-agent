@@ -66,6 +66,8 @@ class TestFluxoCompleto:
             "mortality_rate",
             "icu_admission_rate",
             "vaccination_coverage_among_cases",
+            "incidence_rate",
+            "seasonal_excess",
         }
         assert set(state["series"]) == {"daily_cases", "monthly_cases"}
         assert set(state["charts"]) == {"casos_diarios", "casos_mensais"}
@@ -129,7 +131,7 @@ class TestPlanejamento:
         state = _run(monkeypatch, FakeInterpreter("Texto.", selected=["get_daily_cases"]))
 
         assert "get_mortality_rate" in state["plan"]["effective_tools"]
-        assert len(state["metrics"]) == 4
+        assert len(state["metrics"]) == 6
 
     def test_plano_e_registrado_com_o_planejador(
         self, synthetic_database, sem_noticias, monkeypatch
@@ -190,7 +192,7 @@ class TestGuardrailsNoFluxo:
         self, synthetic_database, sem_noticias, monkeypatch
     ):
         state = _run(monkeypatch, DeterministicNarrator())
-        assert len(state["guardrail_report"]["politicas_ativas"]) == 6
+        assert len(state["guardrail_report"]["politicas_ativas"]) == 7
 
 
 class TestDegradacaoDeNoticias:
@@ -403,7 +405,7 @@ class TestFalhasDoModeloEDosNos:
             monkeypatch.setattr(metric_tools.epidemiology, "mortality_rate", original)
 
         assert "mortality_rate" not in state["metrics"]
-        assert len(state["metrics"]) == 3
+        assert len(state["metrics"]) == 5
         assert any("mortalidade indisponivel" in erro for erro in state["errors"])
         texto = render_markdown(dict(state))
         assert "nao executado" in texto

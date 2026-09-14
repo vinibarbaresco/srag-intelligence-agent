@@ -71,8 +71,7 @@ class DeriveAge(CleaningRule):
         frame["idade_anos"] = age_in_years(frame["NU_IDADE_N"], frame["TP_IDADE"])
 
         implausible = frame["idade_anos"].notna() & (
-            (frame["idade_anos"] < MIN_PLAUSIBLE_AGE)
-            | (frame["idade_anos"] > MAX_PLAUSIBLE_AGE)
+            (frame["idade_anos"] < MIN_PLAUSIBLE_AGE) | (frame["idade_anos"] > MAX_PLAUSIBLE_AGE)
         )
         context.report.age_out_of_range += int(implausible.sum())
         context.adjustments.add("idade_anulada", implausible)

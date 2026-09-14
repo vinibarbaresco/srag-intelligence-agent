@@ -1,0 +1,21 @@
+# Segredos nunca entram na imagem.
+.env
+*.key
+
+# Dados brutos, processados e artefatos: montados como volume, nao copiados.
+data/raw
+data/processed
+data/analytics
+outputs
+
+# Ambiente de desenvolvimento.
+.git
+.github
+.venv
+venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache
+.claude
+tests

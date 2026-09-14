@@ -18,13 +18,14 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
 
 import duckdb
 
 from src.config import get_settings
+from src.data.reference.tables import load_reference_tables
 from src.data.schema import DENIED_COLUMNS, DERIVED_SEMANTIC_COLUMNS
 from src.observability.logging_config import configure_logging, get_logger
 
@@ -92,7 +93,9 @@ CREATE TABLE IF NOT EXISTS {TABLE_AUDIT} (
 
 
 @contextmanager
-def connect(read_only: bool = True, path: Path | None = None) -> Iterator[duckdb.DuckDBPyConnection]:
+def connect(
+    read_only: bool = True, path: Path | None = None
+) -> Iterator[duckdb.DuckDBPyConnection]:
     """Abre uma conexao com o banco analitico.
 
     Args:
@@ -142,18 +145,20 @@ def load_database(parquet_path: Path | None = None, database_path: Path | None =
 
     if not source.exists():
         raise FileNotFoundError(
-            f"Camada processada nao encontrada em {source}. Execute: "
-            "python -m src.data.preprocess"
+            f"Camada processada nao encontrada em {source}. Execute: python -m src.data.preprocess"
         )
 
     with connect(read_only=False, path=target) as connection:
         connection.execute(
-            f"CREATE OR REPLACE TABLE {TABLE_CASES} AS "
-            "SELECT * FROM read_parquet(?)",
+            f"CREATE OR REPLACE TABLE {TABLE_CASES} AS SELECT * FROM read_parquet(?)",
             [str(source)],
         )
         connection.execute(_ANALYTICS_VIEW_SQL)
         connection.execute(_AUDIT_TABLE_SQL)
+        # Referencias externas (populacao IBGE, cobertura vacinal SI-PNI) entram
+        # como tabelas proprias: ausencia vira tabela vazia, que a metrica
+        # traduz em "nao calculavel" com o motivo.
+        references = load_reference_tables(connection)
 
         columns = [row[0] for row in connection.execute(f"DESCRIBE {TABLE_CASES}").fetchall()]
         violations = sorted(set(columns) & set(DENIED_COLUMNS))
@@ -182,6 +187,7 @@ def load_database(parquet_path: Path | None = None, database_path: Path | None =
             "linhas_tabela": total,
             "linhas_view_analitica": analytic,
             "linhas_excluidas_da_view": total - analytic,
+            "referencias": references,
         },
     )
     return target

@@ -7,6 +7,7 @@ Fluxo linear e explicito, sem loops:
       -> (recusado) END | collect_epidemiological_metrics
       -> collect_time_series
       -> search_external_news
+      -> evaluate_alerts
       -> validate_evidence
       -> generate_interpretation
       -> generate_report
@@ -28,6 +29,7 @@ from src.agent.nodes import (
     GraphContext,
     make_collect_metrics,
     make_collect_series,
+    make_evaluate_alerts,
     make_generate_interpretation,
     make_search_news,
     make_validate_evidence,
@@ -39,6 +41,7 @@ NODE_VALIDATE_REQUEST = "validate_request"
 NODE_COLLECT_METRICS = "collect_epidemiological_metrics"
 NODE_COLLECT_SERIES = "collect_time_series"
 NODE_SEARCH_NEWS = "search_external_news"
+NODE_EVALUATE_ALERTS = "evaluate_alerts"
 NODE_VALIDATE_EVIDENCE = "validate_evidence"
 NODE_INTERPRETATION = "generate_interpretation"
 NODE_REPORT = "generate_report"
@@ -49,6 +52,7 @@ NODE_SEQUENCE: tuple[str, ...] = (
     NODE_COLLECT_METRICS,
     NODE_COLLECT_SERIES,
     NODE_SEARCH_NEWS,
+    NODE_EVALUATE_ALERTS,
     NODE_VALIDATE_EVIDENCE,
     NODE_INTERPRETATION,
     NODE_REPORT,
@@ -85,6 +89,7 @@ def build_graph(
     graph.add_node(NODE_COLLECT_METRICS, make_collect_metrics(context))
     graph.add_node(NODE_COLLECT_SERIES, make_collect_series(context))
     graph.add_node(NODE_SEARCH_NEWS, make_search_news(context))
+    graph.add_node(NODE_EVALUATE_ALERTS, make_evaluate_alerts(context))
     graph.add_node(NODE_VALIDATE_EVIDENCE, make_validate_evidence(context))
     graph.add_node(NODE_INTERPRETATION, make_generate_interpretation(context))
     graph.add_node(NODE_REPORT, report_node)
@@ -97,7 +102,8 @@ def build_graph(
     )
     graph.add_edge(NODE_COLLECT_METRICS, NODE_COLLECT_SERIES)
     graph.add_edge(NODE_COLLECT_SERIES, NODE_SEARCH_NEWS)
-    graph.add_edge(NODE_SEARCH_NEWS, NODE_VALIDATE_EVIDENCE)
+    graph.add_edge(NODE_SEARCH_NEWS, NODE_EVALUATE_ALERTS)
+    graph.add_edge(NODE_EVALUATE_ALERTS, NODE_VALIDATE_EVIDENCE)
     graph.add_edge(NODE_VALIDATE_EVIDENCE, NODE_INTERPRETATION)
     graph.add_edge(NODE_INTERPRETATION, NODE_REPORT)
     graph.add_edge(NODE_REPORT, END)

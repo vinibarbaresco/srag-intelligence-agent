@@ -13,17 +13,21 @@ devolve zero no lugar de "nao calculavel".
 
 from __future__ import annotations
 
+import statistics
 from datetime import date, timedelta
 from typing import Any
 
 from src.config import get_settings
 from src.data.load_database import VIEW_ANALYTICS
+from src.data.reference.tables import TABLE_POPULATION, TABLE_VACCINATION
 from src.metrics.definitions import (
     CASE_GROWTH_RATE,
     ICU_ADMISSION_RATE,
     ICU_BED_OCCUPANCY_RATE,
+    INCIDENCE_RATE,
     MORTALITY_RATE,
     POPULATION_VACCINATION_COVERAGE,
+    SEASONAL_BASELINE,
     VACCINATION_COVERAGE,
     MetricDefinition,
     MetricResult,
@@ -648,11 +652,9 @@ def vaccination_metrics(
             "cobertura_declarada_pct": _ratio(flu_yes, flu_known) if flu_known else None,
             "completude_da_informacao_pct": _ratio(flu_known, total) if total else None,
         },
-        "taxa_de_vacinacao_da_populacao": {
-            "value": None,
-            "unavailable_reason": POPULATION_VACCINATION_COVERAGE.not_computable_reason,
-            "limitations": list(POPULATION_VACCINATION_COVERAGE.limitations),
-        },
+        "taxa_de_vacinacao_da_populacao": population_vaccination_coverage(
+            connection, filters, cutoff.year
+        ),
         "data_corte_analitica": cutoff.isoformat(),
     }
 
@@ -678,4 +680,328 @@ def vaccination_metrics(
         definition=VACCINATION_COVERAGE,
         components=components,
         records_used=total,
+    )
+
+
+def population_vaccination_coverage(
+    connection: Any, filters: AnalyticFilters, year: int
+) -> dict[str, Any]:
+    """Cobertura vacinal da populacao, a partir da referencia externa do SI-PNI.
+
+    Devolve um bloco por campanha (`influenza`, `covid19`) com valor, numerador,
+    denominador, ano e fonte -- ou `value: None` com o motivo quando a
+    referencia nao foi fornecida. A classificacao final nao recorta este bloco:
+    cobertura vacinal e atributo da populacao, nao dos casos.
+    """
+    unavailable = {
+        "value": None,
+        "unavailable_reason": (
+            "Referencia de doses aplicadas (SI-PNI) nao fornecida em "
+            "data/reference/cobertura_vacinal_uf.csv. O SIVEP-Gripe so contem a "
+            "informacao vacinal de pessoas notificadas com SRAG, que nao representa "
+            "a populacao; sem a referencia externa o indicador nao e calculavel."
+        ),
+        "limitations": list(POPULATION_VACCINATION_COVERAGE.limitations),
+        "definition": POPULATION_VACCINATION_COVERAGE.definition,
+    }
+
+    row = connection.execute(
+        f"SELECT ano FROM {TABLE_VACCINATION} ORDER BY abs(ano - ?) LIMIT 1", [year]
+    ).fetchone()
+    if row is None:
+        return unavailable
+    reference_year = int(row[0])
+
+    uf_clause, uf_parameters = ("uf = ?", [filters.uf]) if filters.uf else ("TRUE", [])
+    rows = connection.execute(
+        f"""
+        SELECT campanha, sum(doses_aplicadas), sum(populacao_alvo),
+               count(*) FILTER (WHERE populacao_alvo IS NULL),
+               string_agg(DISTINCT fonte, '; ')
+        FROM {TABLE_VACCINATION}
+        WHERE ano = ? AND {uf_clause}
+        GROUP BY campanha
+        """,
+        [reference_year, *uf_parameters],
+    ).fetchall()
+    if not rows:
+        return {**unavailable, "ano_da_referencia": reference_year}
+
+    population, population_year = _reference_population(connection, filters, reference_year)
+    campaigns: dict[str, Any] = {}
+    for campaign, doses, target, without_target, source in rows:
+        doses = int(doses or 0)
+        if target is not None and int(without_target) == 0:
+            denominator, denominator_label = int(target), "populacao-alvo da campanha (SI-PNI)"
+        elif population:
+            denominator = population
+            denominator_label = f"populacao residente total (IBGE {population_year})"
+        else:
+            campaigns[campaign] = {
+                "value": None,
+                "unavailable_reason": (
+                    "Sem populacao-alvo na referencia e sem populacao do IBGE carregada."
+                ),
+            }
+            continue
+        campaigns[campaign] = {
+            "value": _ratio(doses, denominator) if denominator else None,
+            "numerator": doses,
+            "denominator": denominator,
+            "denominador_descricao": denominator_label,
+            "fonte": source,
+        }
+
+    return {
+        "ano_da_referencia": reference_year,
+        "campanhas": campaigns,
+        "definition": POPULATION_VACCINATION_COVERAGE.definition,
+        "limitations": list(POPULATION_VACCINATION_COVERAGE.limitations),
+        "source": POPULATION_VACCINATION_COVERAGE.source,
+    }
+
+
+# =============================================================================
+# Indicador complementar -- Incidencia por 100 mil habitantes
+# =============================================================================
+
+
+def _reference_population(
+    connection: Any, filters: AnalyticFilters, year: int
+) -> tuple[int | None, int | None]:
+    """Populacao de referencia (IBGE) para o recorte, no ano mais proximo.
+
+    Returns:
+        Par `(populacao, ano_usado)`; `(None, None)` quando a tabela de referencia
+        esta vazia -- a referencia nao foi carregada.
+    """
+    row = connection.execute(
+        f"SELECT ano FROM {TABLE_POPULATION} ORDER BY abs(ano - ?) LIMIT 1", [year]
+    ).fetchone()
+    if row is None:
+        return None, None
+    reference_year = int(row[0])
+
+    if filters.uf is not None:
+        population = connection.execute(
+            f"SELECT sum(populacao) FROM {TABLE_POPULATION} WHERE ano = ? AND uf = ?",
+            [reference_year, filters.uf],
+        ).fetchone()[0]
+    else:
+        population = connection.execute(
+            f"SELECT sum(populacao) FROM {TABLE_POPULATION} WHERE ano = ?", [reference_year]
+        ).fetchone()[0]
+    return (int(population) if population else None), reference_year
+
+
+def incidence_rate(
+    connection: Any,
+    filters: AnalyticFilters | None = None,
+    window_days: int | None = None,
+) -> MetricResult:
+    """Casos notificados por 100 mil habitantes na janela analisada.
+
+    O denominador vem da tabela `populacao_uf` (estimativa do IBGE carregada em
+    `data/reference/`). A classificacao final recorta o numerador, nao o
+    denominador: a incidencia de covid-19 continua sendo por habitante.
+    """
+    filters = filters or AnalyticFilters()
+    start, cutoff, window = _analysis_window(connection, window_days)
+
+    clause, parameters = filters.where_clause()
+    cases = int(
+        connection.execute(
+            f"""
+            SELECT count(*) FROM {VIEW_ANALYTICS}
+            WHERE data_sintomas BETWEEN ? AND ? AND {clause}
+            """,
+            [start, cutoff, *parameters],
+        ).fetchone()[0]
+    )
+    population, reference_year = _reference_population(connection, filters, cutoff.year)
+
+    period = _period(start, cutoff, f"ultimos {window} dias ate a data de corte analitica")
+    components = {
+        "casos_na_janela": cases,
+        # A escala e parte do resultado: sem ela, "por 100 mil habitantes" na
+        # redacao seria um numero sem lastro para o guardrail de evidencia.
+        "escala": {"por_habitantes": 100_000, "em_milhares": 100},
+        "populacao_de_referencia": population,
+        "ano_da_estimativa_populacional": reference_year,
+        "fonte_da_populacao": "IBGE - populacao residente estimada (tabela 6579)",
+        "data_corte_analitica": cutoff.isoformat(),
+    }
+
+    if population is None:
+        return _unavailable(
+            INCIDENCE_RATE,
+            "Referencia populacional do IBGE nao carregada no banco analitico. "
+            "Execute `python -m src.data.reference.population` e recarregue a base.",
+            period=period,
+            filters=filters,
+            numerator=cases,
+            denominator=None,
+            components=components,
+        )
+
+    return MetricResult(
+        metric=INCIDENCE_RATE.key,
+        value=round(cases / population * 100_000, _PERCENT_DECIMALS),
+        numerator=cases,
+        denominator=population,
+        period=period,
+        filters=filters.to_dict(),
+        definition=INCIDENCE_RATE,
+        components=components,
+        records_used=cases,
+    )
+
+
+# =============================================================================
+# Indicador complementar -- Baseline sazonal
+# =============================================================================
+
+#: Anos excluidos do baseline por definicao, com o motivo publicado.
+PANDEMIC_YEARS: tuple[int, ...] = (2020, 2021)
+
+
+def _shift_year(day: date, delta_years: int) -> date:
+    """Move a data `delta_years` anos, preservando mes e dia (29/02 vira 28/02)."""
+    target_year = day.year + delta_years
+    try:
+        return day.replace(year=target_year)
+    except ValueError:
+        return day.replace(year=target_year, day=28)
+
+
+def _years_present(connection: Any, years: list[int]) -> list[int]:
+    """Anos de baseline que tem ao menos um caso na base analitica."""
+    if not years:
+        return []
+    placeholders = ", ".join("?" for _ in years)
+    rows = connection.execute(
+        f"""
+        SELECT DISTINCT year(data_sintomas)
+        FROM {VIEW_ANALYTICS}
+        WHERE year(data_sintomas) IN ({placeholders})
+        """,
+        years,
+    ).fetchall()
+    return sorted(int(row[0]) for row in rows)
+
+
+def seasonal_baseline(
+    connection: Any,
+    filters: AnalyticFilters | None = None,
+    window_days: int | None = None,
+) -> MetricResult:
+    """Compara a janela atual com a mesma janela de calendario em anos anteriores.
+
+    A referencia e a **mediana** dos anos de baseline presentes na base, menos
+    sensivel a um ano atipico do que a media. Os anos configurados, os presentes,
+    os ausentes e os excluidos por definicao sao todos publicados nos
+    componentes: o leitor sabe exatamente contra o que a janela foi comparada.
+    """
+    filters = filters or AnalyticFilters()
+    settings = get_settings()
+    start, cutoff, window = _analysis_window(connection, window_days)
+
+    configured = sorted(set(settings.baseline_years) - set(PANDEMIC_YEARS))
+    excluded_by_config = sorted(set(settings.baseline_years) & set(PANDEMIC_YEARS))
+    present = [year for year in _years_present(connection, configured) if year < cutoff.year]
+    absent = sorted(set(configured) - set(present))
+
+    clause, parameters = filters.where_clause()
+
+    def count_between(first: date, last: date) -> int:
+        return int(
+            connection.execute(
+                f"""
+                SELECT count(*) FROM {VIEW_ANALYTICS}
+                WHERE data_sintomas BETWEEN ? AND ? AND {clause}
+                """,
+                [first, last, *parameters],
+            ).fetchone()[0]
+        )
+
+    current = count_between(start, cutoff)
+    by_year: dict[str, dict[str, Any]] = {}
+    for year in present:
+        delta = year - cutoff.year
+        first, last = _shift_year(start, delta), _shift_year(cutoff, delta)
+        by_year[str(year)] = {
+            "inicio": first.isoformat(),
+            "fim": last.isoformat(),
+            "casos": count_between(first, last),
+        }
+
+    counts = sorted(item["casos"] for item in by_year.values())
+    median = statistics.median(counts) if counts else None
+    mean = round(statistics.fmean(counts), 1) if counts else None
+
+    period = _period(
+        start,
+        cutoff,
+        f"janela atual de {window} dias comparada a mesma janela de calendario em "
+        f"{len(present)} ano(s) de baseline",
+    )
+    components = {
+        "casos_na_janela_atual": current,
+        "mediana_do_baseline": median,
+        "media_do_baseline": mean,
+        "casos_por_ano_de_baseline": by_year,
+        "anos_configurados": sorted(settings.baseline_years),
+        "anos_considerados": present,
+        "anos_ausentes_na_base": absent,
+        "anos_excluidos_por_definicao": {
+            "anos": list(PANDEMIC_YEARS),
+            "motivo": (
+                "anos pandemicos de covid-19: volume de SRAG fora de qualquer padrao "
+                "sazonal, incompativel com um baseline"
+            ),
+            "estavam_na_configuracao": excluded_by_config,
+        },
+        "minimo_de_anos_exigido": settings.baseline_min_years,
+        "razao_atual_sobre_mediana": (
+            round(current / median, 3) if median not in (None, 0) else None
+        ),
+        "data_corte_analitica": cutoff.isoformat(),
+    }
+
+    if len(present) < settings.baseline_min_years:
+        return _unavailable(
+            SEASONAL_BASELINE,
+            f"Apenas {len(present)} ano(s) de baseline presente(s) na base "
+            f"({present or 'nenhum'}); o minimo configurado e "
+            f"{settings.baseline_min_years}. Carregue mais anos com "
+            "`python main.py --setup --years ...` para habilitar a comparacao sazonal.",
+            period=period,
+            filters=filters,
+            numerator=None,
+            denominator=None,
+            components=components,
+        )
+
+    if not median:
+        return _unavailable(
+            SEASONAL_BASELINE,
+            "A mediana do baseline e zero: nao ha casos na mesma janela dos anos "
+            "de referencia, e a variacao percentual e indefinida.",
+            period=period,
+            filters=filters,
+            numerator=current,
+            denominator=0,
+            components=components,
+        )
+
+    return MetricResult(
+        metric=SEASONAL_BASELINE.key,
+        value=round((current - median) / median * 100, _PERCENT_DECIMALS),
+        numerator=int(round(current - median)),
+        denominator=int(round(median)),
+        period=period,
+        filters=filters.to_dict(),
+        definition=SEASONAL_BASELINE,
+        components=components,
+        records_used=current + sum(counts),
     )

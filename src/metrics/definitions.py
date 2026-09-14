@@ -300,25 +300,89 @@ POPULATION_VACCINATION_COVERAGE = MetricDefinition(
     key="population_vaccination_coverage",
     name="Taxa de vacinacao da populacao",
     definition=(
-        "Proporcao da populacao de referencia com esquema vacinal completo: "
-        "pessoas vacinadas / populacao total x 100."
+        "Doses aplicadas na campanha (referencia externa SI-PNI, por UF e ano) "
+        "sobre a populacao-alvo da campanha -- ou, na ausencia dela, sobre a "
+        "populacao residente estimada pelo IBGE -- x 100."
     ),
-    numerator="pessoas vacinadas na populacao de referencia",
-    denominator="populacao total de referencia",
+    numerator="doses aplicadas na campanha, na UF e no ano de referencia (SI-PNI)",
+    denominator="populacao-alvo da campanha ou populacao residente (IBGE)",
     fields=(),
-    period="nao aplicavel",
-    missing_data_handling="nao aplicavel",
-    limitations=(
-        "O dataset SRAG cobre apenas pessoas que adoeceram e foram notificadas; "
-        "nao ha qualquer denominador populacional.",
-        "O calculo exigiria integrar SI-PNI (doses aplicadas) e estimativas populacionais do IBGE.",
+    period="ano de referencia da campanha mais proximo da data de corte analitica",
+    missing_data_handling=(
+        "Sem o arquivo de referencia de doses aplicadas, o indicador e declarado "
+        "nao calculavel com o motivo. Nunca e estimado a partir dos casos."
     ),
-    not_computable_reason=(
-        "Nao e possivel calcular a taxa de vacinacao da populacao com os dados "
-        "disponiveis: o SIVEP-Gripe so contem informacao vacinal de pessoas "
-        "notificadas com SRAG, o que nao representa a populacao geral. Como "
-        "aproximacao, e reportada a cobertura vacinal declarada entre os casos "
-        "notificados, com o viés de selecao explicitado."
+    limitations=(
+        "O SIVEP-Gripe nao contem este dado: numerador e denominador vem de "
+        "fontes externas (SI-PNI e IBGE), com sua propria defasagem.",
+        "Doses aplicadas sao um proxy de pessoas vacinadas; em campanhas de dose "
+        "unica (influenza) a aproximacao e boa, em esquemas de multiplas doses "
+        "(covid-19) ela superestima a cobertura.",
+        "Quando nao ha populacao-alvo informada, o denominador e a populacao "
+        "total, o que subestima a cobertura do publico-alvo.",
+    ),
+    source="SI-PNI (doses aplicadas) e IBGE (populacao), via data/reference/",
+)
+
+
+# =============================================================================
+# Indicadores complementares -- incidencia e baseline sazonal
+# =============================================================================
+
+INCIDENCE_RATE = MetricDefinition(
+    key="incidence_rate",
+    name="Incidencia de SRAG notificada por 100 mil habitantes",
+    definition=(
+        "Casos de SRAG com primeiros sintomas na janela analisada, por 100 mil "
+        "habitantes: casos / populacao residente estimada (IBGE) x 100.000."
+    ),
+    numerator="casos com DT_SIN_PRI na janela analisada",
+    denominator="populacao residente estimada (IBGE) da UF ou do Brasil, no ano mais proximo",
+    fields=("DT_SIN_PRI", "SG_UF_NOT"),
+    period="ultimos GROWTH_WINDOW_DAYS dias ate a data de corte analitica",
+    missing_data_handling=(
+        "Sem a referencia populacional carregada, o indicador e declarado nao "
+        "calculavel; nunca se usa um denominador aproximado."
+    ),
+    limitations=(
+        "Incidencia de casos NOTIFICADOS de SRAG (majoritariamente hospitalizados), "
+        "nao de infeccao respiratoria na populacao.",
+        "A populacao e a estimativa anual do IBGE mais proxima da data de corte; "
+        "o ano usado e publicado junto do indicador.",
+        "Permite comparar UFs de tamanhos diferentes, o que a contagem absoluta nao permite.",
+        _REPORTING_LAG_NOTE,
+    ),
+    unit="por 100 mil hab.",
+    source=f"{DATASUS_SOURCE_LABEL} (casos) e IBGE (populacao)",
+)
+
+SEASONAL_BASELINE = MetricDefinition(
+    key="seasonal_excess",
+    name="Excesso de casos sobre o baseline sazonal",
+    definition=(
+        "Variacao percentual dos casos da janela atual em relacao a MEDIANA dos "
+        "casos observados na mesma janela de calendario nos anos de baseline: "
+        "(casos_atuais - mediana_baseline) / mediana_baseline x 100."
+    ),
+    numerator="casos na janela atual menos a mediana dos anos de baseline na mesma janela",
+    denominator="mediana dos casos na mesma janela de calendario nos anos de baseline",
+    fields=("DT_SIN_PRI",),
+    period="janela atual e a mesma janela (mes/dia) em cada ano de BASELINE_YEARS",
+    missing_data_handling=(
+        "Anos de baseline sem nenhum caso na base sao considerados ausentes e "
+        "excluidos; com menos de BASELINE_MIN_YEARS anos presentes o indicador e "
+        "declarado nao calculavel."
+    ),
+    limitations=(
+        "2020 e 2021 ficam fora do baseline por padrao: a pandemia de covid-19 "
+        "multiplicou as notificacoes de SRAG e um baseline que os incluisse "
+        "rotularia qualquer ano normal como 'abaixo do esperado'.",
+        "Mede se a janela atual esta acima ou abaixo do padrao historico da mesma "
+        "epoca do ano -- e o que distingue surto de sazonalidade. A taxa de aumento "
+        "de casos, que compara janelas consecutivas, nao faz essa distincao.",
+        "Mudancas de criterio de notificacao e de cobertura da vigilancia entre os "
+        "anos afetam a comparacao; os anos efetivamente usados sao publicados.",
+        _REPORTING_LAG_NOTE,
     ),
 )
 
@@ -371,6 +435,8 @@ ALL_DEFINITIONS: Final[tuple[MetricDefinition, ...]] = (
     ICU_PATIENT_CENSUS,
     VACCINATION_COVERAGE,
     POPULATION_VACCINATION_COVERAGE,
+    INCIDENCE_RATE,
+    SEASONAL_BASELINE,
     DAILY_CASES,
     MONTHLY_CASES,
 )

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import pytest
 
+from src.config import get_settings, reset_settings_cache
+from src.metrics import epidemiology
 from src.metrics.definitions import DEFINITIONS_BY_KEY
 from src.metrics.epidemiology import (
     case_growth_rate,
@@ -179,7 +181,7 @@ class TestVacinacao:
             "taxa_de_vacinacao_da_populacao"
         ]
         assert population["value"] is None
-        assert "populacao geral" in population["unavailable_reason"]
+        assert "nao representa a populacao" in population["unavailable_reason"]
 
 
 class TestFiltros:
@@ -262,3 +264,95 @@ class TestViesDaLetalidade:
     def test_limitacao_declara_a_direcao_do_vies(self):
         limitations = " ".join(DEFINITIONS_BY_KEY["mortality_rate"].limitations)
         assert "SUPERESTIMADA" in limitations
+
+
+class TestIncidencia:
+    def test_incidencia_nacional_usa_populacao_total(self, connection):
+        result = epidemiology.incidence_rate(connection)
+        # 151 casos (150 SP + 1 RJ) sobre 40 milhoes de habitantes.
+        assert result.numerator == 151
+        assert result.denominator == 40_000_000
+        assert result.value == pytest.approx(0.38)
+        assert result.components["ano_da_estimativa_populacional"] == 2026
+
+    def test_incidencia_por_uf_usa_populacao_da_uf(self, connection):
+        result = epidemiology.incidence_rate(connection, SP)
+        assert result.numerator == 150
+        assert result.denominator == 10_000_000
+        assert result.value == pytest.approx(1.5)
+
+    def test_sem_referencia_populacional_declara_indisponibilidade(self, tmp_path):
+        import duckdb
+
+        from src.data.reference.tables import TABLE_POPULATION
+
+        # Banco com a view analitica mas com a tabela de populacao vazia.
+        source = duckdb.connect(str(get_settings().database_path), read_only=True)
+        try:
+            frame = source.execute("SELECT * FROM srag_analytics").df()
+        finally:
+            source.close()
+        isolated = duckdb.connect(str(tmp_path / "isolado.duckdb"))
+        try:
+            isolated.register("frame", frame)
+            isolated.execute("CREATE VIEW srag_analytics AS SELECT * FROM frame")
+            isolated.execute(
+                f"CREATE TABLE {TABLE_POPULATION} (uf VARCHAR, ano INTEGER, populacao BIGINT)"
+            )
+            result = epidemiology.incidence_rate(isolated)
+        finally:
+            isolated.close()
+
+        assert result.value is None
+        assert "populacional" in result.unavailable_reason
+        assert result.numerator == 151  # o numerador continua publicado
+
+
+class TestBaselineSazonal:
+    def test_excesso_nacional_frente_a_mediana(self, connection):
+        result = epidemiology.seasonal_baseline(connection)
+        assert result.components["casos_na_janela_atual"] == 151
+        assert result.components["mediana_do_baseline"] == 150
+        assert result.value == pytest.approx(0.67)
+        assert result.components["anos_considerados"] == [2023, 2024]
+        assert result.components["anos_ausentes_na_base"] == [2022]
+
+    def test_recorte_por_uf_compara_com_a_mesma_uf(self, connection):
+        result = epidemiology.seasonal_baseline(connection, SP)
+        assert result.value == pytest.approx(0.0)
+        assert result.components["casos_por_ano_de_baseline"]["2023"]["casos"] == 180
+        assert result.components["casos_por_ano_de_baseline"]["2024"]["casos"] == 120
+
+    def test_janela_comparada_preserva_mes_e_dia(self, connection):
+        result = epidemiology.seasonal_baseline(connection)
+        current = result.period
+        compared = result.components["casos_por_ano_de_baseline"]["2024"]
+        assert compared["inicio"][5:] == current["inicio"][5:]
+        assert compared["fim"][5:] == current["fim"][5:]
+
+    def test_anos_pandemicos_nunca_entram(self, connection, monkeypatch):
+        monkeypatch.setenv("BASELINE_YEARS", "2020,2021,2023,2024")
+        reset_settings_cache()
+        try:
+            result = epidemiology.seasonal_baseline(connection)
+        finally:
+            monkeypatch.undo()
+            reset_settings_cache()
+        assert result.components["anos_considerados"] == [2023, 2024]
+        assert result.components["anos_excluidos_por_definicao"]["estavam_na_configuracao"] == [
+            2020,
+            2021,
+        ]
+
+    def test_poucos_anos_presentes_declara_indisponibilidade(self, connection, monkeypatch):
+        monkeypatch.setenv("BASELINE_MIN_YEARS", "3")
+        reset_settings_cache()
+        try:
+            result = epidemiology.seasonal_baseline(connection)
+        finally:
+            monkeypatch.undo()
+            reset_settings_cache()
+        assert result.value is None
+        assert "2 ano(s) de baseline" in result.unavailable_reason
+        # Os componentes continuam publicados: o leitor ve o que existe.
+        assert result.components["anos_considerados"] == [2023, 2024]
