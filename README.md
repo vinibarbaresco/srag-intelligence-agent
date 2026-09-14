@@ -1,5 +1,9 @@
 # Indicium HealthCare — SRAG Intelligence Agent
 
+[![CI](https://github.com/vinibarbaresco/srag-intelligence-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/vinibarbaresco/srag-intelligence-agent/actions/workflows/ci.yml)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
+[![Ruff](https://img.shields.io/badge/lint-ruff-261230.svg)](https://docs.astral.sh/ruff/)
+
 Agente de monitoramento epidemiológico de **Síndrome Respiratória Aguda Grave (SRAG)** sobre dados
 reais do Open DATASUS. Prova de conceito com orquestração em LangGraph, cálculo determinístico em
 SQL, busca semântica de notícias, guardrails explícitos e trilha de auditoria por execução.
@@ -461,6 +465,26 @@ python -m ruff check .
 A suíte roda sobre uma **base sintética de valores conhecidos**, montada em diretório temporário:
 não exige os 603 MB nem acesso à rede, e permite afirmar resultados exatos — inclusive os casos de
 borda que raramente aparecem em volume suficiente na base real.
+
+### Integração contínua
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) roda a cada push e em toda pull request
+para `main`:
+
+| Verificação | O que impede |
+|---|---|
+| `ruff check` | Código fora do padrão do projeto |
+| `ruff format --check` | Formatação divergente |
+| `pytest` | Regressão em qualquer das 215 asserções |
+| Documentação regenerada | Que uma definição de métrica, regra de limpeza ou guardrail mude sem que a documentação acompanhe |
+
+A última é a menos óbvia e a mais útil: os documentos em `docs/` são gerados do código, então o CI
+os regenera e falha se o resultado divergir do que está commitado. Por isso eles **não carregam
+data de geração** — seriam irreprodutíveis, e a verificação falharia todo dia sem que nada tivesse
+mudado.
+
+Como a suíte é hermética, o CI não precisa de segredo nem do dataset, e não fica sujeito à
+instabilidade do DATASUS ou dos feeds de notícias. Execução completa em cerca de 1 minuto.
 
 | Arquivo | Cobre |
 |---|---|
