@@ -326,12 +326,11 @@ DATASUS_SOURCE_LABEL = "Open DATASUS / SIVEP-Gripe (SRAG 2019-2026)"
 # Formato do arquivo bruto, verificado na fonte em 2026-09.
 RAW_CSV_SEPARATOR = ";"
 
-#: Encoding de ultimo recurso. O encoding real e **detectado por arquivo** em
-#: `src/data/encoding.py`, porque ele nao e estavel entre safras do DATASUS:
-#: as publicacoes recentes sao UTF-8 e as antigas, latin-1. Esta constante e
-#: apenas o fallback, mantida aqui para quem precise ler um CSV fora do
-#: pipeline; a carga nao a consulta.
-RAW_CSV_ENCODING = "latin-1"
+# O encoding NAO e uma constante: ele nao e estavel entre safras do DATASUS
+# (as publicacoes recentes sao UTF-8, as antigas latin-1) e e detectado por
+# arquivo em `src/data/encoding.py`, que tambem declara o fallback. Fixa-lo
+# aqui foi o defeito corrigido em D-01, e uma constante sem uso so convidaria
+# a reintroduzi-lo.
 
 # Nenhuma data anterior a esta e considerada valida (inicio da serie SIVEP-Gripe
 # publicada neste dataset).

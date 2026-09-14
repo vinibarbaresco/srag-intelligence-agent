@@ -139,3 +139,36 @@ class TestRegistroDeArquivoLocal:
 
         year, _ = register_local_file(arquivo, year=2024)
         assert year == 2024
+
+
+class TestGuardaDeColunaDerivada:
+    """A carga deve falhar com a causa explicita, nao com erro cru do DuckDB.
+
+    A view analitica nomeia varias colunas derivadas. Enquanto a verificacao
+    rodava depois de cria-la, a ausencia de uma dessas colunas estourava antes
+    como `BinderException` -- e so as colunas nao citadas na view chegavam a
+    mensagem que explica o que fazer.
+    """
+
+    @pytest.mark.parametrize(
+        "coluna",
+        [
+            "semana_epi",  # nomeada explicitamente na view
+            "flag_data_invalida",  # usada no WHERE da view
+            "ano_sintomas",  # so existe no SELECT *
+        ],
+    )
+    def test_coluna_derivada_ausente_falha_com_causa_explicita(
+        self, coluna, synthetic_database, tmp_path
+    ):
+        import pandas as pd
+
+        from src.config import get_settings
+        from src.data.load_database import load_database
+
+        completo = pd.read_parquet(get_settings().processed_parquet_path)
+        incompleto = tmp_path / "sem_coluna.parquet"
+        completo.drop(columns=[coluna]).to_parquet(incompleto, index=False)
+
+        with pytest.raises(ValueError, match="colunas semanticas derivadas"):
+            load_database(parquet_path=incompleto, database_path=tmp_path / "srag.duckdb")

@@ -27,6 +27,7 @@ import duckdb
 from src.config import get_settings
 from src.data.reference.tables import load_reference_tables
 from src.data.schema import (
+    COHERENCE_FLAGS,
     DENIED_COLUMNS,
     DERIVED_SEMANTIC_COLUMNS,
     EPIWEEK_DERIVED_COLUMNS,
@@ -168,13 +169,14 @@ def load_database(parquet_path: Path | None = None, database_path: Path | None =
             f"CREATE OR REPLACE TABLE {TABLE_CASES} AS SELECT * FROM read_parquet(?)",
             [str(source)],
         )
-        connection.execute(_ANALYTICS_VIEW_SQL)
-        connection.execute(_AUDIT_TABLE_SQL)
-        # Referencias externas (populacao IBGE, cobertura vacinal SI-PNI) entram
-        # como tabelas proprias: ausencia vira tabela vazia, que a metrica
-        # traduz em "nao calculavel" com o motivo.
-        references = load_reference_tables(connection)
-
+        # As guardas rodam ANTES de criar a view, e nao depois.
+        #
+        # A view nomeia explicitamente varias colunas derivadas (`semana_epi`,
+        # `flag_data_invalida`, ...). Se a checagem viesse depois, a ausencia
+        # dessas colunas estouraria primeiro como `BinderException` crua do
+        # DuckDB -- exatamente o "falhar tarde, sem a causa" que estas guardas
+        # existem para evitar -- e so as colunas nao citadas na view chegariam
+        # a mensagem explicativa.
         columns = [row[0] for row in connection.execute(f"DESCRIBE {TABLE_CASES}").fetchall()]
         violations = sorted(set(columns) & set(DENIED_COLUMNS))
         if violations:
@@ -185,14 +187,25 @@ def load_database(parquet_path: Path | None = None, database_path: Path | None =
         # A semantica e derivada no tratamento, nao aqui. Se as colunas nao
         # chegarem, a view compila mas as metricas falhariam so na consulta --
         # melhor falhar na carga, com a causa explicita.
-        missing = sorted(
-            (set(DERIVED_SEMANTIC_COLUMNS) | set(EPIWEEK_DERIVED_COLUMNS)) - set(columns)
+        #
+        # As flags de coerencia entram na checagem porque a view depende delas:
+        # `flag_data_invalida` esta no WHERE que define o recorte analitico.
+        required = (
+            set(DERIVED_SEMANTIC_COLUMNS) | set(EPIWEEK_DERIVED_COLUMNS) | set(COHERENCE_FLAGS)
         )
+        missing = sorted(required - set(columns))
         if missing:
             raise ValueError(
                 "Camada processada sem as colunas semanticas derivadas: "
                 f"{missing}. Reexecute: python -m src.data.preprocess"
             )
+
+        connection.execute(_ANALYTICS_VIEW_SQL)
+        connection.execute(_AUDIT_TABLE_SQL)
+        # Referencias externas (populacao IBGE, cobertura vacinal SI-PNI) entram
+        # como tabelas proprias: ausencia vira tabela vazia, que a metrica
+        # traduz em "nao calculavel" com o motivo.
+        references = load_reference_tables(connection)
 
         total = connection.execute(f"SELECT count(*) FROM {TABLE_CASES}").fetchone()[0]
         analytic = connection.execute(f"SELECT count(*) FROM {VIEW_ANALYTICS}").fetchone()[0]

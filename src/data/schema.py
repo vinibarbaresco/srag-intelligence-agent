@@ -361,11 +361,13 @@ ADJUSTMENT_CODES: Final[dict[str, str]] = {
         "preenchido com lixo ficaria indistinguivel de um campo vazio na origem"
     ),
     "idade_unidade_implausivel": (
-        "NU_IDADE_N fora do dominio declarado para a unidade em TP_IDADE "
-        "(1-dia admite 0 a 30; 2-mes admite 1 a 11); a idade derivada foi "
+        "NU_IDADE_N fora do dominio aceito para a unidade em TP_IDADE "
+        "(1-dia admite 0 a 30; 2-mes admite 0 a 11); a idade derivada foi "
         "anulada. A unidade NAO e reinterpretada: nao ha como saber se o erro "
         "esta no numero ou na unidade, e escolher um dos dois seria inventar "
-        "dado. Foram medidos 3 registros na safra de referencia"
+        "dado. O piso zero para meses diverge do dicionario, que declara 1 a 11: "
+        "ver AGE_UNIT_DOMAIN. Foram medidos 5 registros na safra de referencia "
+        "(-9, -1, 13, 37 e 63 meses)"
     ),
 }
 

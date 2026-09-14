@@ -340,3 +340,104 @@ Detecção incremental: zero.
 nova cláusula não depende de `UTI` estar preenchida, e uma safra futura com `UTI` ausente e
 `DT_SAIDUTI` presente escaparia sem ela. Comentário e teste corrigidos para declarar isso, em vez
 de sugerir uma detecção que hoje não ocorre.
+
+---
+
+## D-19 — Denominador da taxa de UTI deixa de ler ausência como "Não"
+
+**Evidência.** O denominador era `foi_hospitalizado AND uti_informado`, com
+`foi_hospitalizado = HOSPITAL == 1`. Todo registro com `HOSPITAL` nulo (2,60%) ou igual a 9 (0,18%)
+saía do numerador **e** do denominador — inclusive quando tinha `UTI = 1` e data de entrada
+preenchidas. Era o **único ponto do pipeline** em que ausência virava negativa, contrariando a
+regra declarada em `src/data/schema.py` e no próprio README.
+
+**Alternativa considerada.** Usar `uti_informado` sozinho como denominador, tratando `HOSPITAL`
+apenas como estrato. Rejeitada: incluiria no denominador registros com `HOSPITAL = 2` (Não) e sem
+admissão em UTI, que são casos ambulatoriais legítimos e diluiriam a taxa.
+
+**Decisão.** Um caso é considerado internado quando `HOSPITAL = 1` **ou** quando há admissão em UTI
+declarada. A base é de SRAG **hospitalizada**, e `UTI = 1` é evidência direta de internação. Os
+registros recuperados são publicados em separado nos componentes, discriminados entre `HOSPITAL`
+ausente, ignorado e negado — o efeito da regra fica auditável, não apenas afirmado.
+
+**Impacto.** Registros com admissão em UTI declarada deixam de sumir do cálculo. Teste de regressão
+`test_admissao_em_uti_com_hospital_ausente_entra_no_denominador` trava a regra, e
+`test_registro_sem_uti_e_sem_hospital_continua_fora` garante que a porta não abriu demais.
+
+---
+
+## D-20 — Maturidade simétrica entre as janelas da taxa de aumento
+
+**Evidência.** O desconto de `REPORTING_LAG_DAYS` era aplicado uma vez ao fim da série, não à
+maturidade de cada janela. A janela atual termina no corte e teve `lag` dias para ser digitada; a
+anterior termina uma janela antes e teve `lag + janela` dias. O indicador que dispara o alerta
+saía subestimado de forma sistemática — o erro que produz "queda de casos" durante uma subida real.
+
+**Alternativa considerada.** Censura **por registro** (`atraso <= L` nas duas janelas). Rejeitada:
+descartaria também os notificadores lentos da janela atual, jogando fora dado legítimo dos dois
+lados sem ganho de comparabilidade.
+
+**Decisão.** Censura **por janela**: cada uma é contada como era conhecida `REPORTING_LAG_DAYS` dias
+após o próprio fechamento. A janela atual não perde nada; a anterior perde apenas as chegadas
+tardias. As contagens sem censura ficam publicadas ao lado, nos componentes, para que a diferença
+seja visível em vez de afirmada.
+
+**Impacto demonstrado.** O teste de regressão constrói duas janelas com 40 casos pontuais cada, mais
+40 chegadas tardias na janela anterior. Sem a correção, o indicador anunciaria **−50%** — uma queda
+inteiramente inventada pela maturidade desigual. Com ela, **0%**, que é a verdade.
+
+**Efeito colateral corrigido.** A base sintética dos testes atribuía `DT_DIGITA = REFERENCE_DATE` a
+todo registro, ou seja, ninguém atrasava. Uma base assim não consegue exercitar atraso de
+notificação — ela escondia essa classe inteira de defeito. Passou a carregar atraso realista nas
+janelas comparadas, mantendo a âncora da data de referência.
+
+---
+
+## D-21 — Detecção de schema drift com linha de base por ano
+
+**Evidência.** Não existia **nada**: `preprocess_year` emitia um `logger.warning` para coluna ausente
+e nenhum mecanismo comparava a carga atual contra a anterior.
+
+**Alternativa considerada.** Derivar a linha de base de `ingestion_history.jsonl` ou de
+`quality_report.json`. Rejeitada: o primeiro grava uma linha por **execução**, com totais agregados
+de todos os anos juntos e nada por coluna; o segundo é sobrescrito a cada carga e também é
+ano-agnóstico. Nenhum dos dois responde "como era o INFLUD25 da safra anterior".
+
+**Decisão.** Linha de base própria em `data/processed/schema_baseline.json`, **chaveada por ano** e
+acumulativa. Por ano porque o mesmo ano é republicado com contagens muito diferentes — medido:
+`data_sus/INFLUD25` tem 165.397 linhas e `data/raw/INFLUD25` tem 336.391, ambos INFLUD25. Uma
+baseline global transformaria toda republicação em falso alarme.
+
+É o único arquivo de `data/processed/` versionado, com exceção explícita no `.gitignore`: ele
+descreve o **contrato com a fonte**, não um artefato reproduzível, e a revisão de uma mudança de
+esquema começa pelo diff dele.
+
+**Profundidade respeita a minimização.** Coluna nova e coluna ausente saem do **cabeçalho** (custo
+zero, nenhuma célula lida). Tipo, completude e domínio categórico exigem ler valores e por isso
+cobrem **apenas `ALLOWED_COLUMNS`** — inspeção não é desculpa para ler dado pessoal.
+
+**Limiares e severidades.**
+
+| Achado | Limiar | Severidade | Justificativa |
+|---|---|---|---|
+| coluna de `ALLOWED_COLUMNS` ausente | — | **ERROR** | sem ela um indicador para de funcionar |
+| mudança de tipo em coluna lida | maioria de 99% | **ERROR** | as regras de limpeza são tipadas por coluna; `errors="coerce"` anularia a coluna inteira |
+| queda de registros | 20% | **ERROR** | o ano é republicado de forma cumulativa; perder ficha indica arquivo truncado ou ano trocado |
+| crescimento de registros | 50% | **WARNING** | medido +103% no mesmo INFLUD25: legítimo, mas desloca a série do ano |
+| variação de missing | 5 pp | **WARNING** | as variações grandes medidas são **entre anos** (`DT_DIGITA` 34,37% em 2019 × 0,00% em 2025), e a comparação por ano já as isola |
+| coluna nova / coluna não lida ausente / categoria nova | — | **WARNING** | a allowlist protege o cálculo, mas a fonte mudou |
+
+A regra de maioria de 99% para tipo é deliberada: um único valor corrompido em 336 mil
+reclassificaria `data → texto` e interromperia a carga por um registro que `data_ilegivel` já trata.
+E `vazio` é um **estado, não um tipo** — `vazio → inteiro` nunca é mudança de tipo, é dado que
+começou a ser preenchido, assunto da completude.
+
+**Escape auditável.** `--accept-drift` grava `accepted_at` e `accepted_findings` na própria baseline.
+Nenhum `try/except` engole achado. Uma baseline ilegível **avisa** e volta ao estado de primeira
+carga, em vez de falhar obscuramente.
+
+**Garantia de não-inércia.** A baseline só avança quando a carga vai até o fim. Uma carga
+interrompida a deixa intacta, para que a próxima tentativa detecte a mesma mudança em vez de
+aceitá-la por omissão. Os achados, porém, são persistidos **sempre** — inclusive no caminho que
+interrompe, que é justamente onde o registro mais importa, porque uma carga abortada não gera
+relatório de qualidade.
