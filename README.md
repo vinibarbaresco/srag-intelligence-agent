@@ -11,6 +11,21 @@ python main.py            # atualiza notícias e gera o relatório
 
 ---
 
+## Entrega para avaliação
+
+Este repositório contém todos os artefatos solicitados para a PoC:
+
+- documentação técnica, instruções de execução, decisões e limitações neste README;
+- diagrama conceitual em PDF: [`docs/arquitetura.pdf`](docs/arquitetura.pdf);
+- código-fonte do agente, ferramentas, tratamento de dados, testes e documentação complementar
+  em [`docs/`](docs/README.md).
+
+Os CSVs do DATASUS, bancos locais, chaves e relatórios gerados não são versionados por serem
+reproduzíveis, volumosos ou sensíveis. A seção [Como executar](#12-como-executar) explica como
+reconstruir esses artefatos a partir da fonte oficial.
+
+---
+
 ## 1. Visão geral
 
 O sistema recebe uma solicitação em linguagem natural, valida-a, aciona ferramentas determinísticas

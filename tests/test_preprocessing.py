@@ -291,11 +291,7 @@ class TestSelecaoDeColunas:
         fontes = [p for p in Path("src").rglob("*.py") if p.name != "schema.py"]
         codigo = "\n".join(p.read_text(encoding="utf-8") for p in fontes)
 
-        ociosas = [
-            column
-            for column in ALLOWED_COLUMNS
-            if not re.search(rf"\b{column}\b", codigo)
-        ]
+        ociosas = [column for column in ALLOWED_COLUMNS if not re.search(rf"\b{column}\b", codigo)]
         assert not ociosas, f"colunas lidas mas nunca usadas: {ociosas}"
 
     def test_colunas_nao_selecionadas_sao_documentadas(self):

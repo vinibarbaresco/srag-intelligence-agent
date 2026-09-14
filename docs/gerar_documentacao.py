@@ -34,11 +34,11 @@ from src.data.schema import (  # noqa: E402
     ADJUSTMENT_CODES,
     ADJUSTMENT_COLUMN,
     AGE_BANDS,
-    DERIVED_SEMANTIC_COLUMNS,
     ALLOWED_COLUMNS,
     CODE_LABELS,
     COHERENCE_FLAGS,
     DENIED_COLUMNS,
+    DERIVED_SEMANTIC_COLUMNS,
     MISSING_CODES,
 )
 from src.guardrails.policies import ALL_POLICIES  # noqa: E402
@@ -199,8 +199,7 @@ def build_transformation_doc() -> str:
         "arquivo permitiria que uma mudanca no dicionario nao alcancasse o "
         "calculo sem que nada falhasse. A view faz apenas projecao de tipo.",
         "",
-        f"Colunas derivadas: "
-        f"{', '.join(f'`{name}`' for name in DERIVED_SEMANTIC_COLUMNS)}.",
+        f"Colunas derivadas: {', '.join(f'`{name}`' for name in DERIVED_SEMANTIC_COLUMNS)}.",
         "",
         "## Registro no relatorio de qualidade",
         "",

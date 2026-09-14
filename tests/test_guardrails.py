@@ -355,8 +355,7 @@ class TestConfiabilidadeDaTaxa:
         from src.guardrails.small_cells import annotate_rate_reliability
 
         result = annotate_rate_reliability(
-            {"metric": "case_growth_rate", "value": -6.25, "numerator": -1,
-             "denominator": 16},
+            {"metric": "case_growth_rate", "value": -6.25, "numerator": -1, "denominator": 16},
             minimum_events=20,
         )
         assert "apenas 1 evento" in result["reliability_warning"]

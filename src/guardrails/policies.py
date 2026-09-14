@@ -52,8 +52,7 @@ SENSITIVE_DATA = GuardrailPolicy(
         "tool para recuperar registros individuais."
     ),
     enforced_at=(
-        "schema de ingestao, regra de celula pequena nas tools, auditoria e "
-        "generate_report"
+        "schema de ingestao, regra de celula pequena nas tools, auditoria e generate_report"
     ),
 )
 

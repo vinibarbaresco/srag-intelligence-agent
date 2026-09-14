@@ -26,9 +26,7 @@ from src.data.schema import COHERENCE_FLAGS, DERIVED_SEMANTIC_COLUMNS
 def context() -> CleaningContext:
     """Contexto de tratamento sobre um indice de uma linha."""
     index = pd.RangeIndex(1)
-    return CleaningContext(
-        year=2026, report=QualityReport(), adjustments=AdjustmentLog(index)
-    )
+    return CleaningContext(year=2026, report=QualityReport(), adjustments=AdjustmentLog(index))
 
 
 def _frame(**values) -> pd.DataFrame:
@@ -159,9 +157,7 @@ class TestSemanticaDerivadaEmPython:
         assert bool(sem_data["estadia_uti_utilizavel"].iloc[0]) is False
         assert bool(sem_data["flag_uti_inconsistente"].iloc[0]) is True
 
-        incoerente = self._derive(
-            context, UTI="1", DT_ENTUTI="2026-05-15", DT_SAIDUTI="2026-05-12"
-        )
+        incoerente = self._derive(context, UTI="1", DT_ENTUTI="2026-05-15", DT_SAIDUTI="2026-05-12")
         assert bool(incoerente["estadia_uti_utilizavel"].iloc[0]) is False
 
 
