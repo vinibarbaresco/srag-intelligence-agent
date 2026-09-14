@@ -8,6 +8,13 @@ from src.data.cleaning.base import CleaningContext, CleaningRule
 from src.data.schema import AGE_BANDS
 
 #: Limites de plausibilidade da idade humana, em anos.
+#:
+#: O dicionario oficial declara "Idade deve ser <= 150" -- uma validacao de
+#: entrada do sistema, nao uma afirmacao biologica. Adotamos 120, proximo ao
+#: maior valor humano ja verificado (122 anos), porque o objetivo aqui e
+#: plausibilidade e nao compatibilidade com o formulario. A divergencia e
+#: deliberada e os registros afetados ficam rastreaveis pelo ajuste
+#: `idade_anulada`: na base de referencia sao 2, com idades de -1 e 141 anos.
 MIN_PLAUSIBLE_AGE = 0
 MAX_PLAUSIBLE_AGE = 120
 
@@ -51,7 +58,9 @@ class DeriveAge(CleaningRule):
     description = (
         "Converte NU_IDADE_N para anos conforme TP_IDADE (1-dia, 2-mes, 3-ano) "
         f"e anula valores fora de [{MIN_PLAUSIBLE_AGE}, {MAX_PLAUSIBLE_AGE}] "
-        "anos, registrando o ajuste `idade_anulada`. Em seguida agrega a idade "
+        "anos, registrando o ajuste `idade_anulada`. O dicionario oficial "
+        "valida ate 150 anos; adotamos um teto biologicamente plausivel, e a "
+        "divergencia e declarada. Em seguida agrega a idade "
         "em faixa etaria: a camada analitica trabalha com a faixa, nao com a "
         "idade exata, por minimizacao de dados."
     )

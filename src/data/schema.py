@@ -20,47 +20,37 @@ from typing import Final
 # =============================================================================
 
 DATE_COLUMNS: Final[tuple[str, ...]] = (
-    "DT_NOTIFIC",  # 1  - data de preenchimento da notificacao
     "DT_SIN_PRI",  # 2  - data dos primeiros sintomas (eixo epidemiologico)
     "DT_INTERNA",  # 49 - data da internacao
     "DT_ENTUTI",   # 54 - data de entrada na UTI
     "DT_SAIDUTI",  # 55 - data de saida da UTI
     "DT_EVOLUCA",  # 83 - data da alta ou do obito
-    "DT_ENCERRA",  # 84 - data do encerramento do caso
     "DT_DIGITA",   # -  - data de digitacao (base do corte por atraso)
 )
 
 CATEGORICAL_COLUMNS: Final[tuple[str, ...]] = (
     "CS_SEXO",     # 10 - sexo
-    "CS_RACA",     # 17 - raca/cor
-    "CS_GESTANT",  # 16 - gestante
     "TP_IDADE",    # 14 - unidade da idade (1-dia, 2-mes, 3-ano)
-    "FATOR_RISC",  # 35 - possui fator de risco
     "HOSPITAL",    # 48 - houve internacao
     "UTI",         # 53 - internado em UTI (admissao, NAO ocupacao de leito)
-    "SUPORT_VEN",  # 56 - suporte ventilatorio
     "CLASSI_FIN",  # 80 - classificacao final do caso
-    "CRITERIO",    # 81 - criterio de encerramento
     "EVOLUCAO",    # 82 - evolucao do caso
-    "VACINA",      # -  - vacina contra gripe na ultima campanha
+    "VACINA",      # 40 - vacina contra gripe na ultima campanha
     "VACINA_COV",  # 36 - recebeu vacina COVID-19
 )
 
 GEOGRAPHIC_COLUMNS: Final[tuple[str, ...]] = (
-    "SG_UF_NOT",  # 6  - UF de notificacao
-    "SG_UF",      # 22 - UF de residencia
+    "SG_UF_NOT",  # 6 - UF de notificacao (unico recorte geografico exposto)
 )
 
 NUMERIC_COLUMNS: Final[tuple[str, ...]] = (
     "NU_IDADE_N",  # 13 - idade na unidade indicada por TP_IDADE
-    "SEM_PRI",     # 5  - semana epidemiologica dos primeiros sintomas
 )
 
-VACCINE_DATE_COLUMNS: Final[tuple[str, ...]] = (
-    "DOSE_1_COV",  # 37 - data da 1a dose COVID-19
-    "DOSE_2_COV",  # 37 - data da 2a dose COVID-19
-    "DOSE_REF",    # -  - data da dose de reforco
-)
+#: Colunas de data de dose vacinal. Vazia por decisao de minimizacao: a
+#: cobertura vacinal usa o indicador de vacinacao (`VACINA`, `VACINA_COV`), nao
+#: as datas -- que sao quase-identificadores e nao entram em nenhuma metrica.
+VACCINE_DATE_COLUMNS: Final[tuple[str, ...]] = ()
 
 ALLOWED_COLUMNS: Final[tuple[str, ...]] = (
     DATE_COLUMNS
@@ -69,6 +59,24 @@ ALLOWED_COLUMNS: Final[tuple[str, ...]] = (
     + NUMERIC_COLUMNS
     + VACCINE_DATE_COLUMNS
 )
+
+#: Colunas avaliadas no dicionario e **deliberadamente nao selecionadas**.
+#:
+#: Minimizacao nao e so excluir dado obviamente identificavel: e nao ler o que
+#: nenhuma metrica consome. Estas colunas foram consideradas, tem domínio
+#: conhecido no dicionario oficial, e ficaram de fora porque nenhum indicador,
+#: regra de coerencia ou serie depende delas. Enumeradas aqui para que a decisao
+#: de exclusao fique auditavel -- e reversivel com justificativa, caso uma
+#: metrica futura precise de alguma.
+NOT_SELECTED_COLUMNS: Final[dict[str, str]] = {
+    "DT_NOTIFIC": "data de notificacao; o eixo temporal e DT_SIN_PRI e o corte e DT_DIGITA",
+    "DT_ENCERRA": "data de encerramento; a mortalidade usa o codigo EVOLUCAO, nao a data",
+    "CRITERIO": "criterio de encerramento (81); nenhum indicador recorta por criterio",
+    "SEM_PRI": "semana epidemiologica; as series agregam por data, nao por semana",
+    "SG_UF": "UF de residencia; o recorte geografico exposto e o de notificacao",
+    "FATOR_RISC": "presenca de fator de risco (35); nenhum indicador estratifica por comorbidade",
+    "SUPORT_VEN": "suporte ventilatorio (56); a severidade e medida por UTI e obito",
+}
 
 # =============================================================================
 # Colunas proibidas (minimizacao de dados pessoais)
@@ -97,6 +105,11 @@ DENIED_COLUMNS: Final[dict[str, str]] = {
     "CLASSI_OUT": "texto livre sobre agente etiologico",
     "OBES_IMC": "IMC individual do paciente",
     "CS_ETINIA": "etnia indigena (dado sensivel, nao necessario as metricas)",
+    "CS_RACA": "raca/cor (dado sensivel; nenhum indicador estratifica por raca)",
+    "CS_GESTANT": "idade gestacional (dado sensivel de saude sem uso nas metricas)",
+    "DOSE_1_COV": "data de dose vacinal (quase-identificador; metricas usam o indicador, nao a data)",
+    "DOSE_2_COV": "data de dose vacinal (quase-identificador; metricas usam o indicador, nao a data)",
+    "DOSE_REF": "data de dose vacinal (quase-identificador; metricas usam o indicador, nao a data)",
     "LOTE_1_COV": "lote do imunizante (rastreavel ao individuo)",
     "LOTE_2_COV": "lote do imunizante (rastreavel ao individuo)",
     "LOTE_REF": "lote do imunizante (rastreavel ao individuo)",
@@ -118,7 +131,6 @@ YES_NO_IGNORED: Final[dict[int, str]] = {
 CODE_LABELS: Final[dict[str, dict[int, str]]] = {
     "HOSPITAL": YES_NO_IGNORED,
     "UTI": YES_NO_IGNORED,
-    "FATOR_RISC": YES_NO_IGNORED,
     "VACINA": YES_NO_IGNORED,
     "VACINA_COV": YES_NO_IGNORED,
     "EVOLUCAO": {
@@ -134,36 +146,7 @@ CODE_LABELS: Final[dict[str, dict[int, str]]] = {
         4: "SRAG nao especificado",
         5: "SRAG por covid-19",
     },
-    "CRITERIO": {
-        1: "Laboratorial",
-        2: "Clinico epidemiologico",
-        3: "Clinico",
-        4: "Clinico imagem",
-    },
-    "SUPORT_VEN": {
-        1: "Sim, invasivo",
-        2: "Sim, nao invasivo",
-        3: "Nao",
-        9: "Ignorado",
-    },
     "CS_SEXO": {},  # campo textual: M / F / I
-    "CS_RACA": {
-        1: "Branca",
-        2: "Preta",
-        3: "Amarela",
-        4: "Parda",
-        5: "Indigena",
-        9: "Ignorado",
-    },
-    "CS_GESTANT": {
-        1: "1o trimestre",
-        2: "2o trimestre",
-        3: "3o trimestre",
-        4: "Idade gestacional ignorada",
-        5: "Nao",
-        6: "Nao se aplica",
-        9: "Ignorado",
-    },
     "TP_IDADE": {1: "Dia", 2: "Mes", 3: "Ano"},
 }
 

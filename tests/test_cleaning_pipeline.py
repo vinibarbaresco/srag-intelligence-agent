@@ -34,24 +34,19 @@ def context() -> CleaningContext:
 def _frame(**values) -> pd.DataFrame:
     """Bloco minimo com as colunas que as regras leem."""
     base = {
-        "DT_NOTIFIC": ["2026-05-10"],
         "DT_SIN_PRI": ["2026-05-08"],
         "DT_INTERNA": ["2026-05-09"],
         "DT_ENTUTI": [""],
         "DT_SAIDUTI": [""],
         "DT_EVOLUCA": ["2026-05-20"],
-        "DT_ENCERRA": [""],
         "DT_DIGITA": ["2026-05-25"],
-        "DOSE_1_COV": [""],
-        "DOSE_2_COV": [""],
-        "DOSE_REF": [""],
         "HOSPITAL": ["1"],
         "UTI": ["2"],
         "EVOLUCAO": ["1"],
         "VACINA": ["2"],
         "VACINA_COV": ["1"],
         "SG_UF_NOT": ["SP"],
-        "SG_UF": ["SP"],
+        "CS_SEXO": ["F"],
         "NU_IDADE_N": ["45"],
         "TP_IDADE": ["3"],
     }

@@ -274,3 +274,46 @@ class TestRastreamentoDeAjustes:
         assert payload["rows_adjusted"] == 1
         assert "ajustes_aplicados" in payload["adjustments"]["como_localizar"]
         assert set(payload["adjustments"]["significado"]) == set(ADJUSTMENT_CODES)
+
+
+class TestSelecaoDeColunas:
+    """A minimizacao vale para o que nao se usa, nao so para o que identifica."""
+
+    def test_toda_coluna_lida_e_consumida_por_alguma_regra(self):
+        """Ler uma coluna que nenhuma metrica usa contraria a minimizacao.
+
+        Se este teste falhar ao adicionar uma coluna, ha duas saidas honestas:
+        usa-la de fato, ou declara-la em NOT_SELECTED_COLUMNS com o motivo.
+        """
+        import re
+        from pathlib import Path
+
+        fontes = [p for p in Path("src").rglob("*.py") if p.name != "schema.py"]
+        codigo = "\n".join(p.read_text(encoding="utf-8") for p in fontes)
+
+        ociosas = [
+            column
+            for column in ALLOWED_COLUMNS
+            if not re.search(rf"\b{column}\b", codigo)
+        ]
+        assert not ociosas, f"colunas lidas mas nunca usadas: {ociosas}"
+
+    def test_colunas_nao_selecionadas_sao_documentadas(self):
+        from src.data.schema import NOT_SELECTED_COLUMNS
+
+        assert NOT_SELECTED_COLUMNS
+        assert all(motivo.strip() for motivo in NOT_SELECTED_COLUMNS.values())
+
+    def test_as_tres_listas_sao_mutuamente_exclusivas(self):
+        from src.data.schema import NOT_SELECTED_COLUMNS
+
+        permitidas = set(ALLOWED_COLUMNS)
+        assert not permitidas & set(DENIED_COLUMNS)
+        assert not permitidas & set(NOT_SELECTED_COLUMNS)
+        assert not set(DENIED_COLUMNS) & set(NOT_SELECTED_COLUMNS)
+
+    def test_todo_dominio_declarado_corresponde_a_coluna_lida(self):
+        """CODE_LABELS documenta o dicionario do que se le, nao codigo morto."""
+        from src.data.schema import CODE_LABELS
+
+        assert set(CODE_LABELS) <= set(ALLOWED_COLUMNS)

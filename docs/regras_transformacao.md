@@ -14,40 +14,28 @@ Nenhum registro e removido ou alterado silenciosamente. Toda regra aplicada e co
 
 ## Minimizacao de dados
 
-O arquivo bruto possui 194 colunas. Apenas **28** sao lidas do disco; as demais nunca entram em memoria.
+O arquivo bruto possui 194 colunas. Apenas **16** sao lidas do disco; as demais nunca entram em memoria.
 
 ### Colunas lidas
 
 | Coluna | Dominio |
 |--------|---------|
-| `DT_NOTIFIC` | data |
 | `DT_SIN_PRI` | data |
 | `DT_INTERNA` | data |
 | `DT_ENTUTI` | data |
 | `DT_SAIDUTI` | data |
 | `DT_EVOLUCA` | data |
-| `DT_ENCERRA` | data |
 | `DT_DIGITA` | data |
 | `CS_SEXO` | texto ou numero |
-| `CS_RACA` | 1=Branca, 2=Preta, 3=Amarela, 4=Parda, 5=Indigena, 9=Ignorado |
-| `CS_GESTANT` | 1=1o trimestre, 2=2o trimestre, 3=3o trimestre, 4=Idade gestacional ignorada, 5=Nao, 6=Nao se aplica, 9=Ignorado |
 | `TP_IDADE` | 1=Dia, 2=Mes, 3=Ano |
-| `FATOR_RISC` | 1=Sim, 2=Nao, 9=Ignorado |
 | `HOSPITAL` | 1=Sim, 2=Nao, 9=Ignorado |
 | `UTI` | 1=Sim, 2=Nao, 9=Ignorado |
-| `SUPORT_VEN` | 1=Sim, invasivo, 2=Sim, nao invasivo, 3=Nao, 9=Ignorado |
 | `CLASSI_FIN` | 1=SRAG por influenza, 2=SRAG por outro virus respiratorio, 3=SRAG por outro agente etiologico, 4=SRAG nao especificado, 5=SRAG por covid-19 |
-| `CRITERIO` | 1=Laboratorial, 2=Clinico epidemiologico, 3=Clinico, 4=Clinico imagem |
 | `EVOLUCAO` | 1=Cura, 2=Obito, 3=Obito por outras causas, 9=Ignorado |
 | `VACINA` | 1=Sim, 2=Nao, 9=Ignorado |
 | `VACINA_COV` | 1=Sim, 2=Nao, 9=Ignorado |
 | `SG_UF_NOT` | texto ou numero |
-| `SG_UF` | texto ou numero |
 | `NU_IDADE_N` | texto ou numero |
-| `SEM_PRI` | texto ou numero |
-| `DOSE_1_COV` | data |
-| `DOSE_2_COV` | data |
-| `DOSE_REF` | data |
 
 ### Colunas proibidas (nunca lidas)
 
@@ -62,6 +50,11 @@ Enumeradas explicitamente para que a decisao de nao processa-las fique auditavel
 | `CO_MU_INTE` | codigo do municipio da unidade de internacao |
 | `CO_PS_VGM` | local de viagem internacional |
 | `CS_ETINIA` | etnia indigena (dado sensivel, nao necessario as metricas) |
+| `CS_GESTANT` | idade gestacional (dado sensivel de saude sem uso nas metricas) |
+| `CS_RACA` | raca/cor (dado sensivel; nenhum indicador estratifica por raca) |
+| `DOSE_1_COV` | data de dose vacinal (quase-identificador; metricas usam o indicador, nao a data) |
+| `DOSE_2_COV` | data de dose vacinal (quase-identificador; metricas usam o indicador, nao a data) |
+| `DOSE_REF` | data de dose vacinal (quase-identificador; metricas usam o indicador, nao a data) |
 | `DT_NASC` | data de nascimento (quase-identificador direto) |
 | `ESTRANG` | indicador de nacionalidade estrangeira |
 | `ID_MN_INTE` | municipio da unidade de internacao |
@@ -97,7 +90,7 @@ A ordem importa: datas antes da coerencia (que compara datas) e coerencia antes 
 | 3 | `normaliza_sexo` | Normaliza CS_SEXO para caixa alta sem espacos (dominio M/F/I). String vazia e tratada como ausencia, nao como valor. |
 | 4 | `normaliza_numericos` | Converte idade bruta e semana epidemiologica para inteiro nulavel. Valores nao numericos viram nulo em vez de interromper a carga. |
 | 5 | `valida_uf` | Normaliza as siglas de UF e anula as que estao fora das 27 unidades federativas. A alteracao e registrada por registro como `uf_anulada:<coluna>`, de modo que um valor anulado pela limpeza nao se confunda com um campo vazio na origem. |
-| 6 | `deriva_idade` | Converte NU_IDADE_N para anos conforme TP_IDADE (1-dia, 2-mes, 3-ano) e anula valores fora de [0, 120] anos, registrando o ajuste `idade_anulada`. Em seguida agrega a idade em faixa etaria: a camada analitica trabalha com a faixa, nao com a idade exata, por minimizacao de dados. |
+| 6 | `deriva_idade` | Converte NU_IDADE_N para anos conforme TP_IDADE (1-dia, 2-mes, 3-ano) e anula valores fora de [0, 120] anos, registrando o ajuste `idade_anulada`. O dicionario oficial valida ate 150 anos; adotamos um teto biologicamente plausivel, e a divergencia e declarada. Em seguida agrega a idade em faixa etaria: a camada analitica trabalha com a faixa, nao com a idade exata, por minimizacao de dados. |
 | 7 | `marca_ano_de_origem` | Grava o ano do arquivo de origem em `ano_referencia`, permitindo rastrear de qual safra do DATASUS cada registro veio. |
 | 8 | `avalia_coerencia` | Confere a coerencia entre campos do mesmo registro (datas fora de ordem, campos obrigatorios ausentes dada a resposta declarada) e marca uma flag por dimensao: eixo temporal, internacao, UTI e evolucao. Nenhum registro e removido -- cada metrica decide quais flags a afetam, e apenas o eixo temporal exclui o registro da camada analitica. |
 | 9 | `deriva_semantica` | Traduz os codigos do dicionario oficial em conceitos usados pelas metricas (obito por SRAG, caso encerrado, hospitalizacao, admissao em UTI, vacinacao declarada). Uma unica definicao por conceito, compartilhada por indicadores, series e graficos, de modo que nao existam duas nocoes de 'caso encerrado' no projeto. |

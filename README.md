@@ -112,7 +112,7 @@ a cada execução na página do dataset, que é renderizada no servidor.
 |---|---|---|---|
 | 2025 | 336.179 | 382 MB | — |
 | 2026 | 198.129 | 221 MB | — |
-| **Total** | **534.308** | **603 MB** | **Parquet de 9,5 MB (32 colunas)** |
+| **Total** | **534.308** | **603 MB** | **Parquet de 6,4 MB (16 colunas)** |
 
 ## 6. Tratamento dos dados
 
@@ -146,10 +146,19 @@ exercitável num teste sem executar a carga. A tabela de regras em `docs/regras_
 alcançasse o cálculo sem que nada falhasse — e definições em SQL só são testáveis com um banco
 montado. A view analítica faz apenas projeção de tipo.
 
-**Minimização na origem.** Das 194 colunas, **32** são lidas. As identificáveis (`NU_NOTIFIC`,
-`DT_NASC`, `NM_UN_INTE`, município, ocupação, textos livres, lotes de imunizante…) estão numa
-*denylist* explícita — enumeradas para que a decisão de excluí-las fique auditável, e cobertas por
-teste de regressão. A idade é agregada em faixa etária; a granularidade geográfica máxima é a UF.
+**Minimização na origem.** Das 194 colunas, **16** são lidas — as que alguma métrica, regra de
+coerência ou série efetivamente consome. As demais estão em duas listas explícitas:
+
+- **`DENIED_COLUMNS`** (33) — identificáveis ou sensíveis: `NU_NOTIFIC`, `DT_NASC`, `NM_UN_INTE`,
+  município, ocupação, textos livres, lotes de imunizante, raça/cor, idade gestacional, datas de
+  dose vacinal.
+- **`NOT_SELECTED_COLUMNS`** (7) — avaliadas no dicionário e descartadas por não serem usadas:
+  `DT_NOTIFIC`, `DT_ENCERRA`, `CRITERIO`, `SEM_PRI`, `SG_UF`, `FATOR_RISC`, `SUPORT_VEN`.
+
+Minimizar não é só excluir o que identifica — é não ler o que nenhuma métrica consome. Um teste de
+regressão falha se alguma coluna lida deixar de ser usada, o que força a escolha entre usá-la de
+fato ou declará-la como não selecionada, com o motivo. A idade é agregada em faixa etária; a
+granularidade geográfica máxima é a UF de notificação.
 
 **Nada é removido silenciosamente.** Registros inconsistentes são **marcados**, não excluídos.
 Toda regra vira contagem em `data/processed/quality_report.json`, e o relatório traz uma seção de
@@ -430,7 +439,7 @@ não tem.
 ## 14. Testes
 
 ```bash
-python -m pytest -q          # 211 testes, ~40 s
+python -m pytest -q          # 215 testes, ~40 s
 python -m ruff check .
 ```
 
