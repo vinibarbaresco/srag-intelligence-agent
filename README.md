@@ -281,7 +281,7 @@ padronizado:
 | # | Política | Onde é aplicada | O que impede |
 |---|---|---|---|
 | 1 | Sem conduta clínica | entrada e saída | Pedidos de diagnóstico/prescrição são recusados; linguagem prescritiva na saída é bloqueada |
-| 2 | Proteção de dados pessoais | ingestão, auditoria, saída | Colunas identificáveis nunca lidas; CPF/CNS/e-mail/telefone varridos de logs e do relatório |
+| 2 | Proteção de dados pessoais | ingestão, tools, auditoria, saída | Colunas identificáveis nunca lidas; idade em faixa e geografia só até UF; CPF/CNS/e-mail/telefone varridos de logs e do relatório; indicador com denominador abaixo de `MIN_CELL_SIZE` é suprimido |
 | 3 | Evidência obrigatória | `validate_evidence` + saída | Todo número da interpretação é confrontado com os retornos das tools |
 | 4 | Sem SQL arbitrário | camada de tools | Não existe tool de consulta livre; parâmetros tipados, SQL literal, banco somente leitura |
 | 5 | Notícias não sobrescrevem dados | estado do grafo e relatório | Contexto externo em campo próprio, publicado só sob o rótulo CONTEXTO EXTERNO |
@@ -372,7 +372,14 @@ Etapas isoladas: `python -m src.data.download`, `src.data.preprocess`, `src.data
 
 ## 13. Exemplos
 
-Execução de referência (dados de 24/08/2026, recorte nacional, corte analítico em 2026-08-02):
+O projeto roda sobre duas bases diferentes, e os números **devem** divergir entre elas. Isso não é
+inconsistência — é a âncora temporal funcionando: toda janela é ancorada em `max(DT_DIGITA)` da
+base carregada, nunca em `today()`.
+
+### Base A — download do DATASUS (padrão)
+
+`python main.py --setup && python main.py` · 534.308 registros (2025 + 2026) · corte analítico
+**2026-08-02**
 
 | Indicador | Valor | Detalhe |
 |---|---|---|
@@ -383,17 +390,47 @@ Execução de referência (dados de 24/08/2026, recorte nacional, corte analíti
 | Ocupação de leitos de UTI | **não calculável** | o dataset não registra capacidade instalada |
 | Vacinação da população | **não calculável** | denominador populacional exigiria fonte externa |
 
-A queda calculada é corroborada — sem influenciar o cálculo — pelo contexto externo recuperado:
-*"InfoGripe: maior parte do país tem tendência de queda ou estabilização"* (Fiocruz, 13/08/2026) e
-*"Leitos extras de UTI para síndrome respiratória grave serão fechados após queda nos casos"* (G1,
-29/08/2026).
+### Base B — CSV distribuído com o enunciado
 
-Gráficos gerados: `outputs/charts/casos_diarios.png` e `outputs/charts/casos_mensais.png`.
+`python main.py --setup --csv INFLUD25_DATASUS-Versao26-06-2025.csv && python main.py`
+· 165.397 registros · corte analítico **2025-06-05**
+
+| Indicador | Valor | Detalhe |
+|---|---|---|
+| Taxa de aumento de casos | **+46,97 %** | 52.558 casos contra 35.760 na janela anterior |
+| Taxa de mortalidade | **7,86 %** | 2.845 óbitos em 36.182 casos encerrados |
+| Taxa de admissão em UTI | **26,70 %** | 11.827 de 44.289 hospitalizados com UTI informado |
+| Cobertura vacinal (covid-19) | **66,16 %** | 34.425 de 52.036 |
+
+### Por que o crescimento inverte de sinal
+
+Não é divergência de cálculo: são fases opostas da mesma sazonalidade. A base do enunciado termina
+em **junho/2025**, no meio da subida do inverno; a base baixada alcança **agosto/2026**, depois do
+pico. O mesmo código, ancorado na data de cada base, descreve corretamente os dois momentos.
+
+Em ambas: 0 registros descartados, os dois indicadores impossíveis declarados como tal, e a
+trilha de auditoria completa.
+
+### Recortes menores
+
+```bash
+python main.py --uf AC --classification 1
+```
+
+Com poucos casos, dois guardrails entram em ação. Indicadores com denominador abaixo de
+`MIN_CELL_SIZE` são **suprimidos**; taxas construídas sobre menos de 20 eventos são publicadas com
+a instabilidade **declarada**:
+
+> **Atenção:** Taxa baseada em apenas 1 evento(s), abaixo do mínimo de 20 usualmente exigido para
+> uma taxa estável. O valor é real, mas não sustenta comparação entre períodos ou recortes.
+
+Suprimir esconderia informação válida; publicar sem ressalva sugeriria uma precisão que o número
+não tem.
 
 ## 14. Testes
 
 ```bash
-python -m pytest -q          # 175 testes
+python -m pytest -q          # 211 testes, ~40 s
 python -m ruff check .
 ```
 
@@ -403,6 +440,7 @@ borda que raramente aparecem em volume suficiente na base real.
 
 | Arquivo | Cobre |
 |---|---|
+| `test_cleaning_pipeline.py` | Pipeline declarado: ordem das regras, cada regra isolada, semântica derivada dos códigos do dicionário |
 | `test_preprocessing.py` | Contrato de colunas, parse de datas nos dois formatos, código 9, idade implausível, marcação sem exclusão |
 | `test_metrics.py` | Os 4 indicadores com valores exatos, denominador zero, filtro sem resultado, mês parcial |
 | `test_database.py` | Coerência das flags derivadas com o dicionário, conexão somente leitura, binding de parâmetros |

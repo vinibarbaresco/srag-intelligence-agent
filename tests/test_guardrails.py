@@ -244,3 +244,137 @@ class TestValidacaoDeEntrada:
         result = validate_request("Relatorio de SRAG", uf="AC")
         assert result.allowed is True
         assert any("instaveis" in warning for warning in result.warnings)
+
+
+class TestRegraDeCelulaPequena:
+    """Guardrail 2 aplicado a proporcoes sobre denominador insuficiente."""
+
+    def _envelope(self, **overrides):
+        base = {
+            "metric": "mortality_rate",
+            "value": 50.0,
+            "numerator": 2,
+            "denominator": 4,
+            "period": {"inicio": "2026-01-01", "fim": "2026-01-30"},
+            "filters": {"uf": "AC"},
+            "source": "DATASUS",
+            "limitations": ["..."],
+            "unavailable_reason": None,
+        }
+        base.update(overrides)
+        return base
+
+    def test_denominador_abaixo_do_piso_suprime_o_valor(self):
+        from src.guardrails.small_cells import enforce_minimum_cell_size
+
+        result = enforce_minimum_cell_size(self._envelope(), threshold=5)
+
+        assert result["value"] is None
+        assert result["numerator"] is None  # publicar so o numerador nao protege
+        assert result["suppressed_by"] == "min_cell_size"
+        assert "Denominador insuficiente" in result["unavailable_reason"]
+
+    def test_envelope_permanece_auditavel_apos_a_supressao(self):
+        from src.guardrails.small_cells import enforce_minimum_cell_size
+
+        result = enforce_minimum_cell_size(self._envelope(), threshold=5)
+
+        # A supressao esconde o valor, nao a proveniencia.
+        assert result["metric"] == "mortality_rate"
+        assert result["period"] and result["filters"]
+        assert result["source"] and result["limitations"]
+
+    def test_denominador_suficiente_passa_intacto(self):
+        from src.guardrails.small_cells import enforce_minimum_cell_size
+
+        envelope = self._envelope(denominator=100, numerator=7, value=7.0)
+        assert enforce_minimum_cell_size(envelope, threshold=5) == envelope
+
+    def test_denominador_exatamente_no_piso_passa(self):
+        from src.guardrails.small_cells import enforce_minimum_cell_size
+
+        envelope = self._envelope(denominator=5)
+        assert enforce_minimum_cell_size(envelope, threshold=5)["value"] is not None
+
+    def test_metrica_ja_indisponivel_nao_e_alterada(self):
+        from src.guardrails.small_cells import enforce_minimum_cell_size
+
+        envelope = self._envelope(value=None, unavailable_reason="outro motivo")
+        result = enforce_minimum_cell_size(envelope, threshold=5)
+        assert result["unavailable_reason"] == "outro motivo"
+
+    def test_piso_zero_desativa_a_regra(self):
+        from src.guardrails.small_cells import enforce_minimum_cell_size
+
+        envelope = self._envelope(denominator=1)
+        assert enforce_minimum_cell_size(envelope, threshold=0)["value"] is not None
+
+    def test_retorno_sem_denominador_passa_intacto(self):
+        from src.guardrails.small_cells import enforce_minimum_cell_size
+
+        diagnostico = {"atraso_mediano_dias": 7.0}
+        assert enforce_minimum_cell_size(diagnostico, threshold=5) == diagnostico
+
+    def test_tool_aplica_a_regra_em_recorte_minusculo(self, synthetic_database):
+        """A regra vale na fronteira real, nao apenas na funcao isolada."""
+        from src.tools.registry import call_tool
+
+        # A base sintetica tem um unico registro em RJ.
+        result = call_tool("get_mortality_rate", {"uf": "RJ"})
+        assert result["value"] is None
+        assert result["unavailable_reason"]
+
+
+class TestConfiabilidadeDaTaxa:
+    """Taxa sobre poucos eventos e publicada, mas com a instabilidade declarada."""
+
+    def _envelope(self, numerator, value=12.5, denominator=8):
+        return {
+            "metric": "mortality_rate",
+            "value": value,
+            "numerator": numerator,
+            "denominator": denominator,
+        }
+
+    def test_poucos_eventos_geram_aviso_sem_suprimir_o_valor(self):
+        from src.guardrails.small_cells import annotate_rate_reliability
+
+        result = annotate_rate_reliability(self._envelope(1), minimum_events=20)
+
+        assert result["value"] == 12.5  # o dado e legitimo e permanece
+        assert "apenas 1 evento" in result["reliability_warning"]
+
+    def test_eventos_suficientes_nao_geram_aviso(self):
+        from src.guardrails.small_cells import annotate_rate_reliability
+
+        result = annotate_rate_reliability(self._envelope(50), minimum_events=20)
+        assert "reliability_warning" not in result
+
+    def test_numerador_negativo_e_avaliado_em_modulo(self):
+        """Variacao de casos pode ser negativa; o que importa e a magnitude."""
+        from src.guardrails.small_cells import annotate_rate_reliability
+
+        result = annotate_rate_reliability(
+            {"metric": "case_growth_rate", "value": -6.25, "numerator": -1,
+             "denominator": 16},
+            minimum_events=20,
+        )
+        assert "apenas 1 evento" in result["reliability_warning"]
+
+    def test_metrica_suprimida_nao_recebe_aviso_de_taxa(self):
+        from src.guardrails.small_cells import (
+            annotate_rate_reliability,
+            enforce_minimum_cell_size,
+        )
+
+        suprimida = enforce_minimum_cell_size(self._envelope(2, denominator=3), threshold=5)
+        result = annotate_rate_reliability(suprimida)
+        assert "reliability_warning" not in result
+
+    def test_tool_anexa_o_aviso_em_recorte_pequeno(self, synthetic_database):
+        from src.tools.registry import call_tool
+
+        # Base sintetica: 15 obitos por SRAG em SP, abaixo do piso de 20.
+        result = call_tool("get_mortality_rate", {"uf": "SP"})
+        assert result["value"] is not None
+        assert "reliability_warning" in result

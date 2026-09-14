@@ -15,6 +15,7 @@ from typing import Any
 
 from src.config import DATASUS_SOURCE_LABEL
 from src.data.load_database import connect
+from src.guardrails.small_cells import annotate_rate_reliability, enforce_minimum_cell_size
 from src.metrics import epidemiology
 from src.metrics.filters import AnalyticFilters
 from src.observability.audit import audited
@@ -41,7 +42,7 @@ def get_case_growth_rate(**kwargs: Any) -> dict[str, Any]:
         result = epidemiology.case_growth_rate(
             connection, _filters(query), window_days=query.window_days
         )
-    return result.to_dict()
+    return annotate_rate_reliability(enforce_minimum_cell_size(result.to_dict()))
 
 
 @audited("get_mortality_rate", source=DATASUS_SOURCE_LABEL)
@@ -57,7 +58,7 @@ def get_mortality_rate(**kwargs: Any) -> dict[str, Any]:
         result = epidemiology.mortality_rate(
             connection, _filters(query), window_days=query.window_days
         )
-    return result.to_dict()
+    return annotate_rate_reliability(enforce_minimum_cell_size(result.to_dict()))
 
 
 @audited("get_icu_metrics", source=DATASUS_SOURCE_LABEL)
@@ -75,7 +76,7 @@ def get_icu_metrics(**kwargs: Any) -> dict[str, Any]:
         result = epidemiology.icu_metrics(
             connection, _filters(query), window_days=query.window_days
         )
-    return result.to_dict()
+    return annotate_rate_reliability(enforce_minimum_cell_size(result.to_dict()))
 
 
 @audited("get_vaccination_metrics", source=DATASUS_SOURCE_LABEL)
@@ -92,7 +93,7 @@ def get_vaccination_metrics(**kwargs: Any) -> dict[str, Any]:
         result = epidemiology.vaccination_metrics(
             connection, _filters(query), window_days=query.window_days
         )
-    return result.to_dict()
+    return annotate_rate_reliability(enforce_minimum_cell_size(result.to_dict()))
 
 
 @audited("get_notification_completeness", source=DATASUS_SOURCE_LABEL)

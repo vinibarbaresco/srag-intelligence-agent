@@ -51,7 +51,10 @@ SENSITIVE_DATA = GuardrailPolicy(
         "consulta apenas agregados por periodo, UF e classificacao; nao existe "
         "tool para recuperar registros individuais."
     ),
-    enforced_at="schema de ingestao, auditoria e generate_report",
+    enforced_at=(
+        "schema de ingestao, regra de celula pequena nas tools, auditoria e "
+        "generate_report"
+    ),
 )
 
 EVIDENCE_BINDING = GuardrailPolicy(

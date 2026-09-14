@@ -131,6 +131,10 @@ def _indicators_section(state: dict[str, Any]) -> str:
             blocks.append(f"- **Indisponibilidade:** {metric['unavailable_reason']}")
             blocks.append(f"- **Declaracao:** {UNCERTAINTY_STATEMENT}")
 
+        if metric.get("reliability_warning"):
+            blocks.append("")
+            blocks.append(f"> **Atencao:** {metric['reliability_warning']}")
+
         blocks.extend(_components_block(key, metric.get("components") or {}))
         blocks.append("")
         blocks.append("<details><summary>Limitacoes declaradas</summary>")

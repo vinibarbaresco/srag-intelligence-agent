@@ -36,6 +36,13 @@ class Settings(BaseSettings):
     reporting_lag_days: int = Field(default=21, ge=0, le=90)
     growth_window_days: int = Field(default=30, ge=1, le=365)
 
+    # --- Privacidade ---------------------------------------------------------
+    # Piso de denominador para publicar uma proporcao. Abaixo dele o indicador e
+    # suprimido pela regra de celula pequena (src/guardrails/small_cells.py):
+    # sobre pouquissimos casos uma taxa nao mede a populacao e se aproxima de
+    # descrever individuos. Zero desativa a regra.
+    min_cell_size: int = Field(default=5, ge=0)
+
     # --- Ingestao ------------------------------------------------------------
     # `NoDecode` desliga o parse JSON automatico que o pydantic-settings aplica
     # a campos de tipo composto. Sem ele, `SRAG_YEARS=2025,2026` no .env falha
