@@ -11,7 +11,17 @@ Este modulo compara a carga corrente contra uma **linha de base persistida** e
 classifica cada achado em ERROR (interrompe a carga) ou WARNING (registra e
 segue). Nao existe caminho silencioso: todo achado entra no relatorio, e aceitar
 uma mudanca conhecida exige o gesto explicito `--accept-drift`, que fica gravado
-na propria linha de base com data e lista do que foi aceito.
+na propria linha de base com data e lista do que foi aceito. O outro lado dessa
+promessa esta em :func:`save_baseline`: enquanto um achado nao for aceito, a
+entrada daquele ano **nao avanca** -- a carga seguinte compara contra a mesma
+safra e reporta a mesma mudanca, quantas vezes forem necessarias.
+
+Nem toda checagem e comparativa. Um piso absoluto de completude por coluna
+(:data:`src.config.DRIFT_MAX_MISSING_PCT`) e a ilegibilidade em massa de uma
+coluna de data (:func:`check_unreadable_dates`) valem tambem na primeira carga,
+porque sao exatamente os casos em que a comparacao esta cega: uma coluna vazia
+nas duas safras tem delta zero, e uma safra inaugural nao tem com o que ser
+comparada.
 
 Duas decisoes de desenho merecem registro.
 
@@ -41,6 +51,7 @@ from typing import Any, Final
 
 import pandas as pd
 
+from src.config import DRIFT_MAX_MISSING_PCT, DRIFT_RATE_MIN_RECORDS
 from src.data.cleaning.dates import parse_dates
 from src.data.schema import ALLOWED_COLUMNS, CATEGORICAL_COLUMNS, CODE_LABELS
 from src.observability.logging_config import get_logger
@@ -54,13 +65,15 @@ logger = get_logger(__name__)
 SEVERITY_ERROR: Final[str] = "ERROR"
 SEVERITY_WARNING: Final[str] = "WARNING"
 
-#: As seis classes de mudanca detectadas. A ordem e a do relatorio.
+#: As oito classes de mudanca detectadas. A ordem e a do relatorio.
 KIND_NEW_COLUMNS: Final[str] = "new_columns"
 KIND_MISSING_COLUMNS: Final[str] = "missing_columns"
 KIND_DTYPE_CHANGES: Final[str] = "dtype_changes"
 KIND_NEW_CATEGORIES: Final[str] = "new_categories"
 KIND_MISSING_RATE_CHANGES: Final[str] = "missing_rate_changes"
 KIND_RECORD_COUNT_CHANGES: Final[str] = "record_count_changes"
+KIND_UNREADABLE_DATES: Final[str] = "unreadable_dates"
+KIND_TRUNCATED_CATEGORIES: Final[str] = "truncated_categories"
 
 FINDING_KINDS: Final[tuple[str, ...]] = (
     KIND_NEW_COLUMNS,
@@ -69,6 +82,8 @@ FINDING_KINDS: Final[tuple[str, ...]] = (
     KIND_NEW_CATEGORIES,
     KIND_MISSING_RATE_CHANGES,
     KIND_RECORD_COUNT_CHANGES,
+    KIND_UNREADABLE_DATES,
+    KIND_TRUNCATED_CATEGORIES,
 )
 
 #: Tipos inferidos. Sao quatro de proposito: `vazio` e um estado, nao um tipo.
@@ -92,13 +107,32 @@ _INTEGER_PATTERN: Final[str] = r"[+-]?\d+"
 _KIND_AGREEMENT: Final[float] = 0.99
 
 #: Teto de valores inspecionados por bloco na inferencia de tipo. Com a regra de
-#: maioria acima, amostrar nao muda a conclusao e limita o custo do parse.
+#: maioria acima, amostrar nao muda a conclusao e limita o custo do parse --
+#: desde que a amostra cubra o bloco INTEIRO.
+#:
+#: Ja foram as 20 mil PRIMEIRAS linhas de cada bloco, e isso era um furo: com o
+#: `chunk_size` padrao de 100.000, 80% de cada bloco nunca era inspecionado. Uma
+#: safra que troca o formato de data a partir da linha 20.001 passava com
+#: relatorio de esquema limpo enquanto a limpeza tornava nulo um terco das
+#: datas. Amostra aleatoria com semente fixa: cobre o bloco todo, e o resultado
+#: e reproduzivel entre execucoes -- um alarme de tipo precisa ser o mesmo na
+#: reexecucao de quem for investigar.
 _KIND_SAMPLE: Final[int] = 20_000
+
+#: Semente da amostragem acima. Fixa, e nao aleatoria por execucao, para que a
+#: mesma safra produza sempre o mesmo veredito de tipo.
+_KIND_SAMPLE_SEED: Final[int] = 20_250_614
 
 #: Teto de categorias distintas guardadas por coluna. As colunas categoricas do
 #: SIVEP tem dominios de 3 a 5 codigos, entao o teto nunca e alcancado com dado
 #: saudavel; ele existe para que uma coluna que deixou de ser categorica na
 #: origem nao carregue milhares de valores para dentro da linha de base.
+#:
+#: Atingir o teto NAO e silencioso: a coluna fica marcada em
+#: `SchemaObservation.truncated_categories` e produz um WARNING proprio. Sem a
+#: marca, a observacao afirmaria implicitamente "nenhuma categoria nova alem
+#: destas" sobre uma coluna cuja coleta parou no meio do arquivo -- uma
+#: afirmacao que o observer nao tem como sustentar.
 _MAX_CATEGORIES: Final[int] = 64
 
 
@@ -126,6 +160,9 @@ class SchemaObservation:
     #: Valores categoricos distintos observados, por coluna.
     categories: dict[str, list[str]]
     record_count: int
+    #: Colunas cuja coleta de categorias bateu em `_MAX_CATEGORIES` e parou.
+    #: Para elas, `categories` e uma amostra, nao o dominio observado.
+    truncated_categories: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         """Serializa a observacao no formato gravado na linha de base."""
@@ -135,6 +172,7 @@ class SchemaObservation:
             "dtypes": dict(sorted(self.dtypes.items())),
             "missing_rate": {k: round(v, 4) for k, v in sorted(self.missing_rate.items())},
             "categories": {k: sorted(v) for k, v in sorted(self.categories.items())},
+            "categories_truncated": sorted(self.truncated_categories),
             "record_count": self.record_count,
         }
 
@@ -153,7 +191,14 @@ def _infer_kind(values: pd.Series) -> str:
     if text.empty:
         return KIND_EMPTY
 
-    sample = text.head(_KIND_SAMPLE)
+    # Amostra ao longo de TODO o bloco (ver `_KIND_SAMPLE`): `.head` deixava
+    # a cauda do bloco fora da inspecao, que e exatamente onde uma mudanca de
+    # formato no meio do arquivo aparece.
+    sample = (
+        text
+        if len(text) <= _KIND_SAMPLE
+        else text.sample(n=_KIND_SAMPLE, random_state=_KIND_SAMPLE_SEED)
+    )
     total = len(sample)
     # Inteiro antes de data: `20241229` satisfaz os dois, e o formato compacto
     # nao e publicado pela fonte em nenhuma das tres variantes conhecidas.
@@ -193,6 +238,7 @@ class SchemaObserver:
         self._kinds: dict[str, str] = {}
         self._present: dict[str, int] = {}
         self._categories: dict[str, set[str]] = {}
+        self._truncated: set[str] = set()
         self._rows = 0
 
     def observe_header(self, columns: list[str]) -> None:
@@ -210,8 +256,14 @@ class SchemaObserver:
             )
             if column in CATEGORICAL_COLUMNS:
                 seen = self._categories.setdefault(column, set())
-                if len(seen) < _MAX_CATEGORIES:
-                    seen.update(str(value) for value in text.dropna().unique())
+                for value in text.dropna().unique():
+                    if len(seen) >= _MAX_CATEGORIES:
+                        # O teto foi atingido: daqui para a frente a coleta e
+                        # parcial, e isso fica registrado em vez de virar uma
+                        # afirmacao silenciosa de dominio completo.
+                        self._truncated.add(column)
+                        break
+                    seen.add(str(value))
 
     def result(self) -> SchemaObservation:
         """Consolida o que foi observado em uma :class:`SchemaObservation`."""
@@ -226,6 +278,7 @@ class SchemaObserver:
                 for column, present in self._present.items()
             },
             categories={column: sorted(values) for column, values in self._categories.items()},
+            truncated_categories=tuple(sorted(self._truncated)),
             record_count=rows,
         )
 
@@ -279,18 +332,43 @@ class DriftThresholds:
       336.391 no mesmo INFLUD25, +103%. Nao pode interromper a carga, mas
       tambem nao pode passar despercebido, porque dobrar o denominador desloca
       toda serie historica.
+
+    Os dois ultimos nao sao variacao entre safras, e sim **piso absoluto**, e
+    existem porque a comparacao relativa tem um ponto cego estrutural: ela so
+    enxerga diferenca. Uma coluna que ja estava vazia e continua vazia tem
+    delta zero; uma safra que estabelece a linha de base nao tem contra o que
+    comparar. Nos dois casos o eixo temporal pode chegar destruido sem que uma
+    unica comparacao relativa reclame.
+
+    * `max_missing_pct` -- ausencia absoluta tolerada por coluna. A calibracao
+      esta em :data:`src.config.DRIFT_MAX_MISSING_PCT`, junto das medicoes que
+      a justificam.
+    * `unreadable_dates_pct` -- fracao das fichas com data presente e ilegivel.
+      Medido: 0 em 336.391. O piso de 0,5% fica de proposito abaixo do 1% de
+      discordancia que :data:`_KIND_AGREEMENT` tolera na inferencia de tipo, de
+      modo que as duas checagens se sobreponham em vez de deixar faixa cega.
+
+    Os dois pisos absolutos so sao avaliados a partir de
+    `rate_min_records` fichas no ano: taxa sobre um punhado de registros
+    descreve unidades, nao a safra (ver :data:`src.config.DRIFT_RATE_MIN_RECORDS`).
     """
 
     missing_rate_delta_pct: float = 5.0
     record_drop_pct: float = 20.0
     record_growth_pct: float = 50.0
+    max_missing_pct: dict[str, float] = field(default_factory=lambda: dict(DRIFT_MAX_MISSING_PCT))
+    unreadable_dates_pct: float = 0.5
+    rate_min_records: int = DRIFT_RATE_MIN_RECORDS
 
-    def to_dict(self) -> dict[str, float]:
+    def to_dict(self) -> dict[str, Any]:
         """Publica os limiares junto dos achados que eles produziram."""
         return {
             "variacao_de_ausencia_pp": self.missing_rate_delta_pct,
             "queda_de_registros_pct": self.record_drop_pct,
             "crescimento_de_registros_pct": self.record_growth_pct,
+            "ausencia_absoluta_maxima_pp": dict(sorted(self.max_missing_pct.items())),
+            "datas_ilegiveis_pct": self.unreadable_dates_pct,
+            "registros_minimos_para_piso_absoluto": self.rate_min_records,
         }
 
 
@@ -362,6 +440,80 @@ class DriftReport:
 # =============================================================================
 
 
+def observation_findings(
+    observation: SchemaObservation,
+    thresholds: DriftThresholds | None = None,
+) -> list[DriftFinding]:
+    """Achados que a safra corrente produz sozinha, sem safra anterior.
+
+    Sao os que nao podem depender de comparacao: um piso absoluto de completude
+    e a marca de coleta truncada de categorias valem igualmente na primeira
+    carga -- que e justamente quando nao ha linha de base para comparar e,
+    portanto, quando o detector relativo esta cego.
+
+    Args:
+        observation: retrato da safra corrente.
+        thresholds: limiares; os padroes quando omitido.
+
+    Returns:
+        Lista de achados ja classificados.
+    """
+    thresholds = thresholds or DriftThresholds()
+    findings: list[DriftFinding] = []
+
+    # --- piso absoluto de completude ----------------------------------------
+    # Abaixo do denominador minimo a taxa nao descreve a safra, e o piso nao e
+    # avaliado -- um arquivo desse tamanho ja e barrado pela queda de registros.
+    ceilings = (
+        thresholds.max_missing_pct
+        if observation.record_count >= thresholds.rate_min_records
+        else {}
+    )
+    for column, ceiling in sorted(ceilings.items()):
+        rate = observation.missing_rate.get(column)
+        if rate is None or rate <= ceiling:
+            continue
+        findings.append(
+            DriftFinding(
+                kind=KIND_MISSING_RATE_CHANGES,
+                severity=SEVERITY_ERROR,
+                year=observation.year,
+                column=column,
+                previous=ceiling,
+                current=round(rate, 3),
+                message=(
+                    f"coluna {column} chegou {rate:.2f}% vazia em {observation.year}, "
+                    f"acima do piso absoluto de {ceiling:.2f}%; sem ela nenhum "
+                    "indicador consegue situar o caso no tempo e a view analitica "
+                    "fica vazia, entao a carga para em vez de regravar a base"
+                ),
+            )
+        )
+
+    # --- coleta de categorias truncada --------------------------------------
+    for column in observation.truncated_categories:
+        findings.append(
+            DriftFinding(
+                kind=KIND_TRUNCATED_CATEGORIES,
+                severity=SEVERITY_WARNING,
+                year=observation.year,
+                column=column,
+                previous=_MAX_CATEGORIES,
+                current=len(observation.categories.get(column, ())),
+                message=(
+                    f"a coleta de categorias de {column} em {observation.year} parou "
+                    f"no teto de {_MAX_CATEGORIES} valores distintos; o dominio "
+                    "observado e uma AMOSTRA, entao a ausencia de um codigo novo "
+                    "nesta coluna nao esta verificada -- uma coluna categorica com "
+                    "esse numero de valores provavelmente deixou de ser categorica "
+                    "na origem"
+                ),
+            )
+        )
+
+    return findings
+
+
 def _official_domain(column: str) -> set[str]:
     """Codigos que o dicionario oficial declara para `column`, como texto."""
     return {str(code) for code in CODE_LABELS.get(column, {})}
@@ -389,7 +541,10 @@ def compare(
 
     thresholds = thresholds or DriftThresholds()
     year = observation.year
-    findings: list[DriftFinding] = []
+    findings: list[DriftFinding] = observation_findings(observation, thresholds)
+    # Colunas que ja falharam no piso absoluto nao repetem o achado relativo: o
+    # ERROR de completude absoluta e estritamente mais grave e ja diz o numero.
+    absolute_failures = {item.column for item in findings}
 
     # --- colunas do arquivo bruto (cabecalho, sem ler uma celula sequer) -----
     previous_columns = set(baseline.get("raw_columns", ()))
@@ -486,7 +641,7 @@ def compare(
     # --- completude ----------------------------------------------------------
     previous_missing = baseline.get("missing_rate", {})
     for column, current_rate in sorted(observation.missing_rate.items()):
-        if column not in previous_missing:
+        if column not in previous_missing or column in absolute_failures:
             continue
         delta = current_rate - previous_missing[column]
         if abs(delta) < thresholds.missing_rate_delta_pct:
@@ -547,6 +702,68 @@ def compare(
     return findings
 
 
+def check_unreadable_dates(
+    year: int,
+    invalid_dates: dict[str, int],
+    rows_read: int,
+    thresholds: DriftThresholds | None = None,
+) -> list[DriftFinding]:
+    """Promove a ERROR a ilegibilidade de data em massa numa coluna.
+
+    A observacao de esquema olha o arquivo **bruto** e classifica a coluna em um
+    tipo; a limpeza olha valor a valor e conta quantos nao pode interpretar
+    (:attr:`src.data.quality.QualityReport.invalid_dates`). Os dois numeros
+    respondem perguntas diferentes, e so o segundo enxerga o caso em que uma
+    minoria grande de datas e ilegivel sem que a coluna deixe de ser do tipo
+    `data`: o tipo se decide por maioria, e um terco de lixo nao muda a maioria.
+
+    Essas datas viram nulo, `flag_data_invalida` marca o registro e ele sai da
+    view analitica. Ate esta checagem existir, o unico rastro disso era uma
+    contagem no relatorio de qualidade que nao mudava codigo de saida nenhum.
+
+    Abaixo do piso nao ha achado, de proposito: a fonte publica lixo pontual, e
+    a contagem exata continua em `datas_nao_parseaveis_por_coluna`. Um achado
+    por registro isolado faria toda carga ter pendencia e esvaziaria o sinal.
+    Pelo mesmo motivo, um ano com menos de `rate_min_records` fichas nao e
+    avaliado: sobre um punhado de registros isto nao e taxa.
+
+    Args:
+        year: ano da safra a que as contagens se referem.
+        invalid_dates: registros com data presente e ilegivel, por coluna.
+        rows_read: fichas lidas do ano -- o denominador.
+        thresholds: limiares; os padroes quando omitido.
+
+    Returns:
+        Lista de achados ERROR, um por coluna acima do piso.
+    """
+    thresholds = thresholds or DriftThresholds()
+    if rows_read < thresholds.rate_min_records:
+        return []
+
+    findings: list[DriftFinding] = []
+    for column, count in sorted(invalid_dates.items()):
+        share = count / rows_read * 100
+        if share <= thresholds.unreadable_dates_pct:
+            continue
+        findings.append(
+            DriftFinding(
+                kind=KIND_UNREADABLE_DATES,
+                severity=SEVERITY_ERROR,
+                year=year,
+                column=column,
+                previous=thresholds.unreadable_dates_pct,
+                current=round(share, 3),
+                message=(
+                    f"{count} de {rows_read} fichas de {year} trazem {column} presente "
+                    f"e ilegivel ({share:.2f}%, piso {thresholds.unreadable_dates_pct:.2f}%); "
+                    "a fonte mudou o formato da data ou o arquivo esta corrompido, e "
+                    "esses registros perdem o eixo temporal e saem da view analitica"
+                ),
+            )
+        )
+    return findings
+
+
 # =============================================================================
 # Linha de base persistida
 # =============================================================================
@@ -577,11 +794,30 @@ def save_baseline(
     observations: list[SchemaObservation],
     *,
     accepted: DriftReport | None = None,
+    pending: DriftReport | None = None,
 ) -> None:
     """Grava a linha de base do que acabou de ser carregado.
 
     Anos ja presentes e nao recarregados sao preservados: a linha de base e um
     acumulado por ano, nao um retrato da ultima execucao.
+
+    **Um achado nao aceito nao vira linha de base.** Enquanto um ano tiver
+    achado pendente, a entrada dele NAO e atualizada: a safra anterior continua
+    sendo a referencia, e a carga seguinte detecta exatamente a mesma mudanca.
+    Escolhemos congelar a entrada em vez de so anotar `pending_findings` sobre a
+    observacao nova porque anotar nao resolveria o problema -- absorvida a
+    observacao, a comparacao seguinte nao teria mais contra o que alarmar, e o
+    aviso morreria na segunda repeticao de qualquer forma.
+
+    O motivo e o furo que isso fecha: antes, `save_baseline` gravava a
+    observacao corrente em toda carga bem-sucedida, com ou sem `--accept-drift`.
+    Um codigo novo em `UTI` avisava uma vez e, na carga seguinte, ja fazia parte
+    da linha de base -- uma anomalia recorrente era reportada exatamente uma vez
+    e o aceite implicito acontecia por inercia, contradizendo a promessa deste
+    modulo de que aceitar uma mudanca exige gesto explicito.
+
+    A entrada congelada carrega `pending_findings` e `pending_since`, para que a
+    razao do congelamento esteja no proprio arquivo e nao so no log.
 
     Args:
         path: arquivo da linha de base.
@@ -589,18 +825,46 @@ def save_baseline(
         accepted: relatorio cujos achados foram aceitos com `--accept-drift`.
             Quando presente, o aceite fica gravado com data e lista do que foi
             aceito -- e o que torna a excecao auditavel em vez de invisivel.
+        pending: relatorio cujos achados NAO foram aceitos. Os anos citados nele
+            ficam com a entrada anterior congelada.
     """
     years = load_baseline(path)
     now = datetime.now(tz=UTC).isoformat()
+    unaccepted: dict[int, list[DriftFinding]] = {}
+    if pending is not None:
+        for finding in pending.findings:
+            unaccepted.setdefault(finding.year, []).append(finding)
+
     for observation in observations:
+        key = str(observation.year)
+        blocking = unaccepted.get(observation.year, [])
+        previous = years.get(key)
+        if blocking and previous is not None:
+            # Congela a referencia: a proxima carga compara contra a MESMA safra
+            # e volta a reportar o que ninguem aceitou.
+            previous["pending_findings"] = [item.to_dict() for item in blocking]
+            previous["pending_since"] = previous.get("pending_since", now)
+            years[key] = previous
+            logger.warning(
+                "linha de base congelada por achado nao aceito",
+                extra={"ano": observation.year, "achados": len(blocking)},
+            )
+            continue
+
         entry = observation.to_dict()
         entry["captured_at"] = now
+        if blocking:
+            # Nao havia entrada anterior (ano novo): a observacao vira a
+            # referencia, mas o achado fica registrado como pendente em vez de
+            # desaparecer com a gravacao.
+            entry["pending_findings"] = [item.to_dict() for item in blocking]
+            entry["pending_since"] = now
         if accepted is not None and accepted.findings:
             entry["accepted_at"] = now
             entry["accepted_findings"] = [
                 item.to_dict() for item in accepted.findings if item.year == observation.year
             ]
-        years[str(observation.year)] = entry
+        years[key] = entry
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
@@ -634,7 +898,12 @@ def detect_drift(
     for observation in observations:
         entry = baseline.get(str(observation.year))
         if entry is None:
+            # Primeira carga do ano: nao ha o que comparar, mas as checagens que
+            # nao dependem da safra anterior (piso absoluto de completude,
+            # coleta truncada) valem -- sem elas, uma safra ja corrompida viraria
+            # a propria linha de base sem um unico achado.
             report.baselines_established.append(observation.year)
+            report.findings.extend(observation_findings(observation, report.thresholds))
             continue
         report.findings.extend(compare(entry, observation, report.thresholds))
 

@@ -58,6 +58,7 @@ from src.data.drift import (
     SchemaDriftError,
     SchemaObservation,
     SchemaObserver,
+    check_unreadable_dates,
     detect_drift,
     save_baseline,
 )
@@ -182,6 +183,11 @@ def preprocess(
     source_files: list[str] = []
     provenance: list[dict] = []
     observations: list[SchemaObservation] = []
+    # Datas ilegiveis por ano. O `QualityReport` e um acumulado da carga inteira,
+    # entao o recorte por ano vem de tirar a diferenca dos contadores antes e
+    # depois de cada arquivo -- sem isso, a ilegibilidade de um ano diluiria no
+    # denominador dos outros.
+    unreadable_dates: list[tuple[int, dict[str, int], int]] = []
 
     for year in sorted(years):
         entry = manifest.get(str(year))
@@ -205,6 +211,8 @@ def preprocess(
         # visivel no historico em vez de virar mojibake silencioso.
         encoding = detect_encoding(path)
         observer = SchemaObserver(year=year, filename=entry["filename"])
+        invalid_before = dict(report.invalid_dates)
+        rows_before = report.rows_read
         with trail.step(
             node="preprocess",
             tool=f"preprocess_year:{year}",
@@ -214,6 +222,17 @@ def preprocess(
             frames.append(preprocess_year(path, year, report, chunk_size, encoding, observer))
             audit["summary"] = f"{report.rows_read} linhas lidas ate aqui"
         observations.append(observer.result())
+        unreadable_dates.append(
+            (
+                year,
+                {
+                    column: count - invalid_before.get(column, 0)
+                    for column, count in report.invalid_dates.items()
+                    if count - invalid_before.get(column, 0) > 0
+                },
+                report.rows_read - rows_before,
+            )
+        )
         provenance.append(
             {
                 "year": year,
@@ -240,8 +259,17 @@ def preprocess(
             missing_rate_delta_pct=settings.drift_missing_rate_delta_pp,
             record_drop_pct=settings.drift_record_drop_pct,
             record_growth_pct=settings.drift_record_growth_pct,
+            unreadable_dates_pct=settings.drift_unreadable_dates_pct,
         ),
     )
+    # A ilegibilidade em massa de uma coluna de data entra no MESMO relatorio, e
+    # nao num aviso a parte, porque e a mesma pergunta que o detector responde:
+    # a fonte mudou de um jeito que quebra o calculo. A observacao de esquema ve
+    # o arquivo bruto e decide o tipo por maioria; esta checagem ve o resultado
+    # da limpeza e enxerga a minoria grande de datas que viraram nulo.
+    for year, invalid, rows in unreadable_dates:
+        drift.findings.extend(check_unreadable_dates(year, invalid, rows, drift.thresholds))
+
     drift.log()
     drift_payload = drift.to_dict()
     settings.schema_drift_path.write_text(
@@ -292,10 +320,15 @@ def preprocess(
     # A linha de base so avanca quando a carga foi ate o fim. Uma carga
     # interrompida por ERROR a deixa intacta, de modo que a proxima tentativa
     # detecte exatamente a mesma mudanca em vez de aceita-la por inercia.
+    # Sem `--accept-drift`, os achados desta carga NAO sao absorvidos: o ano
+    # citado por um achado mantem a entrada anterior, e a carga seguinte volta a
+    # reportar a mesma mudanca. Absorver um WARNING por inercia transformava uma
+    # anomalia recorrente em aviso de uma unica vez.
     save_baseline(
         settings.schema_baseline_path,
         observations,
         accepted=drift if accept_drift else None,
+        pending=None if accept_drift else drift,
     )
 
     trail.record(

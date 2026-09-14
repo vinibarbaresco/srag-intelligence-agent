@@ -350,3 +350,48 @@ class TestCoerenciaRevisada:
         frame = self._derive(context, TP_IDADE="2", NU_IDADE_N="6")
         assert frame["faixa_etaria"].iloc[0] == "0-4"
         assert context.report.age_unit_out_of_domain == 0
+
+
+class TestPlausibilidadeDeDatasEReprodutivel:
+    """M-2: o teto era so a data de execucao, entao a deteccao expirava.
+
+    Uma `DT_ENTUTI` de 2028 era implausivel numa carga rodada em 2026 e deixava
+    de ser numa carga rodada em 2029 -- o conteudo do Parquet dependia do dia da
+    execucao. O teto relativo (`DT_DIGITA` mais um ano) nao depende.
+    """
+
+    def _registro(self, **datas):
+        import pandas as pd
+
+        from src.data.schema import DATE_COLUMNS
+
+        base = {coluna: pd.Series([pd.NaT]) for coluna in DATE_COLUMNS}
+        base.update({coluna: pd.Series([pd.Timestamp(valor)]) for coluna, valor in datas.items()})
+        return pd.DataFrame(base)
+
+    @pytest.mark.parametrize("dia_da_execucao", ["2026-09-14", "2029-01-01", "2035-01-01"])
+    def test_data_muito_posterior_a_digitacao_e_implausivel_em_qualquer_execucao(
+        self, dia_da_execucao
+    ):
+        import pandas as pd
+
+        from src.data.cleaning.coherence import implausible_dates
+
+        frame = self._registro(
+            DT_DIGITA="2025-06-26", DT_SIN_PRI="2025-06-01", DT_ENTUTI="2028-05-07"
+        )
+        assert bool(implausible_dates(frame, ceiling=pd.Timestamp(dia_da_execucao)).iloc[0]), (
+            "a deteccao passou a depender do dia da execucao"
+        )
+
+    def test_encerramento_tardio_dentro_do_ano_nao_e_implausivel(self):
+        import pandas as pd
+
+        from src.data.cleaning.coherence import implausible_dates
+
+        # DT_ENCERRA meses depois da digitacao inicial e rotina: `DT_DIGITA` e a
+        # primeira digitacao, nao a ultima atualizacao do registro.
+        frame = self._registro(
+            DT_DIGITA="2025-01-10", DT_SIN_PRI="2025-01-05", DT_ENCERRA="2025-06-20"
+        )
+        assert not bool(implausible_dates(frame, ceiling=pd.Timestamp("2026-09-14")).iloc[0])

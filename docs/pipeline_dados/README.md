@@ -211,7 +211,7 @@ Nenhum registro é excluído na ingestão. A exclusão ocorre na consulta, e é 
 | `SG_UF_NOT`, `SG_UF` | sigla fora das 27 UFs | anula e registra `uf_anulada` | valor inutilizável ≠ campo vazio | 0 nesta safra |
 | categóricas | valor presente não numérico | vira nulo **e** registra `codigo_ilegivel` | simetria com o tratamento de datas | 0 nesta safra |
 | categóricas | código fora do domínio | contado, **não** anulado | a camada de métricas só reconhece códigos válidos | 0 nesta safra |
-| duplicidade | linhas repetidas | contadas, **nunca** removidas | `NU_NOTIFIC` íntegro (0 repetições) prova que são pacientes distintos | 752 (0,455%) |
+| duplicidade | linhas repetidas | contadas, **nunca** removidas | `NU_NOTIFIC` íntegro (0 repetições) prova que são pacientes distintos | 764 (0,462%) |
 
 ---
 
@@ -240,7 +240,7 @@ QUALIDADE
   Datas não parseáveis:      0 em todas as 7 colunas
   UF fora do domínio:        0
   Idade fora do plausível:   1
-  Linhas idênticas:        752 (0,455%) — contadas, não removidas
+  Linhas idênticas:        764 (0,462%) — contadas, não removidas
   Divergência SEM_PRI:       0 de 165.397
 
 SCHEMA
@@ -285,11 +285,28 @@ Comportamento por tipo de mudança:
 | Coluna de `ALLOWED_COLUMNS` desaparece | **ERROR** | carga interrompida; nenhum Parquet novo é gravado |
 | Tipo de coluna lida muda | **ERROR** | carga interrompida |
 | Queda de registros acima de 20% | **ERROR** | carga interrompida |
+| Ausência absoluta acima do piso da coluna (`DT_SIN_PRI` 5%, `DT_DIGITA` 60%) | **ERROR** | carga interrompida |
+| Datas ilegíveis acima de 0,5% | **ERROR** | carga interrompida |
 | Coluna nova no arquivo bruto | WARNING | registrado; a allowlist protege o cálculo |
 | Coluna não lida desaparece | WARNING | registrado |
 | Categoria nova | WARNING | registrado |
-| Ausência varia mais de 5 pp | WARNING | registrado |
+| Ausência varia mais de 5 pp entre safras | WARNING | registrado |
 | Crescimento acima de 50% | WARNING | registrado |
+| Domínio observado truncado no teto de 64 categorias | WARNING | registrado; o pipeline não afirma ausência de categoria que não observou |
+
+Três garantias que vieram da revisão independente (ver D-29):
+
+- A inspeção de tipo **amostra o bloco inteiro** com semente fixa, não as primeiras linhas. Uma
+  safra que troca o formato de data no meio do arquivo é detectada.
+- Os pisos absolutos de completude rodam **também na primeira carga** — senão uma safra já
+  corrompida viraria a linha de base sem um único achado.
+- Enquanto houver achado **não aceito**, a entrada daquele ano na linha de base é **congelada**.
+  Sem isso, uma anomalia recorrente seria reportada exatamente uma vez e depois viraria a
+  normalidade.
+
+**Em clone novo e na integração contínua não há linha de base**: ela é derivada dos CSVs brutos, que
+não são versionados. A primeira carga de cada ano apenas a estabelece; a proteção começa na segunda.
+O `.gitignore` permite versioná-la se a equipe quiser antecipar isso.
 
 Os achados são persistidos em `data/processed/schema_drift.json` **sempre** — inclusive quando a
 carga é interrompida, que é justamente quando mais importam, porque uma carga abortada não gera
@@ -381,7 +398,7 @@ Declaradas, não resolvidas:
    idade normalizada difere da idade calculável por `DT_NASC` em mais de um ano. Detectá-los exigiria
    ler `DT_NASC`, que é quase-identificador direto e está na denylist. A validação de domínio de
    `TP_IDADE` captura a classe de erro sem PII, mas não esses casos. Ver D-06.
-2. **Duplicidade indecidível.** 752 registros (0,455%) são idênticos nas colunas persistidas. Sem
+2. **Duplicidade indecidível.** 764 registros (0,462%) são idênticos nas colunas persistidas. Sem
    `NU_NOTIFIC` — negado por minimização — não há como distinguir duplicata de pacientes distintos
    com os mesmos atributos agregados. Contados, nunca removidos. Ver D-15.
 3. **Taxa de ocupação de leitos de UTI é incalculável** com o SIVEP-Gripe, que não registra
@@ -394,3 +411,141 @@ Declaradas, não resolvidas:
 6. **A data de referência depende do dia de execução.** O teto contra digitação futura usa a data
    corrente. Uma reexecução em outro dia pode, em tese, admitir um registro antes rejeitado. O
    parâmetro é explícito na função para permitir fixá-lo.
+
+---
+
+## 9. Revisão independente (Red Team)
+
+Um revisor independente auditou a implementação partindo do pressuposto de que havia erros não
+identificados, executou o pipeline sobre a base oficial e testou o detector de drift com 7 safras
+deliberadamente mutadas. Achados e tratamento em [`decisoes.md`](decisoes.md), seção "Rodada do
+Red Team" (D-22 a D-30).
+
+| Severidade | Encontrados | Corrigidos | Recusados com justificativa |
+|---|---:|---:|---:|
+| CRITICAL | 3 | 3 | 0 |
+| HIGH | 5 | 5 | 0 |
+| MEDIUM | 7 | 5 | 2 |
+| LOW | 6 | 3 | 3 |
+
+**Nenhum CRITICAL ou HIGH permanece aberto.**
+
+Os três achados mais importantes valem por si:
+
+1. **`astype("Int16")` fazia wraparound silencioso**: `65537` virava `1`, que é o código de "Sim".
+   O valor corrompido não aparecia como ilegível, nem fora do domínio, nem como ajuste — a pior
+   corrupção possível, porque era indistinguível de um dado bom.
+2. **A correção de maturidade que eu havia introduzido estava assimétrica**: exigia data de
+   digitação só da janela anterior. Com 34% de digitação ausente — a taxa real do INFLUD19 — o
+   indicador reportaria +137,95% onde o correto é +56,94%.
+3. **O detector de drift tinha três furos** que, combinados, deixavam uma safra corrompida passar
+   com código de saída 0 e virar a nova linha de base.
+
+Dois achados foram **recusados** com evidência: a alegação de suíte instável não se reproduziu em
+árvore em repouso (quatro execuções idênticas), e versionar a linha de base de esquema seria afirmar
+algo sobre arquivos que o clone não possui.
+
+---
+
+## 10. As treze perguntas
+
+**1. Quais dados foram mantidos e por quê?**
+22 das 194 colunas, cada uma com consumidor nomeado em §2: 7 datas (eixo temporal, coerência,
+permanência em UTI, maturidade do desfecho, âncora da janela), 1 semana epidemiológica (só para
+reconciliação), 11 categóricas (perfil, severidade, ventilação, etiologia, vacinação), 2 geográficas
+(residência para incidência, notificação para carga assistencial) e 1 numérica (idade, descartada
+após derivar a faixa). Variável sem consumidor não entra.
+
+**2. Quais dados foram descartados e por quê?**
+49 colunas por **minimização de dados pessoais** (identificador da notificação, data de nascimento,
+município e regional, unidade de saúde, ocupação, raça, etnia, gestação, IMC, textos livres, datas e
+lotes de dose). 3 por **ausência de utilidade analítica**: `DT_NOTIFIC` e `SEM_NOT` (o eixo é
+`DT_SIN_PRI`), e `FATOR_RISC`, que é **inutilizável** — no arquivo só existem vazio e `1`, nunca `2`
+nem `9`, de modo que ausência não distingue "sem fator de risco" de "não informado". As demais não
+são lidas do disco. A idade exata é descartada após derivar a faixa etária.
+
+**3. Quais regras de limpeza foram aplicadas?**
+Nove regras nomeadas, na ordem declarada em `CLEANING_PIPELINE`: parse de datas → códigos
+categóricos → sexo → numéricos → UF → idade e faixa etária → ano de origem → semana epidemiológica →
+coerência → semântica. Cada uma é um objeto testável com `name` e `description`, e a descrição
+publicada vem da mesma fonte que executa. Detalhe em §4.
+
+**4. Quanto cada regra afetou a base?**
+Sobre 165.397 registros: **0 descartados**, **6 ajustados** (0,004%) — 5 `idade_unidade_implausivel`
+e 1 `idade_anulada`. Flags de coerência: 25 eixo temporal inválido (0,015%), 2.605 internação
+(1,575%), 1.500 UTI (0,907%), 9.533 evolução (5,764%), 9 data implausível (0,005%). 0 datas
+ilegíveis, 0 UF fora do domínio, 0 códigos fora do domínio. 764 linhas idênticas (0,462%), contadas
+e não removidas.
+
+**5. Como missing e valores desconhecidos foram tratados?**
+Nunca convertidos em negativa. Ausente e código "Ignorado" saem **simultaneamente** do numerador e
+do denominador de toda proporção, e o volume sai publicado ao lado do valor. O relatório distingue
+por coluna `vazio` / `ignorado` / `fora_do_dominio`, com a identidade
+`total = válidos + ignorados + ausentes + fora_do_domínio` publicada junto. Códigos de ausência são
+declarados **por coluna**: `CLASSI_FIN` e `CRITERIO` não têm código 9, e vazio nelas significa caso
+não encerrado. Um valor presente mas ilegível vira nulo **e** ajuste, para não se confundir com
+campo vazio na origem.
+
+**6. Como numeradores e denominadores foram definidos?**
+Explicitamente, na tabela de §3, e publicados no envelope de cada indicador. Três decisões que
+mudaram: o denominador da taxa de UTI deixou de ler `HOSPITAL` ausente como "não internado" e não
+condiciona a entrada ao valor do numerador; a taxa de aumento compara as janelas com maturidade
+simétrica; a incidência passou a recortar pela UF de residência, casando com o denominador do IBGE.
+Denominador zero devolve `None` com motivo, nunca zero.
+
+**7. Quais features foram criadas?**
+33, listadas em §2: temporais (semana epidemiológica pela regra do MS, ano, mês), perfil (faixa
+etária), severidade e desfecho (hospitalização, UTI, as quatro de ventilação, óbito, caso encerrado,
+nosocomial, estadia utilizável), etiologia (grupo etiológico, critério laboratorial), status do caso,
+cinco flags de coerência e a coluna de ajustes. Cada uma tem a lógica documentada no código.
+
+**8. Quais inconsistências permanecem?**
+Seis, declaradas em §8: divergência entre idade declarada e real que só `DT_NASC` revelaria (56
+registros, 0,034%); duplicidade indecidível sem o identificador da notificação (764, 0,462%);
+ocupação de leitos de UTI incalculável com o SIVEP; 12 colunas do arquivo ausentes do dicionário de
+2022; `CS_SEXO` divergindo do dicionário; e a dependência residual da data de execução onde
+`DT_DIGITA` está ausente.
+
+**9. Como o pipeline reage a uma nova atualização?**
+Demonstrado com dado real em §6: recarregar 2025 com a safra posterior (336.391 contra 165.397
+linhas) produziu 0 erros e 6 avisos, entre eles a maturação do encerramento (`EVOLUCAO` de 22,65%
+para 4,57% de ausência). Mudanças que quebrariam o cálculo — coluna da allowlist sumindo, tipo
+mudando, queda de registros, eixo temporal esvaziando, datas ilegíveis em massa — **interrompem a
+carga** sem gravar Parquet novo. Achados não aceitos congelam a linha de base até um
+`--accept-drift` explícito e auditável.
+
+**10. Quais testes garantem que as regras continuam corretas?**
+757 testes. Os críticos: `SUPORT_VEN` com código 2 é "sim" e não "não"; código 3 entra no
+denominador; ausência não vira negativa em cada variável; `CLASSI_FIN` vazio não vira "não
+especificado"; caso em aberto não é cura; nosocomial não dispara a flag de internação mas
+`NOSOCOMIAL=2` continua disparando; virada de ano da semana epidemiológica; identidade de
+completude; denylist; raw imutável verificado por hash; e uma regressão por defeito corrigido, cada
+uma demonstrando o modo de falha anterior. Os testes do Agent 7 foram validados quebrando a regra
+correspondente e confirmando a falha antes de serem aceitos.
+
+**11. Há algum risco de data leakage?**
+A revisão independente procurou especificamente por isso. Não há vazamento de futuro para o cálculo:
+o eixo é a data de sintomas, a janela é ancorada na maior digitação plausível da base (não em
+`today()`), e o uso de `data_digitacao` na censura de maturidade é o oposto de vazamento — serve
+para **não** contar informação que ainda não existia quando a janela fechou. A imputação de fim de
+estadia em UTI usa `data_evolucao`, que é evento real e posterior, e por isso é limitada pelo teto
+de permanência em **todos** os ramos. Resíduo declarado: onde `DT_DIGITA` está ausente, a
+plausibilidade de datas recorre à data de execução.
+
+**12. Há algum risco de viés epidemiológico?**
+Havia cinco, todos corrigidos e travados por teste: ausência lida como negativa no denominador de
+UTI; maturidade assimétrica entre as janelas do crescimento; ano fantasma no baseline sazonal;
+numerador e denominador geográficos incompatíveis na incidência; e viés de seleção introduzido pela
+primeira tentativa de corrigir o primeiro. Dois vieses **não são elimináveis** e passaram a ser
+quantificados em vez de escondidos: a letalidade da janela recente é superestimada por encerramento
+diferencial (publicada ao lado da coorte madura e do percentual encerrado), e o censo de UTI da
+cauda direita é inflado pela digitação pendente (o pico publicado vem da parte madura da série, com
+o máximo bruto rotulado ao lado).
+
+**13. A atualização da base pode ser executada sem intervenção manual?**
+Sim. Três comandos, sem Excel e sem edição manual em nenhum ponto: registrar o arquivo
+(`download --years` ou `--local`), `preprocess` e `load_database`. A fonte é resolvida a cada
+execução — a URL nunca é fixada no código, porque o nome do arquivo embute a data de republicação.
+A base bruta é somente leitura e a imutabilidade é verificada por hash em teste. A única intervenção
+manual prevista é deliberada: aceitar uma mudança de esquema conhecida com `--accept-drift`, gesto
+que fica gravado na linha de base com data e lista de achados.

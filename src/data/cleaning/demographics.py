@@ -14,7 +14,9 @@ from src.data.schema import AGE_BANDS
 #: maior valor humano ja verificado (122 anos), porque o objetivo aqui e
 #: plausibilidade e nao compatibilidade com o formulario. A divergencia e
 #: deliberada e os registros afetados ficam rastreaveis pelo ajuste
-#: `idade_anulada`: na base de referencia sao 2, com idades de -1 e 141 anos.
+#: `idade_anulada`: na base de referencia e 1, com 141 anos. O outro valor
+#: implausivel da safra (-1 mes) e capturado antes, por
+#: `idade_unidade_implausivel`, que valida o numero contra a unidade.
 MIN_PLAUSIBLE_AGE = 0
 MAX_PLAUSIBLE_AGE = 120
 

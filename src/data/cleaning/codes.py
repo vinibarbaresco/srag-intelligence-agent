@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from src.data.cleaning.base import CleaningContext, CleaningRule
@@ -30,6 +31,34 @@ def _normalize_text(series: pd.Series) -> pd.Series:
     return series.astype("string").str.strip().str.upper().replace({"": pd.NA})
 
 
+def _to_nullable_int(series: pd.Series, dtype: str) -> pd.Series:
+    """Converte para inteiro nulavel **sem** deixar valor estourar o dtype.
+
+    `astype("Int16")` faz wraparound silencioso: `65537` vira `1`, que e um
+    codigo valido ("Sim") no dicionario. O valor corrompido nao aparece como
+    ilegivel, nem como fora do dominio, nem como ajuste -- e a corrupcao mais
+    perigosa possivel, porque o resultado e indistinguivel de um dado bom.
+
+    Aqui o valor fora do intervalo representavel vira nulo **antes** do
+    `astype`, e o chamador o contabiliza como `codigo_ilegivel` pelo mesmo
+    caminho de um valor nao numerico. Um codigo apenas fora do dominio
+    declarado (um `7` em UTI, por exemplo) continua preservado: ele cabe no
+    dtype e e assunto de `out_of_domain_counts`, nao desta funcao.
+
+    Args:
+        series: coluna bruta, como lida do CSV.
+        dtype: inteiro nulavel de destino (`"Int16"`, `"Int32"`).
+
+    Returns:
+        Coluna no dtype pedido, com nulo onde o valor nao era numerico ou nao
+        cabia no intervalo.
+    """
+    numeric = pd.to_numeric(series, errors="coerce")
+    info = np.iinfo(dtype.lower())
+    representable = numeric.between(info.min, info.max)
+    return numeric.where(representable).astype(dtype)
+
+
 class NormalizeCategoricalCodes(CleaningRule):
     """Converte os codigos categoricos numericos para inteiro nulavel."""
 
@@ -41,9 +70,9 @@ class NormalizeCategoricalCodes(CleaningRule):
         "no dicionario) e conta os codigos fora do dominio declarado. Nada e "
         "anulado nem convertido: o codigo e preservado como esta, e quem o exclui "
         "e a camada de metricas, ao montar numerador e denominador. Um valor "
-        "presente mas nao numerico -- sem correspondencia possivel no dicionario "
-        "-- vira nulo e e registrado como ajuste `codigo_ilegivel`, para nao se "
-        "confundir com um campo vazio na origem."
+        "presente mas nao numerico, ou numerico grande demais para caber no "
+        "tipo de destino, vira nulo e e registrado como ajuste `codigo_ilegivel`, "
+        "para nao se confundir com um campo vazio na origem."
     )
 
     def apply(self, frame: pd.DataFrame, context: CleaningContext) -> pd.DataFrame:
@@ -57,7 +86,7 @@ class NormalizeCategoricalCodes(CleaningRule):
             # um campo que nunca foi preenchido. A promessa "nada e alterado
             # silenciosamente" tem de valer aqui tambem.
             present_before = _normalize_text(frame[column]).notna()
-            frame[column] = pd.to_numeric(frame[column], errors="coerce").astype("Int16")
+            frame[column] = _to_nullable_int(frame[column], "Int16")
 
             unreadable = present_before & frame[column].isna()
             context.report.unreadable_codes[column] += int(unreadable.sum())
@@ -112,7 +141,7 @@ class NormalizeNumericColumns(CleaningRule):
     def apply(self, frame: pd.DataFrame, context: CleaningContext) -> pd.DataFrame:
         for column in NUMERIC_COLUMNS:
             if column in frame.columns:
-                frame[column] = pd.to_numeric(frame[column], errors="coerce").astype("Int32")
+                frame[column] = _to_nullable_int(frame[column], "Int32")
         return frame
 
 

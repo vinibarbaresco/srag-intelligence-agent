@@ -295,7 +295,7 @@ filtro `[c for c in ALLOWED_COLUMNS if c in combined.columns]` nunca as incluiu.
 
 **Decisão.** Ratificada a correção do Agent 5: medir sobre o conjunto realmente persistido.
 Incluir `faixa_etaria` **separa** duplicatas em vez de fundi-las, e a contagem cai de 1.210 (0,732%)
-para **752 (0,455%)**.
+para **764 (0,462%)**.
 
 **Impacto.** O número publicado passa a descrever a base que existe. A conclusão de não deduplicar
 permanece, e fica mais forte: com `NU_NOTIFIC` íntegro (0 repetições medidas) e 0 linhas
@@ -441,3 +441,154 @@ interrompida a deixa intacta, para que a próxima tentativa detecte a mesma muda
 aceitá-la por omissão. Os achados, porém, são persistidos **sempre** — inclusive no caminho que
 interrompe, que é justamente onde o registro mais importa, porque uma carga abortada não gera
 relatório de qualidade.
+
+---
+
+# Rodada do Red Team
+
+O Agent 8 revisou a implementação de forma independente, partindo do pressuposto de que havia erros
+não identificados, e executou o pipeline de verdade sobre a base oficial além de 7 safras mutadas.
+Encontrou **3 CRITICAL, 5 HIGH, 7 MEDIUM e 6 LOW**. As decisões abaixo registram o que foi feito.
+
+## D-22 — CRITICAL: overflow de inteiro convertia lixo em código válido
+
+**Evidência.** `pd.to_numeric(...).astype("Int16")` faz wraparound silencioso. Reproduzido pelo
+Orchestrator: `65537` vira **`1`**, que é o código de **"Sim"** no dicionário. `99999` vira `-31073`.
+O valor corrompido não era contado como `codigo_ilegivel`, não aparecia em `fora_do_dominio`, não
+virava ajuste. É a pior forma de corrupção possível: o resultado é indistinguível de um dado bom, e
+o módulo promete explicitamente que "nada é alterado silenciosamente".
+
+**Decisão.** `_to_nullable_int()` anula o valor fora do intervalo representável **antes** do
+`astype`, e o chamador o contabiliza como `codigo_ilegivel` pelo mesmo caminho de um valor não
+numérico. Um código apenas fora do domínio declarado — um `7` em `UTI` — continua preservado: ele
+cabe no tipo e é assunto de `out_of_domain_counts`, não desta função.
+
+**Impacto.** 0 ocorrências na safra de referência; a classe inteira de corrupção deixa de ser
+possível. Vale para as 10 categóricas e para `NU_IDADE_N` (`Int32`).
+
+## D-23 — HIGH: censura de maturidade era assimétrica quanto a `DT_DIGITA` nula
+
+**Evidência.** A correção de maturidade (D-20) exigia `data_digitacao IS NOT NULL` apenas da janela
+**anterior**. Registros sem digitação entravam no numerador e nunca no denominador. O Red Team
+simulou com 34% de `DT_DIGITA` nula — a taxa real do INFLUD19 — e obteve **+137,95% reportado
+contra +56,94% correto**.
+
+**Decisão.** A condição de maturidade passa a ser a mesma nos dois lados; as janelas diferem apenas
+no seu próprio prazo de observação.
+
+Defeito introduzido pela própria correção anterior — foi o Red Team que o encontrou, e é exatamente
+para isso que ele existe.
+
+## D-24 — HIGH: `_years_present` ainda usava o ano civil, não a janela comparada
+
+**Evidência.** O D-11 aplicou o recorte de UF mas não corrigiu o critério de presença. Reproduzido
+sobre o dado real: 2024 existe na base apenas com 1.236 registros de 29 a 31 de dezembro, e ainda
+assim era considerado presente e entrava na mediana com **zero** casos na janela de maio-junho.
+Uma mediana puxada para zero infla o excesso sazonal — o modo de falha que o D-11 declarava ter
+corrigido.
+
+**Decisão.** Presença passa a exigir ao menos um caso na **janela deslocada**, não no ano civil.
+
+## D-25 — HIGH: letalidade não era comparável entre janelas de maturidades diferentes
+
+**Evidência.** O denominador `caso_encerrado` é censurado à direita de forma desigual: o óbito
+encerra depressa, a cura encerra devagar. Medido sobre a base real pelo Orchestrator: a janela
+reportada tem **7,86% de letalidade com 68,84% de encerramento**; a mesma janela deslocada 40 dias
+tem **6,04% com 85,52%**. A diferença é maturação, não gravidade.
+
+**Alternativa considerada.** Substituir o valor principal pelo da coorte madura. Rejeitada: a janela
+recente é o que responde "como está agora", e trocá-la por uma coorte de 40 dias atrás mudaria a
+pergunta que o indicador responde.
+
+**Decisão.** O valor principal continua sendo o da janela recente. Ao lado dele passam a ser
+publicados o `percentual_encerrado` e a `coorte_madura` — a mesma taxa sobre a janela deslocada o
+tempo típico até o encerramento (percentil 90 **medido na própria base**, não arbitrado), com o
+percentual encerrado das duas. É o que permite dizer se uma variação é real.
+
+## D-26 — HIGH: o pico do censo de UTI era artefato da borda da observação
+
+**Evidência.** Quanto mais recente o dia, menos `DT_SAIDUTI` e `DT_EVOLUCA` já foram digitados, e
+mais estadias contam como em curso. O efeito é monótono, então o máximo bruto cai **sempre** no
+último dia da janela. Medido pelo Red Team: o censo reportado sobe 38% no fim da janela enquanto o
+censo das estadias com **saída registrada** cai de 1.609 para 1.137.
+
+**Decisão.** O pico publicado passa a ser o da parte madura da série — até o corte menos o teto de
+permanência, além do qual nenhuma estadia pode continuar imputada. O máximo bruto segue publicado
+ao lado, rotulado com a advertência.
+
+**Impacto medido.** Pico publicado **4.094 em 2025-05-12 (59,2% imputado)** contra máximo bruto
+**5.211 em 2025-06-05 (78,2% imputado)**.
+
+## D-27 — MEDIUM: a correção do denominador de UTI havia criado viés de seleção
+
+**Evidência.** A regra de resgate do D-19 (`foi_hospitalizado OR teve_admissao_uti`) só existia no
+braço positivo: entre os registros de `HOSPITAL` desconhecido, apenas os admitidos em UTI entravam —
+e todos no numerador. Condicionar a entrada no denominador ao valor do próprio numerador é viés de
+seleção clássico, e inflava a taxa.
+
+**Decisão.** O critério de internação **não olha para `UTI`**: `foi_hospitalizado OR NOT
+hospitalizacao_informada`. Sai apenas quem declarou `HOSPITAL = 2`. Os componentes passam a publicar
+os dois braços (`com_uti_informado_e_hospital_ausente` e `_ignorado`), de modo que a simetria seja
+auditável, e a impossibilidade lógica (`UTI = 1` com internação negada) é publicada sem ser
+resgatada.
+
+**Impacto.** A taxa de admissão sai de 29,54% para **26,85%** na base de referência.
+
+## D-28 — MEDIUM: a plausibilidade de datas expirava com o tempo
+
+**Evidência.** O teto era a data de execução, então o conteúdo do Parquet dependia do dia em que a
+carga rodava. O Red Team demonstrou: `DT_ENTUTI = 2028-05-07` é implausível numa carga de 2026 e
+deixa de ser numa carga de 2029.
+
+**Alternativa considerada.** Usar `DT_DIGITA` como teto direto. Rejeitada de novo, pelo mesmo motivo
+do D-05: marcaria 36,66% da base.
+
+**Decisão.** Teto **relativo e reprodutível**: `DT_DIGITA` mais 365 dias. Medido: marca 7 registros,
+contra 640 se o limite fosse 90 dias — a maioria deles `DT_ENCERRA` legitimamente tardia. A data de
+execução permanece como teto de último recurso para os registros sem `DT_DIGITA` (34,37% do
+INFLUD19). Travado por teste parametrizado em três datas de execução distintas.
+
+## D-29 — CRITICAL/HIGH: três furos no detector de schema drift
+
+O Red Team mostrou que, juntos, permitiam que uma safra corrompida passasse com código de saída 0 e
+virasse a nova linha de base.
+
+- **Inspeção de tipo só via as primeiras 20.000 linhas** de blocos de 100.000 — 80% de cada bloco
+  nunca era inspecionado. Uma safra com formato de data trocado a partir da linha 20.001 passava
+  limpa enquanto 33% da base saía da view analítica. **Corrigido:** amostragem aleatória com
+  **semente fixa** sobre o bloco inteiro — fixa porque um alarme precisa ser reproduzível para quem
+  for investigar. Somado a isso, datas ilegíveis acima de **0,5%** passam a ser ERROR, limiar
+  calibrado deliberadamente **abaixo** do 1% que a inferência de tipo tolera, para que as duas
+  checagens se sobreponham em vez de deixar faixa cega.
+- **Perder 100% do eixo temporal era só WARNING.** Toda variação de ausência era WARNING,
+  independentemente da coluna. **Corrigido:** piso **absoluto** de completude por coluna —
+  `DT_SIN_PRI` 5%, `DT_DIGITA` 60%. A folga de `DT_DIGITA` é calibrada no caso real do INFLUD19
+  (34,37% ausente). Os pisos também rodam na **primeira carga**, senão uma safra já corrompida
+  viraria a linha de base sem um único achado.
+- **WARNINGs eram absorvidos na linha de base sem `--accept-drift`.** Uma anomalia recorrente era
+  reportada exatamente uma vez. **Corrigido:** enquanto houver achado não aceito, a entrada do ano é
+  **congelada** — anotar a pendência sobre a observação nova não bastaria, porque a comparação
+  seguinte não teria mais contra o que alarmar.
+
+Também: o teto de 64 categorias por coluna agora marca `truncated_categories`, para não afirmar
+ausência de categoria nova que simplesmente não foi observada.
+
+## D-30 — Achados do Red Team recusados ou resolvidos de outra forma
+
+- **Instabilidade da suíte (M-5).** O Red Team observou execuções divergindo entre 725 e 737 testes
+  e concluiu que a suíte era instável. **Não reproduzido:** quatro execuções consecutivas na árvore
+  em repouso deram **753 passed** idênticos. As execuções divergentes ocorreram enquanto subagentes
+  editavam arquivos durante a medição — artefato do método, não propriedade da suíte.
+- **`schema_baseline.json` não versionado (M-4).** Procede, mas a correção é documental: a linha de
+  base é derivada dos CSVs brutos, que não são versionados. Commitar uma seria afirmar algo sobre
+  arquivos que nem o clone nem a CI possuem, e o diff não seria verificável contra nada. O
+  comentário do `.gitignore` e o docstring foram corrigidos para dizer que ela **pode** ser
+  versionada, e a consequência operacional ficou declarada: em clone novo, a proteção começa na
+  segunda carga.
+- **Duplicidade publicada (M-6).** Procede: o valor correto é **764 (0,462%)**, não 752. O número
+  mudou quando a semana epidemiológica e a nova flag entraram no conjunto persistido. Documentos
+  corrigidos.
+- **Docstrings desatualizadas (M-7 e o texto de `idade_unidade_implausivel`).** Procedem; corrigidos.
+- **Terceiro ramo do `coalesce` em `_ICU_STAY_END_SQL` é código morto (L-3).** Procede tecnicamente
+  (`least` ignora `NULL` no DuckDB), mas foi **mantido**: ele documenta a intenção da imputação e
+  não depende de que um comportamento específico de `NULL` do motor SQL continue valendo.

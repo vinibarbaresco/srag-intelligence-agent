@@ -142,6 +142,25 @@ class TestTetoDePermanenciaLimitaTodosOsRamos:
 class TestAnosDeBaselineRespeitamORecorte:
     """D5: um ano sem casos na UF filtrada contava como presente, com valor 0."""
 
+    def test_ano_com_casos_so_fora_da_janela_nao_conta_como_presente(self):
+        """H-5: o criterio era "tem caso no ano civil", nao "na janela comparada".
+
+        Na base real, 2024 existe apenas com registros de 29 a 31 de dezembro.
+        Ainda assim era considerado presente e entrava na mediana do baseline
+        com zero casos na janela de maio-junho, puxando-a para zero.
+        """
+        connection = _connect(
+            [
+                # 2024 so tem casos em dezembro, fora da janela comparada.
+                {"data_sintomas": date(2024, 12, 30), "SG_UF_NOT": "SP"},
+                # 2023 tem caso dentro da janela deslocada.
+                {"data_sintomas": date(2023, 6, 1), "SG_UF_NOT": "SP"},
+            ]
+        )
+        janela = (date(2025, 5, 20), date(2025, 6, 18))
+        assert _years_present(connection, [2023, 2024]) == [2023, 2024]
+        assert _years_present(connection, [2023, 2024], window=janela) == [2023]
+
     def test_ano_sem_casos_na_uf_filtrada_nao_conta_como_presente(self):
         connection = _connect(
             [
@@ -175,6 +194,7 @@ class TestDenominadorDeUtiNaoLeAusenciaComoNao:
                 data_evolucao   DATE,
                 estadia_uti_utilizavel BOOLEAN,
                 foi_hospitalizado BOOLEAN,
+                hospitalizacao_informada BOOLEAN,
                 teve_admissao_uti BOOLEAN,
                 uti_informado   BOOLEAN,
                 HOSPITAL        SMALLINT,
@@ -186,7 +206,7 @@ class TestDenominadorDeUtiNaoLeAusenciaComoNao:
         )
         for row in rows:
             connection.execute(
-                "INSERT INTO srag_analytics VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO srag_analytics VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 [
                     row["data_sintomas"],
                     date(2026, 8, 23),
@@ -195,6 +215,7 @@ class TestDenominadorDeUtiNaoLeAusenciaComoNao:
                     None,
                     False,
                     row["HOSPITAL"] == 1,
+                    row["HOSPITAL"] in (1, 2),
                     row["UTI"] == 1,
                     row["UTI"] in (1, 2),
                     row["HOSPITAL"],
@@ -220,19 +241,38 @@ class TestDenominadorDeUtiNaoLeAusenciaComoNao:
         )
         result = icu_metrics(connection)
 
-        assert result.denominator == 4, "registros com UTI=1 ficaram fora do denominador"
+        assert result.denominator == 4, "registros com UTI informado ficaram fora do denominador"
         assert result.numerator == 3
-        assert result.components["admitidos_em_uti_com_hospital_ausente"] == 1
-        assert result.components["admitidos_em_uti_com_hospital_ignorado"] == 1
+        assert result.components["com_uti_informado_e_hospital_ausente"] == 1
+        assert result.components["com_uti_informado_e_hospital_ignorado"] == 1
 
-    def test_registro_sem_uti_e_sem_hospital_continua_fora(self):
-        # Sem HOSPITAL='Sim' e sem admissao em UTI, nao ha evidencia de
-        # internacao: o registro nao deve ser recuperado para o denominador.
+    def test_resgate_e_simetrico_entre_os_dois_bracos(self):
+        """M-1: resgatar so quem tem UTI=1 condiciona a entrada ao numerador.
+
+        Seria vies de selecao: entre os registros de `HOSPITAL` desconhecido,
+        so os admitidos em UTI entrariam, e todos no numerador -- inflando a
+        taxa. O criterio de internacao nao olha para `UTI`.
+        """
+        onset = date(2026, 7, 20)
+        connection = self._connect_uti(
+            [
+                {"data_sintomas": onset, "HOSPITAL": None, "UTI": 1},
+                {"data_sintomas": onset, "HOSPITAL": None, "UTI": 2},
+            ]
+        )
+        result = icu_metrics(connection)
+        assert result.denominator == 2, "o braco UTI=2 ficou fora, enquanto UTI=1 entrou"
+        assert result.numerator == 1
+        assert result.value == 50.0
+
+    def test_internacao_negada_continua_fora(self):
+        # HOSPITAL=2 e declaracao explicita de nao internacao: nao e ausencia,
+        # e nao deve ser resgatada.
         onset = date(2026, 7, 20)
         connection = self._connect_uti(
             [
                 {"data_sintomas": onset, "HOSPITAL": 1, "UTI": 1},
-                {"data_sintomas": onset, "HOSPITAL": None, "UTI": 2},
+                {"data_sintomas": onset, "HOSPITAL": 2, "UTI": 2},
             ]
         )
         result = icu_metrics(connection)
@@ -289,3 +329,109 @@ class TestMaturidadeSimetricaEntreJanelas:
         assert result.components["casos_periodo_anterior"] == 40
         assert result.components["casos_periodo_atual"] == 40
         assert result.value == 0.0, "maturidade desigual ainda contamina a comparacao"
+
+
+class TestCensuraDeMaturidadeESimetrica:
+    """H-2: a condicao de maturidade valia so para a janela anterior.
+
+    Registro sem `DT_DIGITA` entrava no numerador e nunca no denominador.
+    Invisivel na safra de referencia (0% de ausencia), mas grave numa carga
+    multi-ano: no INFLUD19 a coluna esta 34,37% vazia.
+    """
+
+    def test_registro_sem_digitacao_sai_das_duas_janelas(self):
+        from src.metrics.epidemiology import case_growth_rate
+
+        cutoff = date(2026, 8, 2)
+        current_start = cutoff - timedelta(days=29)
+        previous_end = current_start - timedelta(days=1)
+
+        connection = duckdb.connect(":memory:")
+        connection.execute(
+            "CREATE TABLE srag_analytics ("
+            "data_sintomas DATE, data_digitacao DATE, "
+            "SG_UF_NOT VARCHAR, CLASSI_FIN SMALLINT)"
+        )
+
+        def add(onset: date, typed: date | None) -> None:
+            connection.execute("INSERT INTO srag_analytics VALUES (?, ?, 'SP', 5)", [onset, typed])
+
+        # Ancora da data de referencia.
+        add(cutoff, date(2026, 8, 23))
+        # 20 casos pontuais em cada janela.
+        for index in range(20):
+            onset = current_start + timedelta(days=index % 30)
+            add(onset, onset + timedelta(days=5))
+            onset = previous_end - timedelta(days=index % 30)
+            add(onset, onset + timedelta(days=5))
+        # 20 casos SEM digitacao na janela atual: antes inflavam so o numerador.
+        for index in range(20):
+            add(current_start + timedelta(days=index % 30), None)
+
+        result = case_growth_rate(connection)
+
+        assert result.components["casos_periodo_atual_sem_censura"] == 41
+        assert result.components["casos_periodo_atual"] == 21
+        assert result.components["casos_periodo_anterior"] == 20
+        # 21 contra 20: so a ancora a mais. Sem a simetria, seriam 41 contra 20.
+        assert result.value == 5.0
+
+
+class TestLetalidadePublicaCoorteMadura:
+    """H-3: a letalidade da janela recente e censurada a direita de forma desigual.
+
+    Obito encerra depressa, cura encerra devagar. Duas janelas com percentuais
+    de encerramento diferentes nao sao comparaveis, e a variacao entre elas pode
+    ser artefato de maturacao. A coorte madura existe para separar as duas
+    coisas, e o percentual encerrado precisa estar publicado dos dois lados.
+    """
+
+    def test_publica_encerramento_e_coorte_madura(self):
+        from src.metrics.epidemiology import mortality_rate
+
+        cutoff = date(2026, 8, 2)
+        connection = duckdb.connect(":memory:")
+        connection.execute(
+            "CREATE TABLE srag_analytics ("
+            "data_sintomas DATE, data_digitacao DATE, data_encerramento DATE, "
+            "caso_encerrado BOOLEAN, eh_obito_srag BOOLEAN, EVOLUCAO SMALLINT, "
+            "SG_UF_NOT VARCHAR, CLASSI_FIN SMALLINT)"
+        )
+
+        # O deslocamento da coorte madura e o percentil 90 do tempo ate o
+        # encerramento, medido na propria base. Com 45 dias dominando a
+        # distribuicao, a janela madura cai em cutoff-74..cutoff-45.
+        atraso_ate_encerrar = 45
+
+        def add(onset: date, evolucao: int | None) -> None:
+            encerrado = evolucao in (1, 2, 3)
+            connection.execute(
+                "INSERT INTO srag_analytics VALUES (?,?,?,?,?,?,'SP',5)",
+                [
+                    onset,
+                    date(2026, 8, 23),
+                    onset + timedelta(days=atraso_ate_encerrar) if encerrado else None,
+                    encerrado,
+                    evolucao == 2,
+                    evolucao,
+                ],
+            )
+
+        # Janela recente: a maioria ainda em aberto, e os encerrados sao
+        # sobretudo obitos -- o padrao que superestima a letalidade.
+        for index in range(40):
+            add(cutoff - timedelta(days=index % 30), 2 if index < 10 else None)
+        # Coorte deslocada para dentro da janela madura: quase tudo encerrado,
+        # com poucas mortes.
+        for index in range(40):
+            onset = cutoff - timedelta(days=45 + (index % 30))
+            add(onset, 2 if index < 4 else 1)
+
+        result = mortality_rate(connection)
+        madura = result.components["coorte_madura"]
+
+        assert result.components["percentual_encerrado"] is not None
+        assert madura["percentual_encerrado"] > result.components["percentual_encerrado"]
+        assert madura["letalidade"] < result.value, (
+            "a coorte madura deveria revelar a superestimacao da janela recente"
+        )

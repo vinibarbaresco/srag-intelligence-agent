@@ -182,8 +182,17 @@ MORTALITY_RATE = MetricDefinition(
         "SRAG, nao de mortalidade populacional por SRAG.",
         "Casos recentes ainda sem encerramento ficam fora do denominador. Como "
         "obitos costumam ser encerrados antes das curas, a letalidade da janela "
-        "recente tende a ser SUPERESTIMADA; o percentual de casos em aberto e "
-        "publicado junto do indicador para dimensionar esse vies.",
+        "recente tende a ser SUPERESTIMADA; o percentual de casos em aberto e o "
+        "percentual encerrado sao publicados junto do indicador para dimensionar "
+        "esse vies.",
+        "Duas janelas com percentuais de encerramento diferentes NAO sao "
+        "diretamente comparaveis: a variacao entre elas pode ser artefato de "
+        "maturacao, e nao mudanca real de gravidade. Por isso o indicador "
+        "publica em `coorte_madura` a mesma taxa sobre uma janela deslocada o "
+        "tempo tipico ate o encerramento (percentil 90 medido na propria base), "
+        "com o percentual encerrado das duas. Na base de referencia a janela "
+        "recente marca 7,86% com 68,8% encerrado, contra 6,04% com 85,5% na "
+        "coorte madura -- a diferenca e maturacao, nao gravidade.",
         "EVOLUCAO = 3 (obito por outras causas) entra no denominador como caso "
         "encerrado, mas nao no numerador.",
         _REPORTING_LAG_NOTE,

@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 import pandas as pd
 
 from src.config import MIN_VALID_DATE
 from src.data.cleaning.base import CleaningContext, CleaningRule
 from src.data.schema import DATE_COLUMNS, VACCINE_DATE_COLUMNS
+
+#: Folga maxima entre a digitacao de um registro e qualquer data que ele
+#: carregue. Um ano cobre com sobra o encerramento tardio -- medido, 0 registros
+#: tem `DT_ENCERRA` mais de 365 dias apos a digitacao -- e ainda barra as datas
+#: com ano corrompido, que e o que se quer capturar.
+_MAX_DAYS_AFTER_TYPING: Final[int] = 365
 
 
 def implausible_dates(frame: pd.DataFrame, ceiling: pd.Timestamp | None = None) -> pd.Series:
@@ -18,21 +26,36 @@ def implausible_dates(frame: pd.DataFrame, ceiling: pd.Timestamp | None = None) 
     1695-01-17 e maxima de 2202-06-07, `DT_ENTUTI` ate 2028-05-07, e os anos
     5202 e 8202 nos arquivos de `data/raw/`.
 
-    O teto e a **data de execucao**, nao `DT_DIGITA`. Usar `DT_DIGITA` como teto
-    das datas de desfecho foi medido e descartado: `DT_EVOLUCA > DT_DIGITA`
-    ocorre em 52,88% dos pares porque `DT_DIGITA` e a digitacao inicial e nao a
-    ultima atualizacao do registro. Aplicar essa regra marcaria 36,66% da base
-    como invalida sem que houvesse erro nenhum.
+    Sao dois tetos, e nenhum deles e `DT_DIGITA` puro.
+
+    `DT_DIGITA` como teto direto das datas de desfecho foi medido e descartado:
+    `DT_EVOLUCA > DT_DIGITA` ocorre em 52,88% dos pares, porque `DT_DIGITA` e a
+    digitacao **inicial** e nao a ultima atualizacao do registro. Aplicar essa
+    regra marcaria 36,66% da base como invalida sem que houvesse erro nenhum.
+
+    Mas o registro tambem nao pode carregar uma data anos depois da propria
+    digitacao. O teto relativo -- `DT_DIGITA` mais :data:`_MAX_DAYS_AFTER_TYPING`
+    -- captura essa classe com folga: medido na safra de referencia, ele marca 7
+    registros, enquanto um teto de 90 dias marcaria 640, a maioria deles
+    `DT_ENCERRA` legitimamente tardia.
+
+    O teto relativo e **reprodutivel**: nao depende do dia em que a carga roda.
+    A data de execucao continua como teto de ultimo recurso, para os registros
+    sem `DT_DIGITA` -- 34,37% do INFLUD19, por exemplo.
 
     Args:
         frame: bloco ja com as colunas de data convertidas.
-        ceiling: teto superior; padrao, a data de execucao da carga.
+        ceiling: teto de ultimo recurso; padrao, a data de execucao da carga.
 
     Returns:
         Serie booleana, verdadeira onde ao menos uma data e implausivel.
     """
     floor = pd.Timestamp(MIN_VALID_DATE)
     ceiling = ceiling or pd.Timestamp.today().normalize()
+    typed = frame["DT_DIGITA"] if "DT_DIGITA" in frame.columns else None
+    relative_ceiling = (
+        typed + pd.Timedelta(days=_MAX_DAYS_AFTER_TYPING) if typed is not None else None
+    )
 
     implausible = pd.Series(False, index=frame.index)
     for column in DATE_COLUMNS + VACCINE_DATE_COLUMNS:
@@ -40,6 +63,8 @@ def implausible_dates(frame: pd.DataFrame, ceiling: pd.Timestamp | None = None) 
             continue
         values = frame[column]
         implausible |= values.notna() & ((values < floor) | (values > ceiling))
+        if relative_ceiling is not None:
+            implausible |= values.notna() & relative_ceiling.notna() & (values > relative_ceiling)
     return implausible.fillna(False).astype(bool)
 
 

@@ -250,12 +250,14 @@ def _components_block(key: str, components: dict[str, Any]) -> list[str]:
             f"{components.get('censo_diario_pico_data')} "
             f"({components.get('censo_diario_pico_percentual_imputado')}% desse valor "
             "depende de imputacao de permanencia)",
-            f"- **Admitidos em UTI sem HOSPITAL='Sim':** ausente "
-            f"{components.get('admitidos_em_uti_com_hospital_ausente')}, ignorado "
-            f"{components.get('admitidos_em_uti_com_hospital_ignorado')}, negado "
-            f"{components.get('admitidos_em_uti_com_hospital_negado')} "
-            "(contam como internados: admissao em UTI declarada e evidencia de "
-            "internacao, e ausencia nao e lida como 'Nao')",
+            f"- **Com UTI informado e sem HOSPITAL='Sim':** ausente "
+            f"{components.get('com_uti_informado_e_hospital_ausente')}, ignorado "
+            f"{components.get('com_uti_informado_e_hospital_ignorado')} "
+            "(contam como internados nos dois bracos: a base e de SRAG "
+            "hospitalizada e ausencia nao e lida como 'Nao')",
+            f"- **Admitidos em UTI com internacao negada:** "
+            f"{components.get('admitidos_em_uti_com_internacao_negada')} "
+            "(contradicao no registro; nao sao resgatados)",
         ]
 
         if completeness:

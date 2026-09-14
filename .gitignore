@@ -12,7 +12,9 @@ data/processed/*
 !data/processed/.gitkeep
 # Excecao: a linha de base do esquema descreve o CONTRATO com a fonte, nao um
 # artefato reproduzivel da carga. A revisao de uma mudanca de esquema comeca
-# pelo diff dela, entao ela e versionada (ver src/data/drift.py).
+# pelo diff dela, entao ela **pode** ser versionada -- a excecao abaixo
+# permite isso. O repositorio nao traz uma: ela e derivada dos CSVs
+# brutos, que nao sao versionados (ver src/data/drift.py).
 !data/processed/schema_baseline.json
 data/analytics/*
 !data/analytics/.gitkeep

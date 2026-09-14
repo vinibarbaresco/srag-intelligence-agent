@@ -10,12 +10,52 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Final
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+#: Ausencia ABSOLUTA tolerada por coluna, em pontos percentuais, no detector de
+#: mudanca de esquema (`src/data/drift.py`).
+#:
+#: Existe porque o limiar relativo (`drift_missing_rate_delta_pp`) so enxerga a
+#: DIFERENCA entre duas safras do mesmo ano. Uma coluna que ja estava vazia na
+#: safra anterior e continua vazia tem delta zero, e uma safra que estabelece a
+#: linha de base nao tem contra o que comparar -- nos dois casos o eixo temporal
+#: pode chegar 100% vazio sem que uma unica comparacao relativa reclame. Sem
+#: `DT_SIN_PRI` a view analitica fica vazia: nenhum indicador consegue situar o
+#: caso no tempo, e `flag_data_invalida` exclui o registro.
+#:
+#: A calibracao vem das safras medidas, nao de arbitrio:
+#:
+#: * `DT_SIN_PRI` -- 0,00% ausente em TODAS as safras medidas. O teto de 5 pp e
+#:   folga pura sobre um campo que a fonte sempre publica; ausencia acima disso
+#:   e defeito de arquivo, nao variacao da fonte.
+#: * `DT_DIGITA` -- 34,37% ausente no INFLUD19 e 0,00% no INFLUD25. Os 34,37%
+#:   sao um fato legitimo do regime de vigilancia de 2019 e NAO podem virar
+#:   ERROR. O teto de 60 pp deixa esse caso real folgado e ainda barra o cenario
+#:   que importa (coluna majoritariamente ou totalmente vazia).
+#:
+#: Colunas fora deste mapa nao tem piso absoluto: para elas ausencia alta pode
+#: ser caracteristica do campo (sintoma nao preenchido, vacina sem registro), e
+#: so a variacao entre safras e informativa.
+DRIFT_MAX_MISSING_PCT: Final[dict[str, float]] = {
+    "DT_SIN_PRI": 5.0,
+    "DT_DIGITA": 60.0,
+}
+
+#: Denominador minimo para que os pisos ABSOLUTOS acima (e o de datas
+#: ilegiveis) sejam avaliados.
+#:
+#: Um piso absoluto e uma taxa, e taxa sobre um punhado de fichas descreve
+#: unidades, nao a safra: num arquivo de 8 registros uma unica ficha sem data
+#: e 12,5%. As safras reais tem de 48 mil (INFLUD19) a 336 mil fichas, entao
+#: 100 registros e um piso que nenhuma safra real alcanca por baixo -- e uma
+#: que alcancasse ja seria barrada pela queda de registros, que compara contra
+#: a safra anterior do mesmo ano.
+DRIFT_RATE_MIN_RECORDS: Final[int] = 100
 
 
 class Settings(BaseSettings):
@@ -78,6 +118,19 @@ class Settings(BaseSettings):
     # duas safras do mesmo INFLUD25. E legitimo e nao pode interromper, mas
     # dobrar o denominador desloca toda a serie historica do ano.
     drift_record_growth_pct: float = Field(default=50.0, ge=0)
+    # Percentual de datas ILEGIVEIS (presentes no arquivo e nao interpretaveis
+    # em nenhum dos tres formatos publicados) que interrompe a carga. Medido na
+    # safra de referencia: 0 ilegiveis em 336.391 fichas -- a fonte publica a
+    # data em formato valido ou nao publica nada. O piso e 0,5%: fica acima de
+    # qualquer lixo pontual e, de proposito, ABAIXO do 1% de discordancia que a
+    # inferencia de tipo tolera (`_KIND_AGREEMENT = 0.99`). As duas checagens
+    # passam a se sobrepor em vez de deixar uma faixa cega entre elas -- e esta
+    # aqui e a unica das duas que funciona na primeira carga do ano, quando nao
+    # ha safra anterior contra a qual comparar tipo nenhum. O cenario que motiva
+    # o limiar: uma safra que troca o formato de DT_SIN_PRI no meio do arquivo
+    # torna ilegivel um terco das datas, apaga o eixo temporal desses registros
+    # e os expulsa da view analitica sem que nada mude o codigo de saida.
+    drift_unreadable_dates_pct: float = Field(default=0.5, ge=0, le=100)
 
     # --- Baseline sazonal ----------------------------------------------------
     # Anos usados como referencia historica para a mesma janela de calendario.
@@ -266,11 +319,25 @@ class Settings(BaseSettings):
 
         Vive em `data/processed` porque segue `DATA_ROOT` -- os testes precisam
         de uma linha de base isolada, e uma carga apontada para outra raiz de
-        dados nao pode escrever sobre a linha de base do projeto. E o unico
-        arquivo de `data/processed` versionado (excecao declarada no
-        `.gitignore`): ele descreve o **contrato** com a fonte, nao um artefato
-        reproduzivel da execucao, e a revisao de uma mudanca de esquema comeca
-        justamente pelo diff dele.
+        dados nao pode escrever sobre a linha de base do projeto.
+
+        E o unico arquivo de `data/processed` que o `.gitignore` PERMITE
+        versionar, e a excecao existe porque ele descreve o **contrato** com a
+        fonte: a revisao de uma mudanca de esquema comeca pelo diff dele. Ainda
+        assim o repositorio **nao** traz uma linha de base commitada, e a
+        omissao e deliberada -- a linha de base e derivada dos CSVs brutos, que
+        nao sao versionados (centenas de MB, reproduziveis via
+        `src.data.download`). Uma linha de base escrita a mao seria uma
+        afirmacao sobre arquivos que nem o clone nem a CI possuem, e o diff dela
+        nao seria verificavel contra nada.
+
+        A consequencia operacional precisa ficar dita em vez de subentendida:
+        em clone novo e na CI a **primeira** carga nao compara nada -- ela
+        apenas estabelece a linha de base, e o relatorio diz exatamente isso
+        ("linha de base estabelecida, sem comparacao possivel"). A protecao do
+        detector comeca na segunda carga. Quem quiser proteger tambem a
+        primeira commita o `schema_baseline.json` gerado por uma carga de
+        referencia, que e para isso que a excecao do `.gitignore` existe.
         """
         return self.processed_dir / "schema_baseline.json"
 

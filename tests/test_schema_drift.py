@@ -27,6 +27,8 @@ from src.data.drift import (
     KIND_NEW_COLUMNS,
     KIND_RECORD_COUNT_CHANGES,
     KIND_TEXT,
+    KIND_TRUNCATED_CATEGORIES,
+    KIND_UNREADABLE_DATES,
     SEVERITY_ERROR,
     SEVERITY_WARNING,
     DriftReport,
@@ -34,9 +36,11 @@ from src.data.drift import (
     SchemaDriftError,
     SchemaObservation,
     SchemaObserver,
+    check_unreadable_dates,
     compare,
     detect_drift,
     load_baseline,
+    observation_findings,
     save_baseline,
 )
 from src.data.preprocess import preprocess
@@ -496,3 +500,215 @@ class TestCargaPontaAPonta:
         # A diferenca de completude de DT_DIGITA entre 2019 e 2025 e um fato dos
         # dois anos; comparar por ano impede que ela vire alarme.
         assert drift["missing_rate_changes"] == []
+
+
+# =============================================================================
+# Regressoes: os furos que o Red Team reproduziu
+# =============================================================================
+
+
+class TestInspecaoCobreOBlocoInteiro:
+    """A inferencia de tipo precisa enxergar o bloco todo, nao o comeco dele.
+
+    O `chunk_size` padrao e 100.000 e a amostra de tipo e de 20.000 valores. Com
+    `.head`, 80% de cada bloco nunca era inspecionado -- e uma safra que troca o
+    formato da data no meio do arquivo passava com relatorio de esquema limpo
+    enquanto a limpeza tornava nulo um terco das datas.
+    """
+
+    def test_mudanca_de_tipo_no_fim_do_bloco_e_detectada(self):
+        # Cenario do Red Team: 30.000 fichas num unico bloco, ISO-8601 ate a
+        # linha 20.000 e `dd.mm.yyyy` (formato que a fonte nunca publicou e que
+        # o parse nao le) a partir da 20.001.
+        valores = ["2026-05-08"] * 20_000 + ["08.05.2026"] * 10_000
+        observer = SchemaObserver(year=2026, filename="INFLUD26.csv")
+        observer.observe_header(["DT_SIN_PRI"])
+        observer.observe_chunk(pd.DataFrame({"DT_SIN_PRI": valores}))
+
+        observacao = observer.result()
+
+        # A cauda do bloco entra na amostra: a coluna deixou de ser `data`.
+        assert observacao.dtypes["DT_SIN_PRI"] == KIND_TEXT
+
+        anterior = _observation(2026, dtypes={"DT_SIN_PRI": KIND_DATE}).to_dict()
+        tipo = [item for item in compare(anterior, observacao) if item.kind == KIND_DTYPE_CHANGES]
+
+        assert [item.column for item in tipo] == ["DT_SIN_PRI"]
+        assert tipo[0].severity == SEVERITY_ERROR
+
+    def test_amostragem_de_tipo_e_reproduzivel(self):
+        # Semente fixa: a mesma safra precisa dar o mesmo veredito de tipo em
+        # toda reexecucao, senao o alarme nao e investigavel.
+        valores = ["2026-05-08"] * 20_000 + ["08.05.2026"] * 10_000
+        vereditos = set()
+        for _ in range(3):
+            observer = SchemaObserver(year=2026, filename="INFLUD26.csv")
+            observer.observe_chunk(pd.DataFrame({"DT_SIN_PRI": valores}))
+            vereditos.add(observer.result().dtypes["DT_SIN_PRI"])
+
+        assert vereditos == {KIND_TEXT}
+
+
+class TestDatasIlegiveisEmMassa:
+    """Data presente e ilegivel em massa e ERROR, nao apenas uma contagem.
+
+    Essas datas viram nulo, `flag_data_invalida` marca o registro e ele sai da
+    view analitica. Antes, o unico rastro era um numero no relatorio de
+    qualidade que nao mudava codigo de saida nenhum.
+    """
+
+    def test_abaixo_do_piso_nao_produz_achado(self):
+        # A fonte publica lixo pontual e a contagem exata continua no relatorio
+        # de qualidade. Um achado por registro isolado esvaziaria o sinal.
+        assert check_unreadable_dates(2026, {"DT_SIN_PRI": 1}, 10_000) == []
+
+    def test_taxa_sobre_poucas_fichas_nao_e_taxa(self):
+        # Uma ficha ruim em oito e 12,5% e nao descreve safra nenhuma.
+        assert check_unreadable_dates(2026, {"DT_SIN_PRI": 1}, 8) == []
+
+    def test_datas_ilegiveis_em_massa_geram_error(self, tmp_path, monkeypatch):
+        carga = _Carga(tmp_path, monkeypatch)
+
+        # Primeira carga do ano: sem safra anterior nenhuma comparacao de tipo e
+        # possivel -- e e exatamente aqui que o detector ficava cego. 24 de 120
+        # fichas (20%) trazem DT_SIN_PRI presente e ilegivel.
+        linhas = [_row(DT_SIN_PRI="08.05.2026") for _ in range(24)]
+        linhas += [_row() for _ in range(96)]
+
+        with pytest.raises(SchemaDriftError, match="ilegivel"):
+            carga.run(2026, linhas)
+
+        ilegiveis = carga.drift()[KIND_UNREADABLE_DATES]
+        assert [item["coluna"] for item in ilegiveis] == ["DT_SIN_PRI"]
+        assert ilegiveis[0]["severidade"] == SEVERITY_ERROR
+        assert ilegiveis[0]["atual"] == 20.0
+        # E a carga parou antes de gravar qualquer camada processada.
+        assert not carga.settings.processed_parquet_path.exists()
+
+
+class TestPisoAbsolutoDeCompletude:
+    """Perder o eixo temporal primario interrompe a carga.
+
+    O limiar relativo so enxerga DIFERENCA entre safras. O piso absoluto cobre o
+    caso em que a coluna chega vazia -- e o que sobra do relativo e um delta que
+    ninguem classifica como ERROR.
+    """
+
+    def test_eixo_temporal_majoritariamente_vazio_gera_error(self, tmp_path, monkeypatch):
+        carga = _Carga(tmp_path, monkeypatch)
+        carga.run(2026, [_row() for _ in range(120)])
+
+        # Safra nova do mesmo ano com DT_SIN_PRI 100% vazia: antes concluia com
+        # rc=0, regravava Parquet e DuckDB com a view analitica vazia e ainda
+        # sobrescrevia a linha de base -- a carga seguinte nao via mudanca
+        # nenhuma.
+        with pytest.raises(SchemaDriftError, match="DT_SIN_PRI"):
+            carga.run(2026, [_row(DT_SIN_PRI="") for _ in range(120)])
+
+        ausencia = [
+            item
+            for item in carga.drift()[KIND_MISSING_RATE_CHANGES]
+            if item["coluna"] == "DT_SIN_PRI"
+        ]
+        assert ausencia and ausencia[0]["severidade"] == SEVERITY_ERROR
+        # A linha de base ficou intacta: a proxima carga detecta o mesmo.
+        baseline = load_baseline(carga.settings.schema_baseline_path)["2026"]
+        assert baseline["missing_rate"]["DT_SIN_PRI"] == 0.0
+
+    def test_ausencia_legitima_de_dt_digita_nao_quebra(self, tmp_path, monkeypatch):
+        # Calibracao: DT_DIGITA e 34,37% ausente no INFLUD19 e isso e um fato do
+        # regime de vigilancia de 2019, nao uma degradacao. O piso de 60 pp
+        # deixa o caso real folgado.
+        carga = _Carga(tmp_path, monkeypatch)
+        parquet = carga.run(
+            2019,
+            [_row(DT_SIN_PRI="2019-05-08", DT_DIGITA="") for _ in range(42)]
+            + [_row(DT_SIN_PRI="2019-05-08") for _ in range(78)],
+        )
+
+        assert parquet.exists()
+        assert carga.drift()["errors"] == []
+
+    def test_piso_absoluto_vale_na_primeira_carga(self):
+        # Sem safra anterior nao ha comparacao possivel -- e e justamente ai que
+        # uma safra ja corrompida viraria a propria linha de base.
+        achados = observation_findings(_observation(2026, missing_rate={"DT_SIN_PRI": 100.0}))
+        assert [(item.column, item.severity) for item in achados] == [
+            ("DT_SIN_PRI", SEVERITY_ERROR)
+        ]
+
+
+class TestAchadoNaoAceitoNaoViraLinhaDeBase:
+    """Sem `--accept-drift`, o achado nao e absorvido pela linha de base."""
+
+    def test_achado_nao_aceito_e_reportado_de_novo_na_carga_seguinte(self, tmp_path, monkeypatch):
+        carga = _Carga(tmp_path, monkeypatch)
+        normais = [_row() for _ in range(10)]
+        com_codigo_novo = [_row(UTI="7")] + [_row() for _ in range(9)]
+
+        carga.run(2026, normais)
+
+        # 2a carga: o codigo 7 nao esta no dicionario oficial nem na safra
+        # anterior -- avisa.
+        carga.run(2026, com_codigo_novo)
+        assert [item["atual"] for item in carga.drift()[KIND_NEW_CATEGORIES]] == ["7"]
+
+        # 3a carga, mesmo arquivo: antes o codigo 7 ja tinha sido absorvido pela
+        # linha de base e a anomalia recorrente era reportada UMA unica vez.
+        carga.run(2026, com_codigo_novo)
+        assert [item["atual"] for item in carga.drift()[KIND_NEW_CATEGORIES]] == ["7"]
+
+        # O congelamento fica registrado no proprio arquivo, com data.
+        entrada = load_baseline(carga.settings.schema_baseline_path)["2026"]
+        assert "7" not in entrada["categories"]["UTI"]
+        assert entrada["pending_since"]
+        assert entrada["pending_findings"][0]["atual"] == "7"
+
+    def test_accept_drift_libera_a_absorcao(self, tmp_path, monkeypatch):
+        carga = _Carga(tmp_path, monkeypatch)
+        normais = [_row() for _ in range(10)]
+        com_codigo_novo = [_row(UTI="7")] + [_row() for _ in range(9)]
+
+        carga.run(2026, normais)
+        carga.run(2026, com_codigo_novo)
+        carga.run(2026, com_codigo_novo, accept=True)
+
+        # Aceito explicitamente, o codigo entra na linha de base e o aceite fica
+        # gravado com data e lista.
+        entrada = load_baseline(carga.settings.schema_baseline_path)["2026"]
+        assert "7" in entrada["categories"]["UTI"]
+        assert entrada["accepted_at"]
+
+        carga.run(2026, com_codigo_novo)
+        assert carga.drift()[KIND_NEW_CATEGORIES] == []
+
+
+class TestTetoDeCategorias:
+    """Atingir o teto de categorias e um fato publicado, nao um silencio."""
+
+    def test_teto_de_categorias_marca_amostragem_truncada(self):
+        observer = SchemaObserver(year=2026, filename="INFLUD26.csv")
+        observer.observe_header(["UTI"])
+        # Uma coluna categorica com 200 valores distintos deixou de ser
+        # categorica na origem; a coleta para no teto de 64.
+        observer.observe_chunk(pd.DataFrame({"UTI": [str(value) for value in range(200)]}))
+
+        observacao = observer.result()
+
+        assert observacao.truncated_categories == ("UTI",)
+        assert observacao.to_dict()["categories_truncated"] == ["UTI"]
+        # E a truncagem vira achado: sem ela o relatorio afirmaria "nenhuma
+        # categoria nova" sobre uma coluna cuja coleta parou no meio do arquivo.
+        truncados = [
+            item
+            for item in observation_findings(observacao)
+            if item.kind == KIND_TRUNCATED_CATEGORIES
+        ]
+        assert [item.column for item in truncados] == ["UTI"]
+        assert truncados[0].severity == SEVERITY_WARNING
+
+    def test_dominio_saudavel_nunca_e_truncado(self):
+        observer = SchemaObserver(year=2026, filename="INFLUD26.csv")
+        observer.observe_chunk(pd.DataFrame({"UTI": ["1", "2", "9"] * 100}))
+
+        assert observer.result().truncated_categories == ()
