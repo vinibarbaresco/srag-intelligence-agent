@@ -97,7 +97,11 @@ class OpenAIInterpreter(Interpreter):
     def _build_client(self) -> Any:
         from langchain_openai import ChatOpenAI
 
-        return ChatOpenAI(model=self.model, api_key=self._api_key, temperature=0)
+        return ChatOpenAI(
+            model=self.model,
+            api_key=self._api_key,
+            temperature=get_settings().openai_temperature,
+        )
 
     def plan(self, request: str, tools: list[dict[str, Any]]) -> dict[str, Any]:
         """Pede ao modelo que escolha as tools pertinentes ao pedido.
@@ -126,8 +130,13 @@ class OpenAIInterpreter(Interpreter):
         try:
             response = self._client.invoke([("system", SYSTEM_PROMPT), ("human", prompt)])
             payload = _extract_json(str(response.content))
-            payload["planner"] = self.source
-            return payload
+            return {
+                # O plano e registrado para auditoria; so nomes de tool sao
+                # aceitos, e qualquer outro tipo vindo do modelo e descartado.
+                "selected_tools": _tool_names(payload.get("selected_tools")),
+                "rationale": str(payload.get("rationale", ""))[:500],
+                "planner": self.source,
+            }
         except Exception as exc:  # planejamento e auxiliar; nao pode derrubar o run
             logger.warning("planejamento via LLM falhou", extra={"motivo": str(exc)})
             fallback = super().plan(request, tools)
@@ -145,12 +154,22 @@ class OpenAIInterpreter(Interpreter):
 class DeterministicNarrator(Interpreter):
     """Redacao por template, sem modelo de linguagem.
 
+    Args:
+        quote_headlines: se `False`, o paragrafo de contexto externo cita apenas
+            a quantidade e as fontes das noticias, sem reproduzir titulos. E o
+            modo usado quando a redacao com titulos e reprovada pelo guardrail
+            de saida -- um titulo e texto nao confiavel e pode carregar numeros
+            sem lastro ou instrucoes.
+
     Garante que `python main.py --no-llm` produza um relatorio completo e
     auditavel sem credencial. Por construcao so escreve numeros que vieram das
     tools, entao atravessa o guardrail de evidencia trivialmente.
     """
 
     source = "deterministic-template"
+
+    def __init__(self, quote_headlines: bool = True) -> None:
+        self.quote_headlines = quote_headlines
 
     def interpret(self, context: dict[str, Any]) -> str:
         metrics = context.get("indicadores", {})
@@ -262,6 +281,14 @@ class DeterministicNarrator(Interpreter):
                 "Nenhuma noticia recente de fonte confiavel foi recuperada para o tema "
                 f"nesta execucao. {news.get('unavailable_reason') or ''}".strip()
             )
+        sources = sorted({str(article.get("fonte", "")) for article in articles})
+        if not self.quote_headlines:
+            return (
+                f"Foram recuperadas {len(articles)} noticias de fontes confiaveis no "
+                f"periodo ({', '.join(sources[:5])}). Os titulos nao sao reproduzidos "
+                "nesta redacao; constam na secao de contexto externo. Esse material "
+                "nao altera nenhum dos indicadores calculados sobre os dados do DATASUS."
+            )
         headlines = "; ".join(
             f'"{article["titulo"]}" ({article["fonte"]}, {article["data"]})'
             for article in articles[:3]
@@ -297,6 +324,17 @@ def get_interpreter(use_llm: bool = True) -> Interpreter:
             extra={"motivo": str(exc)},
         )
         return DeterministicNarrator()
+
+
+def _tool_names(value: Any) -> list[str]:
+    """Filtra a lista de tools do plano: apenas strings, sem duplicatas."""
+    if not isinstance(value, list):
+        return []
+    names: list[str] = []
+    for item in value:
+        if isinstance(item, str) and item not in names:
+            names.append(item[:80])
+    return names
 
 
 def _extract_json(text: str) -> dict[str, Any]:

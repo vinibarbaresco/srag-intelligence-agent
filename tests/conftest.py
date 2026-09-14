@@ -107,7 +107,6 @@ def _build_synthetic_frame() -> pd.DataFrame:
                 "DT_EVOLUCA": pd.Timestamp(evolucao_data) if evolucao_data else pd.NaT,
                 "DT_DIGITA": pd.Timestamp(digitacao or REFERENCE_DATE),
                 "CS_SEXO": "F",
-                "TP_IDADE": 3,
                 "HOSPITAL": hospital,
                 "UTI": uti,
                 "CLASSI_FIN": classi_fin,
@@ -115,8 +114,6 @@ def _build_synthetic_frame() -> pd.DataFrame:
                 "VACINA": vacina,
                 "VACINA_COV": vacina_cov,
                 "SG_UF_NOT": uf,
-                "NU_IDADE_N": 45,
-                "idade_anos": 45.0,
                 "faixa_etaria": "40-49",
                 "ano_referencia": symptoms.year,
                 # As flags de coerencia sao definidas explicitamente aqui: a base

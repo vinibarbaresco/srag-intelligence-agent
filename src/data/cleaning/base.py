@@ -10,9 +10,7 @@ regra pode ser exercitada por um teste sem executar o pipeline inteiro.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from typing import Any
-
+from dataclasses import dataclass
 import pandas as pd
 
 from src.data.quality import AdjustmentLog, QualityReport
@@ -31,7 +29,6 @@ class CleaningContext:
     year: int
     report: QualityReport
     adjustments: AdjustmentLog
-    notes: dict[str, Any] = field(default_factory=dict)
 
 
 class CleaningRule(ABC):

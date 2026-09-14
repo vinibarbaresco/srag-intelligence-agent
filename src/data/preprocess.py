@@ -162,12 +162,19 @@ def preprocess(
                 "year": year,
                 "filename": entry["filename"],
                 "sha256": entry.get("sha256"),
-                "origin": entry.get("origin", "desconhecida"),
+                # Manifestos anteriores ao campo `origin` nao o registram; a
+                # presenca de URL identifica um download do DATASUS.
+                "origin": entry.get("origin")
+                or ("download do Open DATASUS" if entry.get("url") else "desconhecida"),
             }
         )
 
     combined = pd.concat(frames, ignore_index=True)
     assert_no_denied_columns(list(combined.columns))
+    # Colunas lidas que sobrevivem ao tratamento (a idade exata e descartada
+    # apos derivar a faixa). Contagem informativa: nada e deduplicado.
+    surviving = [column for column in ALLOWED_COLUMNS if column in combined.columns]
+    report.identical_rows = int(combined.duplicated(subset=surviving).sum())
 
     combined.to_parquet(settings.processed_parquet_path, index=False)
 

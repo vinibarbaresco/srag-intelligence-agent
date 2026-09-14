@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -224,8 +224,11 @@ def search(
     predicates = ["embedding IS NOT NULL"]
     parameters: list[Any] = [query_vector]
     if max_age_days is not None:
-        predicates.append("published_at >= now()::TIMESTAMP - INTERVAL (?) DAY")
-        parameters.append(max_age_days)
+        # `published_at` e gravado em UTC sem fuso; `now()` do DuckDB usaria o
+        # fuso local. O limiar e calculado em Python, na mesma convencao.
+        threshold = _as_naive_utc(datetime.now(tz=UTC)) - timedelta(days=max_age_days)
+        predicates.append("published_at >= ?")
+        parameters.append(threshold)
     parameters.append(top_k)
 
     with connect(read_only=True, path=path) as connection:

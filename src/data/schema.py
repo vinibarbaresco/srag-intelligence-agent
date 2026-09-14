@@ -160,8 +160,7 @@ MISSING_CODES: Final[frozenset[int]] = frozenset({9})
 
 #: Colunas derivadas criadas por `preprocess.py` (nao existem no arquivo bruto).
 DERIVED_COLUMNS: Final[tuple[str, ...]] = (
-    "idade_anos",        # idade normalizada em anos a partir de NU_IDADE_N/TP_IDADE
-    "faixa_etaria",      # faixa etaria agregada (nao expoe idade exata)
+    "faixa_etaria",      # faixa etaria agregada; a idade exata nao e persistida
     "ano_referencia",    # ano do arquivo de origem
 )
 

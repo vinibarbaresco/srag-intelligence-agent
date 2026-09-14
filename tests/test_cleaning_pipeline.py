@@ -96,8 +96,9 @@ class TestRegrasIsoladas:
 
     def test_derivacao_de_idade_isolada(self, context):
         frame = DeriveAge().apply(_frame(NU_IDADE_N="30", TP_IDADE="2"), context)
-        assert frame["idade_anos"].iloc[0] == pytest.approx(2.5)
         assert frame["faixa_etaria"].iloc[0] == "0-4"
+        # A idade exata e os campos brutos nao seguem para a camada analitica.
+        assert not {"idade_anos", "NU_IDADE_N", "TP_IDADE"} & set(frame.columns)
 
     def test_coerencia_isolada_precisa_das_datas(self, context):
         frame = ParseDateColumns().apply(_frame(), context)

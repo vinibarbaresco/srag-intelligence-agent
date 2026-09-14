@@ -88,7 +88,12 @@ def find_pii(text: str) -> list[str]:
     """
     if not text:
         return []
-    return [pattern.name for pattern in PII_PATTERNS if pattern.regex.search(text)]
+    found = [pattern.name for pattern in PII_PATTERNS if pattern.regex.search(text)]
+    # Segredos nao sao dados pessoais, mas uma saida que os contenha e tao
+    # inaceitavel quanto: a mesma varredura bloqueia ambos.
+    if any(pattern.search(text) for pattern in SECRET_PATTERNS):
+        found.append("segredo")
+    return found
 
 
 def scrub_text(text: str) -> str:

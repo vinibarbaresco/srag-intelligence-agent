@@ -15,11 +15,13 @@ from __future__ import annotations
 
 import html
 import json
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from src.config import DATASUS_DATASET_URL, DATASUS_SOURCE_LABEL, get_settings
+from src.guardrails.pii import scrub_text
 from src.guardrails.policies import DISCLAIMER, UNCERTAINTY_STATEMENT
 from src.observability.logging_config import get_logger
 
@@ -64,7 +66,7 @@ def _header(state: dict[str, Any]) -> str:
             "",
             f"- **Execucao (run_id):** `{state.get('run_id')}`",
             f"- **Gerado em:** {generated}",
-            f"- **Solicitacao:** {state.get('request')}",
+            f"- **Solicitacao:** {scrub_text(str(state.get('request', '')))}",
             f"- **Recorte:** {filters.get('uf', 'BR (nacional)')} | "
             f"{filters.get('classificacao_final', 'todas as classificacoes finais')}",
             f"- **Fonte dos dados:** {DATASUS_SOURCE_LABEL} ([dataset]({DATASUS_DATASET_URL}))",
@@ -121,6 +123,8 @@ def _indicators_section(state: dict[str, Any]) -> str:
         blocks.append(f"- **Definicao:** {metric.get('definition')}")
         blocks.append(f"- **Numerador:** {metric.get('numerator')}")
         blocks.append(f"- **Denominador:** {metric.get('denominator')}")
+        if metric.get("records_used") is not None:
+            blocks.append(f"- **Registros na base do calculo:** {metric['records_used']}")
         blocks.append(
             f"- **Periodo:** {period.get('inicio')} a {period.get('fim')} "
             f"({period.get('descricao')})"
@@ -179,28 +183,34 @@ def _components_block(key: str, components: dict[str, Any]) -> list[str]:
             f"- **Admitidos em UTI:** {components.get('admitidos_em_uti')}",
             f"- **UTI ignorado (codigo 9):** {components.get('uti_ignorado')}",
             f"- **Pico do censo diario em UTI:** "
-            f"{components.get('censo_diario_pico_pacientes_em_uti')} pacientes",
+            f"{components.get('censo_diario_pico_pacientes_em_uti')} pacientes em "
+            f"{components.get('censo_diario_pico_data')} "
+            f"({components.get('censo_diario_pico_percentual_imputado')}% desse valor "
+            "depende de imputacao de permanencia)",
+            f"- **Admitidos em UTI sem o campo HOSPITAL preenchido:** "
+            f"{components.get('admitidos_em_uti_sem_campo_hospital')} "
+            "(entram no censo, nao na taxa de admissao)",
         ]
 
         if completeness:
             lines += [
                 "",
-                "**Qualidade da permanencia em UTI usada no censo:**",
+                "**Qualidade da permanencia em UTI usada no censo** "
+                f"({completeness.get('populacao')}):",
                 "",
-                f"- Estadias utilizaveis: "
-                f"{completeness.get('estadias_utilizaveis_no_censo')} de "
-                f"{completeness.get('admissoes_em_uti')} admissoes "
-                f"({completeness.get('excluidas_por_inconsistencia')} excluidas por "
-                "datas incoerentes)",
+                f"- Estadias no censo: {completeness.get('estadias_no_censo')}",
                 f"- Com data de saida registrada: "
                 f"{completeness.get('saida_registrada')} "
                 f"({completeness.get('percentual_com_saida_registrada')}%)",
                 f"- Permanencia imputada pela data de evolucao: "
                 f"{completeness.get('permanencia_imputada_pela_data_de_evolucao')}",
-                f"- **Permanencia imputada ate a data de corte: "
-                f"{completeness.get('permanencia_imputada_ate_a_data_de_corte')} "
-                f"({completeness.get('percentual_imputado_ate_o_corte')}%)** - "
-                f"{completeness.get('efeito_da_imputacao')}",
+                f"- **Permanencia imputada em aberto: "
+                f"{completeness.get('permanencia_imputada_em_aberto')} "
+                f"({completeness.get('percentual_imputado_em_aberto')}%)**, das quais "
+                f"{completeness.get('das_quais_truncadas_pelo_teto')} truncadas pelo teto "
+                f"de {completeness.get('teto_de_permanencia_dias')} dias "
+                f"({completeness.get('origem_do_teto')})",
+                f"- {completeness.get('efeito_da_imputacao')}",
             ]
 
         lines += [
@@ -366,7 +376,11 @@ def _data_quality_section(state: dict[str, Any]) -> str:
 
     try:
         report = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning(
+            "relatorio de qualidade ilegivel; secao omitida",
+            extra={"path": str(path), "motivo": f"{type(exc).__name__}: {exc}"},
+        )
         return ""
 
     adjustments = report.get("adjustments") or {}
@@ -382,6 +396,14 @@ def _data_quality_section(state: dict[str, Any]) -> str:
         f"- **Registros descartados:** {report.get('rows_dropped')} "
         "(nenhum registro e removido silenciosamente)",
         f"- **Registros com valor alterado:** {report.get('rows_adjusted')}",
+        f"- **Linhas identicas nas colunas lidas:** "
+        f"{(report.get('rules') or {}).get('linhas_identicas_nas_colunas_lidas')} "
+        "(contadas, nao deduplicadas: sem o identificador da notificacao, excluido por "
+        "minimizacao, nao ha como distinguir duplicata de pacientes distintos com os mesmos "
+        "atributos agregados)",
+        f"- **Codigos fora do dominio do dicionario:** "
+        f"{_format_counts((report.get('rules') or {}).get('codigo_fora_do_dominio_por_coluna'))} "
+        "(contados, nao anulados; a camada de metricas so reconhece codigos validos)",
         "",
         "### Proveniencia dos dados",
         "",
@@ -455,6 +477,14 @@ def _data_quality_section(state: dict[str, Any]) -> str:
         lines += [f"| `{column}` | {count} |" for column, count in relevantes.items()]
 
     return "\n".join(lines)
+
+
+def _format_counts(counts: dict[str, Any] | None) -> str:
+    """Resume um mapa `coluna -> contagem`, omitindo zeros."""
+    relevant = {column: count for column, count in (counts or {}).items() if count}
+    if not relevant:
+        return "nenhum"
+    return ", ".join(f"`{column}`={count}" for column, count in sorted(relevant.items()))
 
 
 def _escape_cell(text: str) -> str:
@@ -626,8 +656,6 @@ def render_html(markdown_text: str, state: dict[str, Any]) -> str:
 
 def _markdown_to_html(text: str) -> str:
     """Conversor Markdown -> HTML restrito aos elementos usados no relatorio."""
-    import re
-
     lines = text.split("\n")
     output: list[str] = []
     in_table = False
@@ -675,7 +703,8 @@ def _markdown_to_html(text: str) -> str:
                 )
             continue
 
-        close_blocks() if in_table else None
+        if in_table:
+            close_blocks()
 
         heading = re.match(r"^(#{1,6})\s+(.*)$", stripped)
         if heading:
@@ -705,8 +734,6 @@ def _markdown_to_html(text: str) -> str:
 
 def _inline(text: str) -> str:
     """Aplica formatacao inline (negrito, italico, codigo, link, imagem)."""
-    import re
-
     escaped = html.escape(text, quote=True)
     escaped = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", _render_safe_image, escaped)
     escaped = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", _render_safe_link, escaped)

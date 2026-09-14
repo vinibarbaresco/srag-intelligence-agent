@@ -72,6 +72,9 @@ class MetricResult:
     definition: MetricDefinition
     components: dict[str, Any] = field(default_factory=dict)
     unavailable_reason: str | None = None
+    #: Registros da base que entraram no calculo antes de qualquer exclusao
+    #: por codigo de ausencia -- a base de referencia do indicador.
+    records_used: int | None = None
 
     @property
     def available(self) -> bool:
@@ -84,6 +87,7 @@ class MetricResult:
             "unit": self.definition.unit,
             "numerator": self.numerator,
             "denominator": self.denominator,
+            "records_used": self.records_used,
             "period": self.period,
             "filters": self.filters,
             "components": self.components,
@@ -165,8 +169,10 @@ MORTALITY_RATE = MetricDefinition(
     limitations=(
         "Trata-se de letalidade (case fatality ratio) entre casos notificados de "
         "SRAG, nao de mortalidade populacional por SRAG.",
-        "Casos recentes ainda sem encerramento reduzem o denominador; a janela "
-        "recente tende a ser instavel.",
+        "Casos recentes ainda sem encerramento ficam fora do denominador. Como "
+        "obitos costumam ser encerrados antes das curas, a letalidade da janela "
+        "recente tende a ser SUPERESTIMADA; o percentual de casos em aberto e "
+        "publicado junto do indicador para dimensionar esse vies.",
         "EVOLUCAO = 3 (obito por outras causas) entra no denominador como caso "
         "encerrado, mas nao no numerador.",
         _REPORTING_LAG_NOTE,

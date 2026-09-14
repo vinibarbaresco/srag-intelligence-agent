@@ -31,10 +31,21 @@ class Settings(BaseSettings):
     openai_api_key: str | None = Field(default=None)
     openai_model: str = Field(default="gpt-4o-mini")
     openai_embedding_model: str = Field(default="text-embedding-3-small")
+    # Zero por padrao: a interpretacao deve ser reproduzivel entre execucoes
+    # com o mesmo contexto. Nao ha uso legitimo de criatividade aqui.
+    openai_temperature: float = Field(default=0.0, ge=0.0, le=1.0)
 
     # --- Janela epidemiologica ----------------------------------------------
     reporting_lag_days: int = Field(default=21, ge=0, le=90)
     growth_window_days: int = Field(default=30, ge=1, le=365)
+
+    # --- Censo de UTI --------------------------------------------------------
+    # Estadias sem data de saida nem de evolucao sao imputadas ate um teto de
+    # permanencia. Por padrao o teto e empirico: o percentil abaixo, medido nas
+    # estadias com saida registrada. ICU_STAY_CAP_DAYS fixa um valor e ignora o
+    # percentil.
+    icu_stay_cap_percentile: float = Field(default=0.95, gt=0.5, le=1.0)
+    icu_stay_cap_days: int | None = Field(default=None, ge=1, le=365)
 
     # --- Privacidade ---------------------------------------------------------
     # Piso de denominador para publicar uma proporcao. Abaixo dele o indicador e

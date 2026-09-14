@@ -61,8 +61,10 @@ class DeriveAge(CleaningRule):
         "anos, registrando o ajuste `idade_anulada`. O dicionario oficial "
         "valida ate 150 anos; adotamos um teto biologicamente plausivel, e a "
         "divergencia e declarada. Em seguida agrega a idade "
-        "em faixa etaria: a camada analitica trabalha com a faixa, nao com a "
-        "idade exata, por minimizacao de dados."
+        "em faixa etaria e descarta a idade exata e os campos brutos: a camada "
+        "analitica trabalha so com a faixa, por minimizacao de dados -- nenhuma "
+        "metrica consome idade exata, e persisti-la sem consumidor formaria um "
+        "quase-identificador com UF, sexo e datas."
     )
 
     def apply(self, frame: pd.DataFrame, context: CleaningContext) -> pd.DataFrame:
@@ -77,7 +79,10 @@ class DeriveAge(CleaningRule):
         frame.loc[implausible, "idade_anos"] = pd.NA
 
         frame["faixa_etaria"] = age_band(frame["idade_anos"])
-        return frame
+
+        # A idade exata cumpriu seu papel (derivar a faixa e detectar valores
+        # implausiveis). Nao segue para a camada analitica.
+        return frame.drop(columns=["idade_anos", "NU_IDADE_N", "TP_IDADE"])
 
 
 class TagSourceYear(CleaningRule):

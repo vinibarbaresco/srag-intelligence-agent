@@ -139,30 +139,28 @@ def monthly_cases(
         [start, last_month_start, start, end, *parameters],
     ).fetchall()
 
+    # O ultimo mes so e parcial se a janela terminar antes do seu ultimo dia.
+    # Um corte exatamente no fim do mes produz um mes completo.
+    last_day_of_month = _subtract_months(last_month_start, -1) - timedelta(days=1)
+    last_month_is_partial = end < last_day_of_month
+
     points = [
         {
             "mes": month.strftime("%Y-%m"),
             "casos": int(total),
-            "parcial": month == last_month_start,
+            "parcial": month == last_month_start and last_month_is_partial,
         }
         for month, total in rows
     ]
-    return _envelope(
-        MONTHLY_CASES,
-        points,
-        start,
-        end,
-        filters,
-        extra={
-            "notes": [
-                f"O mes {last_month_start.strftime('%Y-%m')} esta marcado como "
-                "parcial: a janela analisavel termina em "
-                f"{end.isoformat()}, antes do fim do mes."
-            ]
-            if points
-            else []
-        },
+    notes = (
+        [
+            f"O mes {last_month_start.strftime('%Y-%m')} esta marcado como parcial: "
+            f"a janela analisavel termina em {end.isoformat()}, antes do fim do mes."
+        ]
+        if points and last_month_is_partial
+        else []
     )
+    return _envelope(MONTHLY_CASES, points, start, end, filters, extra={"notes": notes})
 
 
 def _subtract_months(reference: date, months: int) -> date:

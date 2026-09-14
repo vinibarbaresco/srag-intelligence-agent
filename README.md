@@ -62,7 +62,7 @@ Diagrama completo: **[`docs/arquitetura.pdf`](docs/arquitetura.pdf)**.
         │                           │  ├─ diagnóstico de completude       │
         ▼                           │  ├─ séries temporais (2)            │
   data/processed ◄── preprocess.py  │  ├─ gráficos (2)                    │
-  (Parquet, 32 cols)                │  └─ busca de notícias (1)           │
+  (Parquet, 31 cols)                │  └─ busca de notícias (1)           │
         │                           └──────────────┬──────────────────────┘
         ▼                                          │ envelope com fonte
   data/analytics/srag.duckdb ──────────────────────┤
@@ -131,7 +131,7 @@ a cada execução na página do dataset, que é renderizada no servidor.
 |---|---|---|---|
 | 2025 | 336.179 | 382 MB | — |
 | 2026 | 198.129 | 221 MB | — |
-| **Total** | **534.308** | **603 MB** | **Parquet de 6,4 MB (16 colunas)** |
+| **Total** | **534.308** | **603 MB** | **Parquet de ~6 MB (16 colunas lidas → 31 após derivações)** |
 
 ## 6. Tratamento dos dados
 
@@ -207,10 +207,14 @@ WHERE ajustes_aplicados <> '' GROUP BY 1;
 -- idade_anulada | 2
 ```
 
-**Imputação declarada, não escondida.** O censo de UTI precisa de uma data de saída; quando ela
-falta, a permanência é imputada pela data de evolução e, na ausência dela, até a data de corte. Na
-janela recente **32,2% das estadias caem nesse último caso**, o que superestima o censo — o número
-vai no relatório, junto do indicador.
+**Imputação limitada e declarada.** O censo de UTI precisa de uma data de saída; quando ela falta,
+a permanência é imputada pela data de evolução e, na ausência dela, **até um teto empírico** — o
+percentil 95 da permanência das estadias com saída registrada (28 dias na base de referência).
+Sem o teto, pacientes admitidos meses antes contavam como internados até a data de corte: 93% do
+censo no dia de corte era imputado e o pico saía inflado em ordem de grandeza (14.954 contra
+3.821). A revisão final encontrou e corrigiu esse defeito. O relatório publica, junto do pico, a
+fração dele que depende de imputação e a completude medida **sobre a mesma população** que
+alimenta o censo.
 
 **Ausência é ausência.** O código `9-Ignorado` é preservado e excluído de numeradores e
 denominadores — nunca convertido em `Não` ou zero. O volume de ignorados é reportado junto de cada
@@ -269,7 +273,7 @@ START → validate_request → ┬→ END (solicitação recusada, nenhuma consu
 ```
 
 O LLM atua em dois pontos: **planejamento** (escolhe tools, no `validate_request`) e
-**interpretação** (`generate_interpretation`). O plano do modelo é **unido** ao conjunto obrigatório
+**interpretação** (`generate_interpretation`). O plano do modelo é **registrado para auditoria** e comparado ao conjunto obrigatório
 do relatório — o modelo pode acrescentar tools, nunca suprimir uma exigida pela entrega.
 
 Antes de consultar o Vector DB, o nó `search_external_news` tenta atualizar os feeds. Se a rede ou
@@ -394,6 +398,10 @@ Etapas isoladas: `python -m src.data.download`, `src.data.preprocess`, `src.data
 | `SRAG_YEARS` | `2025,2026` | Anos processados |
 | `NEWS_MAX_AGE_DAYS` | `45` | Janela de notícias |
 | `NEWS_MAX_RESULTS` | `12` | Limite máximo de notícias recuperadas |
+| `MIN_CELL_SIZE` | `5` | Piso de denominador; abaixo dele a proporção é suprimida |
+| `OPENAI_TEMPERATURE` | `0.0` | Temperatura do modelo (zero: interpretação reproduzível) |
+| `ICU_STAY_CAP_PERCENTILE` | `0.95` | Percentil da permanência real que limita a imputação no censo de UTI |
+| `ICU_STAY_CAP_DAYS` | — | Teto fixo de permanência em UTI; se definido, ignora o percentil |
 | `NEWS_REFRESH_ON_RUN` | `true` | Atualiza os feeds antes de cada relatório; usa cache em falha |
 | `LOG_LEVEL` | `INFO` | Nível mínimo do log estruturado |
 | `DATA_ROOT` | — | Redireciona `data/` e `outputs/` |
@@ -458,7 +466,7 @@ não tem.
 ## 14. Testes
 
 ```bash
-python -m pytest -q          # 215 testes, ~40 s
+python -m pytest -q          # 263 testes, ~45 s
 python -m ruff check .
 ```
 
@@ -489,7 +497,8 @@ instabilidade do DATASUS ou dos feeds de notícias. Execução completa em cerca
 | Arquivo | Cobre |
 |---|---|
 | `test_cleaning_pipeline.py` | Pipeline declarado: ordem das regras, cada regra isolada, semântica derivada dos códigos do dicionário |
-| `test_preprocessing.py` | Contrato de colunas, parse de datas nos dois formatos, código 9, idade implausível, marcação sem exclusão |
+| `test_red_team.py` | Ataques por camada: pedido de dado individual, pedido clínico, SQL via tool/parâmetro, número inventado, injeção via notícia, vazamento de chave, prescrição na saída |
+| `test_preprocessing.py` | Contrato de colunas, parse de datas nos três formatos, código 9 e códigos fora do domínio, idade implausível, marcação sem exclusão, carga ponta a ponta |
 | `test_metrics.py` | Os 4 indicadores com valores exatos, denominador zero, filtro sem resultado, mês parcial |
 | `test_database.py` | Coerência das flags derivadas com o dicionário, conexão somente leitura, binding de parâmetros |
 | `test_tools.py` | Envelope completo, parâmetros inválidos, falha de tool, auditoria e mascaramento |
@@ -515,7 +524,7 @@ data/          raw/ · processed/ · analytics/          (não versionado)
 outputs/       reports/ · charts/ · audit/             (não versionado)
 docs/          arquitetura.pdf · dicionario_metricas.md · regras_transformacao.md
                catalogo_tools.md · gerar_diagrama_pdf.py · gerar_documentacao.py
-tests/         6 arquivos · suíte hermética com fixture sintética
+tests/         9 arquivos · suíte hermética com fixture sintética · red team
 ```
 
 ## 16. Limitações

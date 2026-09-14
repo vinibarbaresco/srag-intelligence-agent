@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.agent.graph import NODE_SEQUENCE  # noqa: E402
 from src.config import DATASUS_SOURCE_LABEL, get_settings  # noqa: E402
+from src.data.schema import ALL_DERIVED_COLUMNS, ALLOWED_COLUMNS  # noqa: E402
 from src.guardrails.policies import ALL_POLICIES  # noqa: E402
 from src.tools.registry import TOOLS  # noqa: E402
 
@@ -198,7 +199,7 @@ def build_diagram(output_path: Path) -> Path:
         "2. INGESTAO E LIMPEZA",
         [
             "download.py -> data/raw/",
-            "schema.py: allowlist de 30 colunas",
+            f"schema.py: allowlist de {len(ALLOWED_COLUMNS)} colunas",
             "  + denylist de dados pessoais",
             "preprocess.py: datas, codigos, idade",
             "Codigo 9 (Ignorado) preservado",
@@ -214,7 +215,7 @@ def build_diagram(output_path: Path) -> Path:
         "3. BANCO ANALITICO (DuckDB)",
         [
             "data/analytics/srag.duckdb",
-            "tabela srag_cases (534k registros)",
+            f"tabela srag_cases ({len(ALLOWED_COLUMNS) - 2 + len(ALL_DERIVED_COLUMNS)} colunas)",
             "view srag_analytics: definicao unica",
             "  de caso, obito, UTI e vacinacao",
             "Conexao somente leitura",
@@ -251,6 +252,7 @@ def build_diagram(output_path: Path) -> Path:
             "Schemas Pydantic fechados (extra=forbid)",
             "SQL literal com binding de parametros",
             "Sem tool de consulta livre ao banco",
+            "Casos de uso: src/metrics (SQL parametrizado)",
             "",
             "INDICADORES",
             *[f"  - {name}" for name in grouped.get("indicador", [])],
@@ -306,6 +308,8 @@ def build_diagram(output_path: Path) -> Path:
             "Usado para: planejar, selecionar tools,",
             "sintetizar e explicar o cenario.",
             "NUNCA para calcular numero.",
+            "Porta `Interpreter`: adaptadores OpenAI e",
+            "  deterministico; `Embedder`: OpenAI e hashing.",
             "Fallback deterministico sem credencial",
             "(`--no-llm`), com a via registrada.",
         ],
@@ -360,7 +364,7 @@ def build_diagram(output_path: Path) -> Path:
     draw_arrow(page, agente.right, (saida.x0, 300), label="relatorio")
 
     # --- Faixa transversal: governanca ----------------------------------------
-    governanca = Box(48, 636, 1143, 792)
+    governanca = Box(48, 636, 1143, 808)
     page.draw_rect(
         fitz.Rect(governanca.x0, governanca.y0, governanca.x1, governanca.y1),
         color=ACCENT_GOVERNANCE,
@@ -386,6 +390,7 @@ def build_diagram(output_path: Path) -> Path:
                 "  timestamp, seq, node, tool,",
                 "  parameters, status, duration_ms,",
                 "  result_summary, source, error",
+                "Logging estruturado em JSON por evento",
                 "outputs/audit/<run_id>.jsonl",
                 "  (fonte primaria, evento a evento)",
                 "+ replica em audit_events no DuckDB",

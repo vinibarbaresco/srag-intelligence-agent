@@ -169,14 +169,6 @@ def openai_tool_specs() -> list[dict[str, Any]]:
     return [tool.to_openai_schema() for tool in TOOLS]
 
 
-def describe_tools() -> list[dict[str, str]]:
-    """Catalogo legivel das tools, para o relatorio e a documentacao."""
-    return [
-        {"name": tool.name, "category": tool.category, "description": tool.description}
-        for tool in TOOLS
-    ]
-
-
 def call_tool(
     name: str,
     parameters: dict[str, Any] | None = None,

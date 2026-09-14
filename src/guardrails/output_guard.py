@@ -19,7 +19,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any, Final
 
-from src.guardrails.pii import find_pii, scrub_text
+from src.guardrails.pii import find_pii
 from src.guardrails.policies import (
     EVIDENCE_BINDING,
     MEDICAL_ADVICE,
@@ -37,7 +37,17 @@ _BENIGN_INTEGERS: Final[frozenset[float]] = frozenset(
 #: Tolerancia absoluta e relativa para casar um numero citado com a evidencia.
 #: Cobre arredondamento e mudanca de casas decimais na redacao.
 _ABSOLUTE_TOLERANCE: Final[float] = 0.051
-_RELATIVE_TOLERANCE: Final[float] = 0.005
+# Relativa estrita: 0,1% cobre arredondamento de milhares (24.642 -> 24.640) sem
+# aceitar 815 quando a evidencia diz 812. Aplica-se apenas a valores >= 1000;
+# abaixo disso a tolerancia absoluta ja e suficiente.
+_RELATIVE_TOLERANCE: Final[float] = 0.001
+_RELATIVE_TOLERANCE_FLOOR: Final[float] = 1000.0
+
+#: Sufixos que marcam um numero como taxa/percentual. Um percentual nunca e
+#: um ordinal ou um dia do mes: a isencao dos inteiros pequenos nao vale aqui.
+_PERCENT_SUFFIX: Final[re.Pattern[str]] = re.compile(
+    r"^\s*(%|por\s+cento|pontos?\s+percentuais?|p\.p\.)", re.IGNORECASE
+)
 
 _NUMBER_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"(?<![\w/])-?\d{1,3}(?:\.\d{3})+(?:,\d+)?(?![\w/])"  # 1.234,5 (pt-BR)
@@ -80,9 +90,16 @@ class EvidenceSet:
         else:
             self.add(payload, origin)
 
-    def supports(self, number: float) -> bool:
-        """Indica se `number` esta lastreado por alguma evidencia."""
-        if number in _BENIGN_INTEGERS or abs(number) in _BENIGN_INTEGERS:
+    def supports(self, number: float, *, is_percentage: bool = False) -> bool:
+        """Indica se `number` esta lastreado por alguma evidencia.
+
+        Args:
+            number: valor citado no texto.
+            is_percentage: se o valor veio seguido de `%` ou equivalente. Um
+                percentual nunca recebe a isencao dos inteiros pequenos --
+                "12%" nao e um ordinal, e uma taxa que precisa de lastro.
+        """
+        if not is_percentage and (number in _BENIGN_INTEGERS or abs(number) in _BENIGN_INTEGERS):
             return True
         if number in self.values or abs(number) in self.values:
             return True
@@ -165,8 +182,8 @@ def validate_output(text: str, evidence: EvidenceSet) -> OutputValidation:
                 }
             )
 
-    for raw, number in _extract_numbers(text):
-        if not evidence.supports(number):
+    for raw, number, is_percentage in _extract_numbers(text):
+        if not evidence.supports(number, is_percentage=is_percentage):
             violations.append(
                 {
                     "policy": EVIDENCE_BINDING.key,
@@ -178,11 +195,6 @@ def validate_output(text: str, evidence: EvidenceSet) -> OutputValidation:
             )
 
     return OutputValidation(allowed=not violations, text=text, violations=violations)
-
-
-def sanitize(text: str) -> str:
-    """Mascara dados pessoais em um texto que sera exibido mesmo assim."""
-    return scrub_text(text)
 
 
 # =============================================================================
@@ -213,17 +225,26 @@ def _close(number: float, candidate: float) -> bool:
     if difference <= _ABSOLUTE_TOLERANCE:
         return True
     scale = max(abs(number), abs(candidate))
-    return scale > 0 and difference / scale <= _RELATIVE_TOLERANCE
+    if scale < _RELATIVE_TOLERANCE_FLOOR:
+        return False
+    return difference / scale <= _RELATIVE_TOLERANCE
 
 
-def _extract_numbers(text: str) -> list[tuple[str, float]]:
-    """Extrai os numeros citados no texto, em notacao pt-BR ou internacional."""
-    found: list[tuple[str, float]] = []
+def _extract_numbers(text: str) -> list[tuple[str, float, bool]]:
+    """Extrai os numeros citados no texto, em notacao pt-BR ou internacional.
+
+    Returns:
+        Triplas `(texto original, valor, e_percentual)`. O terceiro campo marca
+        valores seguidos de `%`, `por cento` ou `pontos percentuais`.
+    """
+    found: list[tuple[str, float, bool]] = []
     for match in _NUMBER_PATTERN.finditer(text):
         raw = match.group(0)
         parsed = _parse_number(raw)
-        if parsed is not None:
-            found.append((raw, parsed))
+        if parsed is None:
+            continue
+        is_percentage = bool(_PERCENT_SUFFIX.match(text[match.end() :]))
+        found.append((raw, parsed, is_percentage))
     return found
 
 

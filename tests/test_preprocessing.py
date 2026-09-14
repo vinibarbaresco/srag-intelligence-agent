@@ -110,7 +110,8 @@ class TestNormalizacaoDeIdade:
     def test_idade_implausivel_e_anulada_e_contabilizada(self):
         report = QualityReport()
         frame = clean_chunk(_raw_chunk(NU_IDADE_N="200"), 2026, report)
-        assert pd.isna(frame["idade_anos"].iloc[0])
+        assert pd.isna(frame["faixa_etaria"].iloc[0])
+        assert "idade_anos" not in frame.columns  # idade exata nao e persistida
         assert report.age_out_of_range == 1
 
 
@@ -313,3 +314,105 @@ class TestSelecaoDeColunas:
         from src.data.schema import CODE_LABELS
 
         assert set(CODE_LABELS) <= set(ALLOWED_COLUMNS)
+
+
+class TestCodigosForaDoDominio:
+    """M5: codigo desconhecido e contado, nunca anulado nem tratado como caso aberto."""
+
+    def test_codigo_fora_do_dominio_e_preservado_e_contado(self):
+        report = QualityReport()
+        frame = clean_chunk(_raw_chunk(EVOLUCAO="7"), 2026, report)
+
+        assert frame["EVOLUCAO"].iloc[0] == 7  # preservado
+        assert report.out_of_domain_counts["EVOLUCAO"] == 1
+        assert bool(frame["caso_encerrado"].iloc[0]) is False  # nao e desfecho valido
+
+    def test_codigo_valido_nao_e_contado_como_fora_do_dominio(self):
+        report = QualityReport()
+        clean_chunk(_raw_chunk(EVOLUCAO="2", UTI="9"), 2026, report)
+        assert report.out_of_domain_counts["EVOLUCAO"] == 0
+        assert report.out_of_domain_counts["UTI"] == 0
+
+    def test_relatorio_publica_dominio_e_duplicatas(self):
+        report = QualityReport()
+        report.identical_rows = 7
+        payload = report.to_dict(source_files=["x.csv"])
+        assert payload["rules"]["linhas_identicas_nas_colunas_lidas"] == 7
+        assert "codigo_fora_do_dominio_por_coluna" in payload["rules"]
+        assert any("NAO" in note and "deduplicadas" in note for note in payload["notes"])
+
+
+class TestCargaPontaAPonta:
+    """A carga inteira (manifesto -> CSV -> pipeline -> Parquet -> relatorio)."""
+
+    def test_preprocess_processa_csv_local_e_grava_artefatos(self, tmp_path, monkeypatch):
+        import json
+
+        from src.config import Settings
+        from src.data.preprocess import preprocess
+
+        # Raiz de dados isolada: nao toca a base sintetica da sessao.
+        settings = Settings(data_root=tmp_path, reporting_lag_days=21)
+        settings.ensure_directories()
+        monkeypatch.setattr("src.data.preprocess.get_settings", lambda: settings)
+
+        def row(**override: str) -> str:
+            values = {c: "" for c in ALLOWED_COLUMNS}
+            values.update(
+                {
+                    "DT_SIN_PRI": "2026-05-08",
+                    "DT_DIGITA": "2026-05-20",
+                    "SG_UF_NOT": "SP",
+                    "NU_IDADE_N": "45",
+                    "TP_IDADE": "3",
+                    "EVOLUCAO": "1",
+                    "HOSPITAL": "1",
+                    "UTI": "2",
+                    "CLASSI_FIN": "5",
+                    "VACINA_COV": "1",
+                    "VACINA": "2",
+                    "CS_SEXO": "F",
+                }
+            )
+            values.update(override)
+            return ";".join(f'"{values[c]}"' for c in ALLOWED_COLUMNS)
+
+        header = ";".join(f'"{c}"' for c in ALLOWED_COLUMNS)
+        linhas = [row(), row(), row(EVOLUCAO="7")]  # 2 identicas + 1 codigo fora do dominio
+        csv_path = tmp_path / "INFLUD26-teste.csv"
+        csv_path.write_text("\n".join([header, *linhas]) + "\n", encoding="latin-1")
+
+        settings.raw_manifest_path.write_text(
+            json.dumps(
+                {
+                    "2026": {
+                        "year": 2026,
+                        "filename": csv_path.name,
+                        "path": str(csv_path),
+                        "url": None,
+                        "origin": "arquivo local de teste",
+                        "size_bytes": 1,
+                        "sha256": "0" * 64,
+                        "downloaded_at": "2026-01-01T00:00:00+00:00",
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        parquet = preprocess([2026])
+
+        assert parquet.exists()
+        report = json.loads(settings.quality_report_path.read_text(encoding="utf-8"))
+        assert report["rows_read"] == 3 and report["rows_dropped"] == 0
+        assert report["rules"]["linhas_identicas_nas_colunas_lidas"] >= 1
+        assert report["provenance"][0]["origin"] == "arquivo local de teste"
+        assert report["pipeline"]  # o pipeline aplicado e publicado
+        assert settings.ingestion_history_path.exists()
+
+        import pandas as pd
+
+        frame = pd.read_parquet(parquet)
+        assert not set(frame.columns) & set(DENIED_COLUMNS)
+        assert not {"idade_anos", "NU_IDADE_N", "TP_IDADE"} & set(frame.columns)
+        assert "ajustes_aplicados" in frame.columns

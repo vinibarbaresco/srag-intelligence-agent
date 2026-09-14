@@ -14,7 +14,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from src.guardrails.policies import CLINICAL_REQUEST_PATTERNS, MEDICAL_ADVICE
+from src.guardrails.policies import (
+    CLINICAL_REQUEST_PATTERNS,
+    INDIVIDUAL_DATA_REQUEST_PATTERNS,
+    MEDICAL_ADVICE,
+    SENSITIVE_DATA,
+)
 from src.metrics.filters import AnalyticFilters, InvalidFilterError
 
 
@@ -65,6 +70,20 @@ def validate_request(
             blocked_by="empty_request",
             reason="A solicitacao esta vazia; nao ha o que analisar.",
         )
+
+    for pattern in INDIVIDUAL_DATA_REQUEST_PATTERNS:
+        if pattern.search(text):
+            return RequestValidation(
+                allowed=False,
+                request=request,
+                blocked_by=SENSITIVE_DATA.key,
+                reason=(
+                    "A solicitacao pede dados de individuos. O sistema opera apenas "
+                    "sobre agregados por periodo, UF e classificacao final; nao existe "
+                    "caminho para recuperar registros, nomes ou identificadores de "
+                    "pacientes. Reformule o pedido em termos agregados."
+                ),
+            )
 
     for pattern in CLINICAL_REQUEST_PATTERNS:
         if pattern.search(text):

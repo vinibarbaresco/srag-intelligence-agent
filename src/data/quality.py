@@ -82,6 +82,11 @@ class QualityReport:
     age_out_of_range: int = 0
     adjusted_rows: int = 0
     adjustments: Counter = field(default_factory=Counter)
+    out_of_domain_counts: Counter = field(default_factory=Counter)
+    #: Linhas identicas em todas as colunas lidas. Informativo: sem o
+    #: identificador da notificacao (negado por minimizacao) nao ha como
+    #: distinguir duplicata real de pacientes distintos com atributos iguais.
+    identical_rows: int = 0
 
     def absorb(self, log: AdjustmentLog) -> None:
         """Incorpora ao agregado os ajustes registrados em um bloco."""
@@ -138,6 +143,8 @@ class QualityReport:
                 "datas_nao_parseaveis_por_coluna": dict(self.invalid_dates),
                 "valores_nulos_por_coluna": dict(self.null_counts),
                 "codigo_9_ignorado_por_coluna": dict(self.ignored_code_counts),
+                "codigo_fora_do_dominio_por_coluna": dict(self.out_of_domain_counts),
+                "linhas_identicas_nas_colunas_lidas": self.identical_rows,
                 "uf_fora_do_dominio": self.unknown_uf,
                 "idade_fora_do_intervalo_plausivel": self.age_out_of_range,
             },
@@ -154,5 +161,13 @@ class QualityReport:
                 "(ver DENIED_COLUMNS em src/data/schema.py).",
                 "Toda alteracao de valor e registrada por registro na coluna "
                 "ajustes_aplicados, alem de contabilizada aqui.",
+                "Codigos fora do dominio do dicionario sao contados, nao anulados: "
+                "a camada de metricas so reconhece codigos validos, entao eles nao "
+                "entram em numerador nem denominador.",
+                "Linhas identicas nas colunas lidas sao contadas mas NAO "
+                "deduplicadas: sem o identificador da notificacao (excluido por "
+                "minimizacao) nao e possivel distinguir duplicata de pacientes "
+                "distintos com os mesmos atributos agregados. Deduplicar "
+                "removeria casos reais.",
             ],
         }

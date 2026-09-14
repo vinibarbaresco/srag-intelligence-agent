@@ -7,6 +7,7 @@ import pandas as pd
 from src.data.cleaning.base import CleaningContext, CleaningRule
 from src.data.schema import (
     CATEGORICAL_COLUMNS,
+    CODE_LABELS,
     GEOGRAPHIC_COLUMNS,
     MISSING_CODES,
     NUMERIC_COLUMNS,
@@ -32,10 +33,13 @@ class NormalizeCategoricalCodes(CleaningRule):
 
     name = "normaliza_codigos_categoricos"
     description = (
-        "Converte os campos categoricos do SIVEP-Gripe para inteiro nulavel e "
-        f"contabiliza os codigos de ausencia {sorted(MISSING_CODES)} (Ignorado). "
-        "O codigo e preservado como esta: quem o exclui e a camada de metricas, "
-        "ao montar numerador e denominador. Nunca vira 'Nao' nem zero."
+        "Converte os campos categoricos do SIVEP-Gripe para inteiro nulavel, "
+        f"contabiliza os codigos de ausencia {sorted(MISSING_CODES)} (Ignorado) e "
+        "conta os codigos fora do dominio declarado no dicionario oficial. Nada e "
+        "anulado nem convertido: o codigo e preservado como esta, e quem o exclui "
+        "e a camada de metricas, ao montar numerador e denominador. Um codigo "
+        "fora do dominio fica visivel no relatorio de qualidade em vez de se "
+        "confundir com um caso em aberto."
     )
 
     def apply(self, frame: pd.DataFrame, context: CleaningContext) -> pd.DataFrame:
@@ -49,6 +53,11 @@ class NormalizeCategoricalCodes(CleaningRule):
                 context.report.ignored_code_counts[column] += int(
                     (frame[column] == code).sum()
                 )
+
+            domain = CODE_LABELS.get(column)
+            if domain:
+                outside = frame[column].notna() & ~frame[column].isin(list(domain))
+                context.report.out_of_domain_counts[column] += int(outside.sum())
 
         return frame
 
@@ -74,8 +83,8 @@ class NormalizeNumericColumns(CleaningRule):
 
     name = "normaliza_numericos"
     description = (
-        "Converte idade bruta e semana epidemiologica para inteiro nulavel. "
-        "Valores nao numericos viram nulo em vez de interromper a carga."
+        "Converte a idade bruta (NU_IDADE_N) para inteiro nulavel. Valores nao "
+        "numericos viram nulo em vez de interromper a carga."
     )
 
     def apply(self, frame: pd.DataFrame, context: CleaningContext) -> pd.DataFrame:

@@ -17,7 +17,6 @@ from src.tools.registry import (
     TOOLS,
     UnknownToolError,
     call_tool,
-    describe_tools,
     openai_tool_specs,
 )
 
@@ -42,9 +41,6 @@ class TestRegistro:
 
     def test_cada_tool_tem_descricao_e_categoria(self):
         assert all(tool.description and tool.category for tool in TOOLS)
-
-    def test_catalogo_legivel_reflete_o_registro(self):
-        assert len(describe_tools()) == len(REGISTRY)
 
     def test_schemas_de_function_calling_sao_gerados_dos_modelos(self):
         specs = openai_tool_specs()

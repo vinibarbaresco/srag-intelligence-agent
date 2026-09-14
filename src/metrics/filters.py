@@ -9,7 +9,7 @@ que nenhum texto vindo do modelo chega a ser interpretado pelo banco.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from src.config import get_settings
@@ -105,7 +105,5 @@ def analysis_cutoff(connection: Any) -> date:
     Subtrai `REPORTING_LAG_DAYS` da data de referencia para nao confundir
     atraso de notificacao com queda real de casos.
     """
-    from datetime import timedelta
-
     settings = get_settings()
     return reference_date(connection) - timedelta(days=settings.reporting_lag_days)

@@ -10,7 +10,8 @@ from src.agent.llm import get_interpreter
 from src.agent.nodes import GraphContext
 from src.agent.report import write_report
 from src.agent.state import SRAGState, initial_state
-from src.observability.audit import AuditTrail
+from src.news.ingest import ingest_news
+from src.observability.audit import STATUS_ERROR, AuditTrail
 from src.observability.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -61,7 +62,7 @@ def run_report(
     """
     trail = AuditTrail(run_id=run_id or str(uuid.uuid4()))
     interpreter = get_interpreter(use_llm=use_llm)
-    context = GraphContext(trail=trail, interpreter=interpreter)
+    context = GraphContext(trail=trail, interpreter=interpreter, news_refresher=ingest_news)
 
     graph = build_graph(context, _make_report_node(context))
     state = initial_state(trail.run_id, request, uf=uf, classification=classification)
@@ -70,7 +71,27 @@ def run_report(
         "execucao iniciada",
         extra={"run_id": trail.run_id, "uf": uf, "interpreter": interpreter.source},
     )
-    final_state: SRAGState = graph.invoke(state)
+    try:
+        final_state: SRAGState = graph.invoke(state)
+    except Exception as exc:
+        # Falha em um NO (nao em tool) chegaria aqui sem relatorio nem trilha
+        # replicada. Registrar e devolver um estado de erro preserva a
+        # auditabilidade: o que houve fica no relatorio e no banco.
+        logger.error(
+            "execucao do grafo interrompida",
+            extra={"run_id": trail.run_id, "motivo": f"{type(exc).__name__}: {exc}"},
+        )
+        trail.record(
+            node="graph",
+            status=STATUS_ERROR,
+            result_summary="execucao interrompida por excecao em no do grafo",
+            error=f"{type(exc).__name__}: {exc}",
+        )
+        final_state = dict(state)  # type: ignore[assignment]
+        final_state["errors"] = [
+            *state.get("errors", []),
+            f"Execucao interrompida: {type(exc).__name__}: {exc}",
+        ]
 
     if not final_state.get("report_paths"):
         # Caminho de recusa: o grafo termina em validate_request e o relatorio

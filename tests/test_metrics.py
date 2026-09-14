@@ -107,25 +107,54 @@ class TestUTI:
 
         # A taxa de admissao segue com as 40 admissoes da base sintetica...
         assert result.numerator == 40
-        # ...mas o censo diario usa apenas as 39 estadias coerentes.
-        assert completude["admissoes_em_uti"] == 40
-        assert completude["estadias_utilizaveis_no_censo"] == 39
-        assert completude["excluidas_por_inconsistencia"] == 1
+        assert result.records_used == 110  # hospitalizados no periodo
+        # ...mas o censo diario usa apenas as 39 estadias coerentes -- a
+        # populacao medida e a mesma que alimenta o censo.
+        assert completude["estadias_no_censo"] == 39
+        assert completude["populacao"].startswith("estadias em UTI que intersectam")
 
         assert icu_stay_completeness(connection, SP) == completude
 
     def test_completude_da_permanencia_quantifica_a_imputacao(self, connection):
         completude = icu_metrics(connection, SP).components["completude_da_permanencia_em_uti"]
-        utilizaveis = completude["estadias_utilizaveis_no_censo"]
 
         soma = (
             completude["saida_registrada"]
             + completude["permanencia_imputada_pela_data_de_evolucao"]
-            + completude["permanencia_imputada_ate_a_data_de_corte"]
+            + completude["permanencia_imputada_em_aberto"]
         )
-        assert soma == utilizaveis  # toda estadia cai em exatamente um caso
-        assert completude["percentual_com_saida_registrada"] is not None
-        assert "superestima" in completude["efeito_da_imputacao"]
+        assert soma == completude["estadias_no_censo"]  # toda estadia cai em um so caso
+        assert completude["percentual_com_saida_registrada"] == pytest.approx(100.0)
+        assert completude["das_quais_truncadas_pelo_teto"] == 0
+        assert "teto" in completude["efeito_da_imputacao"]
+
+    def test_teto_de_permanencia_e_empirico_e_declarado(self, connection):
+        from src.metrics.epidemiology import icu_stay_cap
+
+        cap = icu_stay_cap(connection, SP)
+        # Todas as estadias sinteticas com saida duram 3 dias: o p95 e 3.
+        assert cap["dias"] == 3
+        assert "percentil" in cap["origem"]
+
+    def test_estadia_em_aberto_e_truncada_pelo_teto(self, connection, monkeypatch):
+        """Sem o teto, uma estadia aberta contaria como internada ate o corte."""
+        from src.config import get_settings
+        from src.metrics.epidemiology import icu_patient_census
+
+        settings = get_settings()
+        monkeypatch.setattr(settings, "icu_stay_cap_days", 2)
+        census = icu_patient_census(connection, SP)
+
+        # Cada ponto declara quanto do valor depende de imputacao.
+        assert all({"imputados", "percentual_imputado"} <= set(point) for point in census)
+        # Com o teto forcado a 2 dias, nenhuma estadia sintetica (3 dias) pode
+        # contribuir por mais de 3 dias consecutivos (entrada + 2).
+        assert max(point["pacientes_em_uti"] for point in census) <= 40
+
+    def test_pico_do_censo_declara_percentual_imputado(self, connection):
+        components = icu_metrics(connection, SP).components
+        assert components["censo_diario_pico_data"] is not None
+        assert components["censo_diario_pico_percentual_imputado"] is not None
 
     def test_indicador_nomeia_o_que_mede(self):
         definition = DEFINITIONS_BY_KEY["icu_admission_rate"]
@@ -202,3 +231,34 @@ class TestCompletudeDaNotificacao:
         assert profile["registros_avaliados"] > 0
         assert profile["atraso_mediano_dias"] is not None
         assert profile["corte_configurado_dias"] == 21
+
+
+class TestMesParcial:
+    def test_mes_e_parcial_apenas_se_o_corte_antecede_o_fim_do_mes(self, connection, monkeypatch):
+        from src.config import get_settings
+
+        settings = get_settings()
+        # REFERENCE_DATE = 2026-08-23. Com lag 23, o corte cai em 31/07: mes completo.
+        monkeypatch.setattr(settings, "reporting_lag_days", 23)
+        series = monthly_cases(connection, SP, window_months=3)
+        assert series["points"][-1]["mes"] == "2026-07"
+        assert series["points"][-1]["parcial"] is False
+        assert series["notes"] == []
+
+        # Com o lag padrao (21) o corte cai em 02/08: agosto e parcial.
+        monkeypatch.setattr(settings, "reporting_lag_days", 21)
+        series = monthly_cases(connection, SP, window_months=3)
+        assert series["points"][-1]["parcial"] is True
+
+
+class TestViesDaLetalidade:
+    def test_percentual_em_aberto_e_publicado(self, connection):
+        result = mortality_rate(connection, SP)
+        # 80 casos em aberto (EVOLUCAO nulo) em 150.
+        assert result.components["casos_em_aberto"] == 80
+        assert result.components["percentual_em_aberto"] == pytest.approx(53.33, abs=0.01)
+        assert result.records_used == 150
+
+    def test_limitacao_declara_a_direcao_do_vies(self):
+        limitations = " ".join(DEFINITIONS_BY_KEY["mortality_rate"].limitations)
+        assert "SUPERESTIMADA" in limitations

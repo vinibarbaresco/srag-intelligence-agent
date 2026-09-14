@@ -39,7 +39,10 @@ MEDICAL_ADVICE = GuardrailPolicy(
         "prescricao, recomendacao terapeutica nem orientacao de conduta clinica "
         "individual."
     ),
-    enforced_at="validate_request (entrada) e generate_report (saida)",
+    enforced_at=(
+        "validate_request (entrada) e generate_interpretation, passo "
+        "apply_output_guardrails (saida)"
+    ),
 )
 
 SENSITIVE_DATA = GuardrailPolicy(
@@ -52,7 +55,8 @@ SENSITIVE_DATA = GuardrailPolicy(
         "tool para recuperar registros individuais."
     ),
     enforced_at=(
-        "schema de ingestao, regra de celula pequena nas tools, auditoria e generate_report"
+        "schema de ingestao, regra de celula pequena nas tools, auditoria, "
+        "generate_interpretation (varredura da saida) e generate_report (cabecalho)"
     ),
 )
 
@@ -64,7 +68,7 @@ EVIDENCE_BINDING = GuardrailPolicy(
         "efetivamente retornados pelas tools. Valor sem lastro bloqueia a "
         "publicacao do relatorio."
     ),
-    enforced_at="validate_evidence e generate_report",
+    enforced_at="validate_evidence e generate_interpretation, passo apply_output_guardrails",
 )
 
 NO_ARBITRARY_SQL = GuardrailPolicy(
@@ -125,6 +129,41 @@ CLINICAL_REQUEST_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
     re.compile(r"\b(devo|posso)\s+(tomar|usar|aplicar|interromper)\b", re.I),
     re.compile(r"\bestou\s+com\b.*\b(sintoma|febre|tosse|falta de ar)\b", re.I),
     re.compile(r"\bmeu\s+(filho|pai|mae|marido|paciente)\b", re.I),
+    # Pedidos clinicos genericos, sem paciente explicito: "quais medicamentos
+    # sao indicados", "sugira um tratamento", "protocolo de tratamento para".
+    re.compile(
+        r"\b(medicament\w*|remedi\w*|antivir\w*|antibiotic\w*|tratamento\w*|terapia\w*)"
+        r"\s+(sao\s+|e\s+|é\s+|mais\s+)?(indicad\w*|recomendad\w*|adequad\w*|eficaz\w*)",
+        re.I,
+    ),
+    re.compile(
+        r"\b(sugira|sugere|indique|recomende)\s+(um\s+|o\s+)?(tratamento|medicament|remedi|terapia)",
+        re.I,
+    ),
+    re.compile(r"\b(protocolo|esquema)\s+(de\s+)?(tratamento|medicacao|terapeutic\w*)\b", re.I),
+    re.compile(r"\bcomo\s+(devo|posso)\s+(me\s+)?(tratar|medicar|cuidar)\b", re.I),
+)
+
+#: Pedidos de dado individual, recusados na entrada (Guardrail 2).
+#:
+#: Nao existe tool que devolva registros; a recusa aqui e uma camada a mais, e
+#: deixa o motivo explicito em vez de devolver um relatorio agregado que nao
+#: responde ao que foi pedido.
+INDIVIDUAL_DATA_REQUEST_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
+    re.compile(
+        r"\b(registro|dado|caso|lista|nome|prontuario)s?\s+(individua\w*|nominai\w*|pessoai\w*)",
+        re.I,
+    ),
+    re.compile(
+        r"\b(nome|cpf|cns|endereco|endereço|telefone|prontuario)s?\s+(d[eo]s?\s+)?(paciente|obito|óbito|caso)s?",
+        re.I,
+    ),
+    re.compile(
+        r"\b(mostre|liste|revele|exiba|retorne|traga)\s+(os\s+|as\s+)?(pacientes|obitos|óbitos|pessoas)\s+que\b",
+        re.I,
+    ),
+    re.compile(r"\bquem\s+(morreu|faleceu|foi\s+internad\w*)\b", re.I),
+    re.compile(r"\b(revele|mostre|exiba)\s+.*\b(registros?|dados?)\s+individua\w*", re.I),
 )
 
 #: Linguagem prescritiva, proibida na saida do modelo.
@@ -138,6 +177,16 @@ PRESCRIPTIVE_OUTPUT_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
     re.compile(r"\b(prescrev|receit)\w*\b", re.I),
     re.compile(r"\bo\s+diagnostico\s+(e|é)\b", re.I),
     re.compile(r"\bdose\s+recomendada\b", re.I),
+    # Orientacao de conduta sem verbo prescritivo explicito: "usar antivirais",
+    # "devem procurar atendimento e tomar ...", "e indicado o uso de ...".
+    re.compile(
+        r"\b(usar|tomar|fazer\s+uso\s+de|iniciar)\s+(o\s+|os\s+|um\s+)?(antivir|antibiotic|oseltamivir|tamiflu|corticoid|medicament)\w*",
+        re.I,
+    ),
+    re.compile(
+        r"\b(e|é|esta|está)\s+(indicad|recomendad)\w*\s+(o\s+uso|a\s+administracao|iniciar|tratar)\b",
+        re.I,
+    ),
 )
 
 DISCLAIMER: Final[str] = (
