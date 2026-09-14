@@ -90,9 +90,7 @@ def reference_date(connection: Any) -> date:
     Raises:
         ValueError: se a base nao possuir nenhuma data de digitacao valida.
     """
-    row = connection.execute(
-        f"SELECT max(data_digitacao) FROM {VIEW_ANALYTICS}"
-    ).fetchone()
+    row = connection.execute(f"SELECT max(data_digitacao) FROM {VIEW_ANALYTICS}").fetchone()
     if row is None or row[0] is None:
         raise ValueError(
             "Base analitica sem data de digitacao valida; nao e possivel "

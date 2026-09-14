@@ -16,30 +16,22 @@ from src.data.schema import DENIED_COLUMNS
 
 class TestEstruturaDoBanco:
     def test_tabela_e_views_existem(self, connection):
-        tabelas = {
-            row[0] for row in connection.execute("SHOW TABLES").fetchall()
-        }
+        tabelas = {row[0] for row in connection.execute("SHOW TABLES").fetchall()}
         assert {TABLE_CASES, VIEW_ANALYTICS, TABLE_AUDIT} <= tabelas
 
     def test_banco_nao_contem_coluna_com_dado_pessoal(self, connection):
-        colunas = {
-            row[0] for row in connection.execute(f"DESCRIBE {TABLE_CASES}").fetchall()
-        }
+        colunas = {row[0] for row in connection.execute(f"DESCRIBE {TABLE_CASES}").fetchall()}
         assert not colunas & set(DENIED_COLUMNS)
 
     def test_tabela_de_auditoria_esta_pronta_para_consulta(self, connection):
-        colunas = {
-            row[0] for row in connection.execute(f"DESCRIBE {TABLE_AUDIT}").fetchall()
-        }
+        colunas = {row[0] for row in connection.execute(f"DESCRIBE {TABLE_AUDIT}").fetchall()}
         assert {"run_id", "node", "tool", "status", "duration_ms", "error"} <= colunas
 
 
 class TestViewAnalitica:
     def test_exclui_registros_inconsistentes_mas_preserva_na_tabela(self, connection):
         total = connection.execute(f"SELECT count(*) FROM {TABLE_CASES}").fetchone()[0]
-        analitico = connection.execute(
-            f"SELECT count(*) FROM {VIEW_ANALYTICS}"
-        ).fetchone()[0]
+        analitico = connection.execute(f"SELECT count(*) FROM {VIEW_ANALYTICS}").fetchone()[0]
         assert analitico < total  # a base sintetica tem 1 registro marcado
 
     def test_exclui_registros_sem_data_de_sintomas(self, connection):
@@ -124,9 +116,7 @@ class TestRegistroDeArquivoLocal:
         assert year == 2025
         assert path == origem.resolve()  # o arquivo permanece onde estava
 
-        entrada = json.loads(
-            get_settings().raw_manifest_path.read_text(encoding="utf-8")
-        )["2025"]
+        entrada = json.loads(get_settings().raw_manifest_path.read_text(encoding="utf-8"))["2025"]
         assert entrada["path"] == str(origem.resolve())
         assert entrada["origin"].startswith("arquivo local")
         assert len(entrada["sha256"]) == 64

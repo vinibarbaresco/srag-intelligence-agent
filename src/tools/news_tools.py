@@ -1,10 +1,11 @@
 """Tool de consulta ao Vector DB de noticias.
 
-A busca ocorre sobre o acervo ja coletado e vetorizado pela rotina de ingestao,
-nao na internet: isso torna a geracao do relatorio reproduzivel e independente da
-disponibilidade dos feeds no instante da execucao.
+A busca ocorre sobre o acervo vetorizado pela rotina de ingestao. O orquestrador
+tenta atualizar esse acervo antes de cada relatorio e usa a copia persistida
+como fallback quando os feeds estiverem indisponiveis.
 
-O retorno traz apenas fatos externos com proveniencia (titulo, fonte, data, URL).
+O retorno traz apenas fatos externos com proveniencia (titulo, fonte, data, URL
+e instante de recuperacao).
 Nenhum indicador e derivado deste conteudo (Guardrail 5).
 """
 
@@ -39,15 +40,12 @@ def search_srag_news(**kwargs: Any) -> dict[str, Any]:
         unavailable_reason = None
     except (FileNotFoundError, EmbeddingBackendMismatch) as exc:
         articles = []
-        unavailable_reason = (
-            f"{exc} O relatorio sera gerado sem contexto externo de noticias."
-        )
+        unavailable_reason = f"{exc} O relatorio sera gerado sem contexto externo de noticias."
 
     store_stats = vector_store.stats()
     if not articles and unavailable_reason is None:
         unavailable_reason = (
-            "Nenhuma noticia do acervo corresponde ao tema consultado na janela "
-            "informada."
+            "Nenhuma noticia do acervo corresponde ao tema consultado na janela informada."
         )
 
     return {

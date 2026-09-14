@@ -16,7 +16,7 @@ import re
 import unicodedata
 import xml.etree.ElementTree as ElementTree
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from typing import Any, Final
 from urllib.parse import parse_qs, quote_plus, urlparse
@@ -201,10 +201,12 @@ def _parse_published(raw: str | None) -> datetime | None:
         parsed = parsedate_to_datetime(raw)
     except (TypeError, ValueError):
         return None
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
-def fetch_feed(query: str, *, timeout: tuple[int, int] = _HTTP_TIMEOUT) -> list[ElementTree.Element]:
+def fetch_feed(
+    query: str, *, timeout: tuple[int, int] = _HTTP_TIMEOUT
+) -> list[ElementTree.Element]:
     """Baixa e parseia um feed RSS do Google News.
 
     Raises:
@@ -240,7 +242,7 @@ def collect_articles(
         Par `(artigos, avisos)`. Os avisos descrevem feeds que falharam, de modo
         que a degradacao da coleta seja visivel no relatorio em vez de silenciosa.
     """
-    horizon = datetime.now(tz=timezone.utc) - timedelta(days=max_age_days)
+    horizon = datetime.now(tz=UTC) - timedelta(days=max_age_days)
     collected: dict[str, NewsArticle] = {}
     warnings: list[str] = []
 
@@ -302,7 +304,7 @@ def _build_article(
     return NewsArticle(
         title=title,
         source=source_name,
-        published_at=published.astimezone(timezone.utc).isoformat(),
+        published_at=published.astimezone(UTC).isoformat(),
         url=link,
         query=query,
         article_id=_article_id(title, publisher_url),

@@ -254,9 +254,7 @@ def mortality_rate(
         "evolucao_ignorada": ignored,
         "evolucao_nao_informada": absent,
         "casos_em_aberto": total - closed - ignored,
-        "letalidade_bruta_sobre_todos_os_casos": (
-            _ratio(deaths, total) if total else None
-        ),
+        "letalidade_bruta_sobre_todos_os_casos": (_ratio(deaths, total) if total else None),
         "data_corte_analitica": cutoff.isoformat(),
     }
 
@@ -486,9 +484,7 @@ def icu_patient_census(
         [start, cutoff, cutoff, cutoff, *parameters],
     ).fetchall()
 
-    return [
-        {"data": day.isoformat(), "pacientes_em_uti": int(count)} for day, count in rows
-    ]
+    return [{"data": day.isoformat(), "pacientes_em_uti": int(count)} for day, count in rows]
 
 
 # =============================================================================

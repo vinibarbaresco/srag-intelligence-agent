@@ -1,0 +1,4 @@
+-r requirements.txt
+
+# Qualidade estatica. Mantido separado para nao aumentar a instalacao minima.
+ruff>=0.12,<1

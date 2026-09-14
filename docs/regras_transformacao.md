@@ -84,7 +84,31 @@ Enumeradas explicitamente para que a decisao de nao processa-las fique auditavel
 | `PAIS_VGM` | historico de viagem internacional |
 | `TEM_CPF` | indicador de presenca de CPF |
 
-## Regras aplicadas
+## Pipeline de tratamento
+
+O tratamento e um pipeline declarado de regras nomeadas (`src/data/cleaning/`), nao um procedimento. Cada regra e uma classe com nome, descricao e teste proprio; a tabela abaixo e gerada da mesma estrutura que o codigo executa, entao nao pode divergir dele.
+
+A ordem importa: datas antes da coerencia (que compara datas) e coerencia antes da semantica (porque a usabilidade de uma estadia em UTI depende da flag de coerencia).
+
+| # | Regra | O que faz |
+|---|-------|-----------|
+| 1 | `parse_datas` | Converte as colunas de data dos tres formatos ja publicados pela fonte (ISO-8601 com e sem sufixo Z, e dd/mm/aaaa como fallback). Um valor presente no arquivo mas ilegivel vira nulo e e registrado como ajuste `data_ilegivel`, para nao se confundir com um campo vazio na origem. |
+| 2 | `normaliza_codigos_categoricos` | Converte os campos categoricos do SIVEP-Gripe para inteiro nulavel e contabiliza os codigos de ausencia [9] (Ignorado). O codigo e preservado como esta: quem o exclui e a camada de metricas, ao montar numerador e denominador. Nunca vira 'Nao' nem zero. |
+| 3 | `normaliza_sexo` | Normaliza CS_SEXO para caixa alta sem espacos (dominio M/F/I). String vazia e tratada como ausencia, nao como valor. |
+| 4 | `normaliza_numericos` | Converte idade bruta e semana epidemiologica para inteiro nulavel. Valores nao numericos viram nulo em vez de interromper a carga. |
+| 5 | `valida_uf` | Normaliza as siglas de UF e anula as que estao fora das 27 unidades federativas. A alteracao e registrada por registro como `uf_anulada:<coluna>`, de modo que um valor anulado pela limpeza nao se confunda com um campo vazio na origem. |
+| 6 | `deriva_idade` | Converte NU_IDADE_N para anos conforme TP_IDADE (1-dia, 2-mes, 3-ano) e anula valores fora de [0, 120] anos, registrando o ajuste `idade_anulada`. Em seguida agrega a idade em faixa etaria: a camada analitica trabalha com a faixa, nao com a idade exata, por minimizacao de dados. |
+| 7 | `marca_ano_de_origem` | Grava o ano do arquivo de origem em `ano_referencia`, permitindo rastrear de qual safra do DATASUS cada registro veio. |
+| 8 | `avalia_coerencia` | Confere a coerencia entre campos do mesmo registro (datas fora de ordem, campos obrigatorios ausentes dada a resposta declarada) e marca uma flag por dimensao: eixo temporal, internacao, UTI e evolucao. Nenhum registro e removido -- cada metrica decide quais flags a afetam, e apenas o eixo temporal exclui o registro da camada analitica. |
+| 9 | `deriva_semantica` | Traduz os codigos do dicionario oficial em conceitos usados pelas metricas (obito por SRAG, caso encerrado, hospitalizacao, admissao em UTI, vacinacao declarada). Uma unica definicao por conceito, compartilhada por indicadores, series e graficos, de modo que nao existam duas nocoes de 'caso encerrado' no projeto. |
+
+### Semantica derivada em Python
+
+A traducao dos codigos do dicionario em conceitos epidemiologicos acontece na camada de tratamento, ao lado de `CODE_LABELS`, e nao no SQL da view analitica. Manter a traducao em outra linguagem e outro arquivo permitiria que uma mudanca no dicionario nao alcancasse o calculo sem que nada falhasse. A view faz apenas projecao de tipo.
+
+Colunas derivadas: `eh_obito_srag`, `caso_encerrado`, `foi_hospitalizado`, `teve_admissao_uti`, `uti_informado`, `estadia_uti_utilizavel`, `vacinado_covid`, `vacina_covid_informada`, `vacinado_influenza`, `vacina_influenza_informada`.
+
+## Registro no relatorio de qualidade
 
 | # | Regra | Comportamento | Registro no relatorio de qualidade |
 |---|-------|---------------|-------------------------------------|

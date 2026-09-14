@@ -29,10 +29,12 @@ from src.config import (  # noqa: E402
     DATASUS_SOURCE_LABEL,
     get_settings,
 )
+from src.data.cleaning import CLEANING_PIPELINE  # noqa: E402
 from src.data.schema import (  # noqa: E402
     ADJUSTMENT_CODES,
     ADJUSTMENT_COLUMN,
     AGE_BANDS,
+    DERIVED_SEMANTIC_COLUMNS,
     ALLOWED_COLUMNS,
     CODE_LABELS,
     COHERENCE_FLAGS,
@@ -171,7 +173,36 @@ def build_transformation_doc() -> str:
 
     lines += [
         "",
-        "## Regras aplicadas",
+        "## Pipeline de tratamento",
+        "",
+        "O tratamento e um pipeline declarado de regras nomeadas "
+        "(`src/data/cleaning/`), nao um procedimento. Cada regra e uma classe "
+        "com nome, descricao e teste proprio; a tabela abaixo e gerada da "
+        "mesma estrutura que o codigo executa, entao nao pode divergir dele.",
+        "",
+        "A ordem importa: datas antes da coerencia (que compara datas) e "
+        "coerencia antes da semantica (porque a usabilidade de uma estadia em "
+        "UTI depende da flag de coerencia).",
+        "",
+        "| # | Regra | O que faz |",
+        "|---|-------|-----------|",
+        *(
+            f"| {position} | `{rule.name}` | {_escape(rule.description)} |"
+            for position, rule in enumerate(CLEANING_PIPELINE, start=1)
+        ),
+        "",
+        "### Semantica derivada em Python",
+        "",
+        "A traducao dos codigos do dicionario em conceitos epidemiologicos "
+        "acontece na camada de tratamento, ao lado de `CODE_LABELS`, e nao no "
+        "SQL da view analitica. Manter a traducao em outra linguagem e outro "
+        "arquivo permitiria que uma mudanca no dicionario nao alcancasse o "
+        "calculo sem que nada falhasse. A view faz apenas projecao de tipo.",
+        "",
+        f"Colunas derivadas: "
+        f"{', '.join(f'`{name}`' for name in DERIVED_SEMANTIC_COLUMNS)}.",
+        "",
+        "## Registro no relatorio de qualidade",
         "",
         "| # | Regra | Comportamento | Registro no relatorio de qualidade |",
         "|---|-------|---------------|-------------------------------------|",
@@ -185,10 +216,8 @@ def build_transformation_doc() -> str:
         "| 3 | Normalizacao de idade | `NU_IDADE_N` + `TP_IDADE` convertidos para "
         "anos; valores fora de [0, 120] anulados | "
         "`idade_fora_do_intervalo_plausivel` |",
-        f"| 4 | Agregacao de idade | Faixas: "
-        f"{', '.join(label for _, _, label in AGE_BANDS)} | - |",
-        "| 5 | Validacao de UF | Valor fora das 27 siglas e anulado | "
-        "`uf_fora_do_dominio` |",
+        f"| 4 | Agregacao de idade | Faixas: {', '.join(label for _, _, label in AGE_BANDS)} | - |",
+        "| 5 | Validacao de UF | Valor fora das 27 siglas e anulado | `uf_fora_do_dominio` |",
         "| 6 | Coerencia por dimensao | Quatro flags independentes (detalhadas "
         "abaixo) em vez de um unico veredito de validade | `coherence_flags` |",
         "| 7 | Recorte analitico | A view `srag_analytics` exclui apenas os "
@@ -293,8 +322,7 @@ def build_tools_doc() -> str:
         schema = tool.input_model.model_json_schema()
         params = ", ".join(f"`{name}`" for name in schema.get("properties", {})) or "-"
         lines.append(
-            f"| `{tool.name}` | {tool.category} | {params} | "
-            f"{_escape(tool.description)} |"
+            f"| `{tool.name}` | {tool.category} | {params} | {_escape(tool.description)} |"
         )
 
     lines += [
@@ -306,8 +334,7 @@ def build_tools_doc() -> str:
     ]
     for index, policy in enumerate(ALL_POLICIES, start=1):
         lines.append(
-            f"| {index} | {policy.name} | {policy.enforced_at} | "
-            f"{_escape(policy.description)} |"
+            f"| {index} | {policy.name} | {policy.enforced_at} | {_escape(policy.description)} |"
         )
 
     lines.append("")

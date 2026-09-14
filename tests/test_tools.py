@@ -7,6 +7,8 @@ uma tool que falha deve virar envelope de erro, nunca derrubar a execucao.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 
 from src.observability.audit import AuditTrail
@@ -193,3 +195,56 @@ class TestNoticias:
         assert "error" not in result
         assert result["articles"] == []
         assert result["unavailable_reason"]
+
+    def test_resultado_traz_proveniencia_temporal_da_noticia(self, tmp_path):
+        from src.news.embeddings import HashingEmbedder
+        from src.news.rss_client import NewsArticle
+        from src.news.vector_store import search, upsert_articles
+
+        store = tmp_path / "noticias.duckdb"
+        embedder = HashingEmbedder(dimensions=32)
+        article = NewsArticle(
+            title="Aumento de casos de SRAG no Brasil",
+            source="Fonte oficial",
+            published_at=datetime.now(tz=UTC).isoformat(),
+            url="https://example.org/noticia",
+            query="SRAG",
+            article_id="noticia-1",
+        )
+        upsert_articles([article], embedder=embedder, path=store)
+
+        result = search("casos de SRAG", embedder=embedder, path=store)
+
+        assert result[0]["publication_date"]
+        assert result[0]["retrieved_at"]
+        assert result[0]["url"] == article.url
+
+    def test_troca_de_backend_reconstroi_o_acervo(self, tmp_path):
+        from src.news.embeddings import HashingEmbedder
+        from src.news.rss_client import NewsArticle
+        from src.news.vector_store import search, stored_backend, upsert_articles
+
+        class OutroHashing(HashingEmbedder):
+            backend = "outro-backend"
+
+        store = tmp_path / "noticias.duckdb"
+        original = HashingEmbedder(dimensions=16)
+        replacement = OutroHashing(dimensions=8)
+
+        def article(identifier: str, title: str) -> NewsArticle:
+            return NewsArticle(
+                title=title,
+                source="Fonte oficial",
+                published_at=datetime.now(tz=UTC).isoformat(),
+                url=f"https://example.org/{identifier}",
+                query="SRAG",
+                article_id=identifier,
+            )
+
+        upsert_articles([article("antiga", "Noticia antiga sobre SRAG")], original, store)
+        upsert_articles([article("nova", "Noticia nova sobre SRAG")], replacement, store)
+
+        result = search("SRAG", embedder=replacement, path=store)
+
+        assert stored_backend(store) == replacement.backend
+        assert [item["titulo"] for item in result] == ["Noticia nova sobre SRAG"]

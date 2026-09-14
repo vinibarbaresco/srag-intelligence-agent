@@ -198,8 +198,7 @@ ICU_ADMISSION_RATE = MetricDefinition(
         "ATENCAO: este indicador NAO e taxa de ocupacao de leitos de UTI. O campo "
         "53 do SIVEP-Gripe ('Internado em UTI?') registra se houve admissao em "
         "UTI, nao a ocupacao da capacidade instalada.",
-        "Mede severidade clinica dos casos notificados, nao pressao sobre a rede "
-        "hospitalar.",
+        "Mede severidade clinica dos casos notificados, nao pressao sobre a rede hospitalar.",
         _REPORTING_LAG_NOTE,
         _ANALYTIC_SCOPE_NOTE,
     ),
@@ -247,8 +246,7 @@ ICU_PATIENT_CENSUS = MetricDefinition(
         "contabilizados a parte, pois a permanencia e desconhecida."
     ),
     limitations=(
-        "E um censo de pacientes, nao uma taxa de ocupacao: nao ha denominador "
-        "de leitos.",
+        "E um censo de pacientes, nao uma taxa de ocupacao: nao ha denominador de leitos.",
         "Pacientes sem data de saida registrada tem a permanencia imputada ate a "
         "data de evolucao ou ate a data de referencia, o que superestima o censo "
         "nos dias mais recentes.",
@@ -307,8 +305,7 @@ POPULATION_VACCINATION_COVERAGE = MetricDefinition(
     limitations=(
         "O dataset SRAG cobre apenas pessoas que adoeceram e foram notificadas; "
         "nao ha qualquer denominador populacional.",
-        "O calculo exigiria integrar SI-PNI (doses aplicadas) e estimativas "
-        "populacionais do IBGE.",
+        "O calculo exigiria integrar SI-PNI (doses aplicadas) e estimativas populacionais do IBGE.",
     ),
     not_computable_reason=(
         "Nao e possivel calcular a taxa de vacinacao da populacao com os dados "

@@ -16,6 +16,9 @@ import pandas as pd
 import pytest
 
 from src.config import reset_settings_cache
+from src.data.cleaning.base import CleaningContext
+from src.data.cleaning.derived import DeriveSemanticFlags
+from src.data.quality import AdjustmentLog, QualityReport
 
 #: Data de digitacao mais recente da base sintetica. Todas as janelas dos testes
 #: sao ancoradas nela, exatamente como o sistema faz em producao.
@@ -37,7 +40,9 @@ def configured_environment(data_root: Path, monkeypatch_session) -> None:
     monkeypatch_session.setenv("DATA_ROOT", str(data_root))
     monkeypatch_session.setenv("REPORTING_LAG_DAYS", "21")
     monkeypatch_session.setenv("GROWTH_WINDOW_DAYS", "30")
-    monkeypatch_session.setenv("MIN_CELL_SIZE", "5")
+    # Atualizacao em tempo real e testada com mock em um caso dedicado. O resto
+    # da suite permanece hermetico e nunca acessa feeds externos.
+    monkeypatch_session.setenv("NEWS_REFRESH_ON_RUN", "false")
     # Credencial vazia, e nao ausente: a variavel de ambiente tem precedencia
     # sobre o arquivo .env no pydantic-settings, entao isto neutraliza uma chave
     # real presente na maquina do desenvolvedor. Sem isso a suite deixaria de ser
@@ -209,7 +214,15 @@ def _build_synthetic_frame() -> pd.DataFrame:
     incoerente["DT_SAIDUTI"] = incoerente["DT_ENTUTI"] - pd.Timedelta(days=2)
     incoerente["flag_uti_inconsistente"] = True
 
-    return pd.DataFrame(rows)
+    frame = pd.DataFrame(rows)
+
+    # As colunas semanticas sao derivadas pela MESMA regra usada em producao,
+    # em vez de reescritas aqui: assim a base sintetica nao pode divergir da
+    # definicao real de "obito", "caso encerrado" ou "admissao em UTI".
+    context = CleaningContext(
+        year=2026, report=QualityReport(), adjustments=AdjustmentLog(frame.index)
+    )
+    return DeriveSemanticFlags().apply(frame, context)
 
 
 @pytest.fixture(scope="session")

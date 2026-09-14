@@ -2,9 +2,9 @@
 
 Corresponde ao bloco "rotina para fazer a busca de noticias em tempo real" da
 arquitetura: coleta os feeds, filtra por fonte confiavel e por tema, vetoriza e
-grava no Vector DB. O agente nunca busca na internet durante a geracao do
-relatorio -- ele consulta o Vector DB, o que torna a execucao do relatorio
-reproduzivel e desacoplada da disponibilidade dos feeds.
+grava no Vector DB. Por padrao, o agente executa esta rotina antes da busca de
+cada relatorio. Se a fonte estiver indisponivel, usa o acervo persistido como
+fallback e registra a degradacao, preservando a entrega e a rastreabilidade.
 
 Uso::
 
@@ -68,9 +68,7 @@ def ingest_news(
             tool="news_ingestion",
             parameters={"janela_dias": window, "consultas": len(DEFAULT_QUERIES)},
             status=STATUS_DEGRADED if warnings else "ok",
-            result_summary=(
-                f"{stored} noticias gravadas; {len(warnings)} feeds com falha"
-            ),
+            result_summary=(f"{stored} noticias gravadas; {len(warnings)} feeds com falha"),
             source="Google News RSS (fontes na allowlist)",
         )
 
@@ -81,9 +79,7 @@ def main(argv: list[str] | None = None) -> int:
     settings = get_settings()
     configure_logging(settings.log_level)
 
-    parser = argparse.ArgumentParser(
-        description="Coleta noticias sobre SRAG e grava no Vector DB."
-    )
+    parser = argparse.ArgumentParser(description="Coleta noticias sobre SRAG e grava no Vector DB.")
     parser.add_argument("--max-age-days", type=int, default=settings.news_max_age_days)
     args = parser.parse_args(argv)
 

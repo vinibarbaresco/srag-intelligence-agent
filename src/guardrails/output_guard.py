@@ -15,8 +15,9 @@ retornos das tools, nao do texto do modelo.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Any, Final, Iterable
+from typing import Any, Final
 
 from src.guardrails.pii import find_pii, scrub_text
 from src.guardrails.policies import (
@@ -40,8 +41,8 @@ _RELATIVE_TOLERANCE: Final[float] = 0.005
 
 _NUMBER_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"(?<![\w/])-?\d{1,3}(?:\.\d{3})+(?:,\d+)?(?![\w/])"  # 1.234,5 (pt-BR)
-    r"|(?<![\w/])-?\d+,\d+(?![\w/])"                      # 12,4
-    r"|(?<![\w/])-?\d+(?:\.\d+)?(?![\w/])"                # 12 ou 12.4
+    r"|(?<![\w/])-?\d+,\d+(?![\w/])"  # 12,4
+    r"|(?<![\w/])-?\d+(?:\.\d+)?(?![\w/])"  # 12 ou 12.4
 )
 
 
@@ -171,8 +172,7 @@ def validate_output(text: str, evidence: EvidenceSet) -> OutputValidation:
                     "policy": EVIDENCE_BINDING.key,
                     "type": "valor_sem_evidencia",
                     "detail": (
-                        f"O valor {raw!r} nao corresponde a nenhum resultado "
-                        "retornado pelas tools."
+                        f"O valor {raw!r} nao corresponde a nenhum resultado retornado pelas tools."
                     ),
                 }
             )

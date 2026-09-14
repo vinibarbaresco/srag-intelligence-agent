@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import html
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -57,7 +57,7 @@ def render_markdown(state: dict[str, Any]) -> str:
 
 def _header(state: dict[str, Any]) -> str:
     filters = (state.get("validation") or {}).get("filters") or {}
-    generated = datetime.now(tz=timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M %Z")
+    generated = datetime.now(tz=UTC).astimezone().strftime("%Y-%m-%d %H:%M %Z")
     return "\n".join(
         [
             "# Relatorio epidemiologico de SRAG",
@@ -67,8 +67,7 @@ def _header(state: dict[str, Any]) -> str:
             f"- **Solicitacao:** {state.get('request')}",
             f"- **Recorte:** {filters.get('uf', 'BR (nacional)')} | "
             f"{filters.get('classificacao_final', 'todas as classificacoes finais')}",
-            f"- **Fonte dos dados:** {DATASUS_SOURCE_LABEL} "
-            f"([dataset]({DATASUS_DATASET_URL}))",
+            f"- **Fonte dos dados:** {DATASUS_SOURCE_LABEL} ([dataset]({DATASUS_DATASET_URL}))",
             f"- **Via de interpretacao:** `{state.get('interpretation_source')}`",
             "",
             f"> {DISCLAIMER}",
@@ -272,12 +271,18 @@ def _charts_section(state: dict[str, Any]) -> str:
         "casos_diarios": "Numero diario de casos de SRAG - ultimos 30 dias",
         "casos_mensais": "Numero mensal de casos de SRAG - ultimos 12 meses",
     }
+    settings = get_settings()
     for key, chart in charts.items():
         path = Path(chart["path"])
+        try:
+            relative = path.resolve().relative_to(settings.outputs_dir.resolve())
+            image_source = (Path("..") / relative).as_posix()
+        except ValueError:
+            image_source = path.as_posix()
         blocks += [
             f"### {titles.get(key, key)}",
             "",
-            f"![{titles.get(key, key)}]({path.as_posix()})",
+            f"![{titles.get(key, key)}]({image_source})",
             "",
             f"Arquivo: `{path}`",
             "",
@@ -319,12 +324,18 @@ def _news_section(state: dict[str, Any]) -> str:
         )
         return "\n".join(blocks)
 
-    blocks += ["| Data | Fonte | Titulo | URL |", "|------|-------|--------|-----|"]
+    blocks += [
+        "| Publicada em | Fonte | Titulo | URL | Recuperada em |",
+        "|--------------|-------|--------|-----|---------------|",
+    ]
     for article in articles:
         title = article["titulo"].replace("|", "\\|")
+        source = article["fonte"].replace("|", "\\|")
+        safe_url = _safe_url(article["url"])
+        link = f"[link]({safe_url})" if safe_url else "link bloqueado"
         blocks.append(
-            f"| {article['data']} | {article['fonte']} | {title} | "
-            f"[link]({article['url']}) |"
+            f"| {article['data']} | {source} | {title} | {link} | "
+            f"{article.get('retrieved_at', 'nao informado')} |"
         )
 
     store = context.get("vector_db") or {}
@@ -392,8 +403,7 @@ def _data_quality_section(state: dict[str, Any]) -> str:
             "| Codigo | Registros | Significado |",
             "|--------|-----------|-------------|",
             *(
-                f"| `{code}` | {count} | "
-                f"{_escape_cell(_adjustment_meaning(code, adjustments))} |"
+                f"| `{code}` | {count} | {_escape_cell(_adjustment_meaning(code, adjustments))} |"
                 for code, count in sorted(by_code.items())
             ),
         ]
@@ -520,8 +530,7 @@ def _governance_section(state: dict[str, Any]) -> str:
         "",
         f"- **Valores lastreados pelas tools:** {evidence.get('valores_lastreados', 0)}",
         f"- **Indicadores calculados:** {evidence.get('indicadores_calculados', 0)}",
-        f"- **Indicadores indisponiveis:** "
-        f"{len(evidence.get('indicadores_indisponiveis', []))}",
+        f"- **Indicadores indisponiveis:** {len(evidence.get('indicadores_indisponiveis', []))}",
         "",
         "### Guardrails ativos",
         "",
@@ -530,9 +539,7 @@ def _governance_section(state: dict[str, Any]) -> str:
     ]
 
     for policy in guardrails.get("politicas_ativas", []):
-        blocks.append(
-            f"| {policy['name']} | {policy['enforced_at']} | {policy['description']} |"
-        )
+        blocks.append(f"| {policy['name']} | {policy['enforced_at']} | {policy['description']} |")
 
     result = guardrails.get("resultado") or {}
     blocks += [
@@ -543,9 +550,7 @@ def _governance_section(state: dict[str, Any]) -> str:
     ]
 
     if guardrails.get("fallback"):
-        blocks.append(
-            f"**Fallback aplicado:** {guardrails['fallback']['motivo']}."
-        )
+        blocks.append(f"**Fallback aplicado:** {guardrails['fallback']['motivo']}.")
 
     return "\n".join(blocks)
 
@@ -698,13 +703,50 @@ def _inline(text: str) -> str:
     """Aplica formatacao inline (negrito, italico, codigo, link, imagem)."""
     import re
 
-    escaped = html.escape(text, quote=False)
-    escaped = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", r'<img src="\2" alt="\1">', escaped)
-    escaped = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', escaped)
+    escaped = html.escape(text, quote=True)
+    escaped = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", _render_safe_image, escaped)
+    escaped = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", _render_safe_link, escaped)
     escaped = re.sub(r"`([^`]+)`", r"<code>\1</code>", escaped)
     escaped = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", escaped)
     escaped = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"<em>\1</em>", escaped)
     return escaped
+
+
+def _safe_url(raw: str) -> str | None:
+    """Aceita apenas URLs HTTP(S) ou caminhos relativos sem esquema.
+
+    Titulos e links de noticias sao conteudo externo. Esta validacao impede que
+    um link malicioso vire `javascript:` ou outro esquema executavel no HTML
+    gerado, mesmo se uma fonte upstream for comprometida.
+    """
+    from urllib.parse import urlparse
+
+    value = html.unescape(raw).strip()
+    if not value or any(character in value for character in ("\x00", "\r", "\n")):
+        return None
+
+    parsed = urlparse(value)
+    if parsed.scheme in {"http", "https"} and parsed.netloc:
+        return value
+    if not parsed.scheme and not parsed.netloc and not value.startswith("//"):
+        return value
+    return None
+
+
+def _render_safe_link(match: Any) -> str:
+    label, raw_url = match.group(1), match.group(2)
+    safe = _safe_url(raw_url)
+    if safe is None:
+        return label
+    return f'<a href="{html.escape(safe, quote=True)}">{label}</a>'
+
+
+def _render_safe_image(match: Any) -> str:
+    alt, raw_url = match.group(1), match.group(2)
+    safe = _safe_url(raw_url)
+    if safe is None:
+        return alt
+    return f'<img src="{html.escape(safe, quote=True)}" alt="{alt}">'
 
 
 def write_report(state: dict[str, Any]) -> dict[str, str]:

@@ -36,9 +36,6 @@ class Settings(BaseSettings):
     reporting_lag_days: int = Field(default=21, ge=0, le=90)
     growth_window_days: int = Field(default=30, ge=1, le=365)
 
-    # --- Privacidade ---------------------------------------------------------
-    min_cell_size: int = Field(default=5, ge=0)
-
     # --- Ingestao ------------------------------------------------------------
     # `NoDecode` desliga o parse JSON automatico que o pydantic-settings aplica
     # a campos de tipo composto. Sem ele, `SRAG_YEARS=2025,2026` no .env falha
@@ -48,6 +45,7 @@ class Settings(BaseSettings):
     # --- Noticias ------------------------------------------------------------
     news_max_age_days: int = Field(default=45, ge=1, le=365)
     news_max_results: int = Field(default=12, ge=1, le=100)
+    news_refresh_on_run: bool = Field(default=True)
 
     # --- Observabilidade -----------------------------------------------------
     log_level: str = Field(default="INFO")
@@ -172,8 +170,7 @@ class Settings(BaseSettings):
 
 DATASUS_DATASET_URL = "https://dadosabertos.saude.gov.br/dataset/srag-2019-a-2026"
 DATASUS_DICTIONARY_URL = (
-    "https://s3.sa-east-1.amazonaws.com/ckan.saude.gov.br/SRAG/"
-    "dicionario-de-dados-2019-a-2025.pdf"
+    "https://s3.sa-east-1.amazonaws.com/ckan.saude.gov.br/SRAG/dicionario-de-dados-2019-a-2025.pdf"
 )
 DATASUS_SOURCE_LABEL = "Open DATASUS / SIVEP-Gripe (SRAG 2019-2026)"
 

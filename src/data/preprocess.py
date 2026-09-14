@@ -1,20 +1,26 @@
-"""Transformacao do CSV bruto do SIVEP-Gripe na camada processada.
+"""Orquestracao da carga: do CSV bruto a camada processada.
 
-Responsabilidades:
+Este modulo cuida apenas do **fluxo**: ler o manifesto, abrir o arquivo em
+blocos com as colunas permitidas, aplicar o pipeline de tratamento, concatenar,
+gravar o Parquet e registrar a carga.
+
+As **regras** de tratamento vivem em :mod:`src.data.cleaning`, uma por classe
+nomeada e testavel, com a ordem declarada em `CLEANING_PIPELINE`. A
+contabilidade vive em :mod:`src.data.quality`. Essa separacao mantem cada
+arquivo com uma responsabilidade e permite auditar o tratamento como uma lista
+de regras, sem ler codigo de orquestracao.
+
+Garantias da carga:
 
 1. **Minimizacao** -- apenas as colunas de :data:`ALLOWED_COLUMNS` sao lidas do
    disco; as demais 160+ colunas nunca entram em memoria.
-2. **Normalizacao de tipos** -- datas nos tres formatos ja publicados pela fonte
-   (ver :func:`_parse_dates`), codigos categoricos como inteiros nulaveis.
-3. **Tratamento explicito de ausencia** -- o codigo `9-Ignorado` e preservado
-   como esta e excluido dos denominadores na camada de metricas; nunca e
-   convertido em `Nao` nem em zero.
-4. **Transparencia** -- nenhum registro e descartado nem alterado
+2. **Transparencia** -- nenhum registro e descartado nem alterado
    silenciosamente. Inconsistencias viram flags de coerencia por dimensao, e
    toda alteracao de valor e registrada no proprio registro, na coluna
-   `ajustes_aplicados`. Os totais vao para
-   `data/processed/quality_report.json`, e cada carga recebe um `run_id`
-   e uma linha em `data/processed/ingestion_history.jsonl`.
+   `ajustes_aplicados`.
+3. **Rastreabilidade** -- cada carga recebe um `run_id`, grava proveniencia e
+   pipeline em `data/processed/quality_report.json` e acrescenta uma linha a
+   `data/processed/ingestion_history.jsonl`.
 
 Uso::
 
@@ -30,354 +36,25 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from collections import Counter
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
 
 from src.config import (
     DATASUS_SOURCE_LABEL,
-    MIN_VALID_DATE,
     RAW_CSV_ENCODING,
     RAW_CSV_SEPARATOR,
     get_settings,
 )
-from src.data.schema import (
-    ADJUSTMENT_CODES,
-    ADJUSTMENT_COLUMN,
-    AGE_BANDS,
-    ALLOWED_COLUMNS,
-    COHERENCE_FLAGS,
-    CATEGORICAL_COLUMNS,
-    DATE_COLUMNS,
-    GEOGRAPHIC_COLUMNS,
-    NUMERIC_COLUMNS,
-    UF_CODES,
-    VACCINE_DATE_COLUMNS,
-    assert_no_denied_columns,
-)
+from src.data.cleaning import clean_chunk, describe_pipeline
+from src.data.quality import QualityReport
+from src.data.schema import ALLOWED_COLUMNS, assert_no_denied_columns
 from src.observability.audit import AuditTrail
 from src.observability.logging_config import configure_logging, get_logger
 
 logger = get_logger(__name__)
 
 _DEFAULT_CHUNK_SIZE = 100_000
-
-
-@dataclass
-class QualityReport:
-    """Contabilidade das regras de transformacao aplicadas.
-
-    Existe para cumprir a regra "nunca remova ou altere registros
-    silenciosamente": cada decisao da limpeza vira um numero auditavel.
-    """
-
-    rows_read: int = 0
-    rows_written: int = 0
-    invalid_dates: Counter = field(default_factory=Counter)
-    null_counts: Counter = field(default_factory=Counter)
-    ignored_code_counts: Counter = field(default_factory=Counter)
-    unknown_uf: int = 0
-    coherence_flags: Counter = field(default_factory=Counter)
-    age_out_of_range: int = 0
-    adjusted_rows: int = 0
-    adjustments: Counter = field(default_factory=Counter)
-
-    def to_dict(self, *, source_files: list[str], run_id: str = "") -> dict:
-        return {
-            "run_id": run_id,
-            "generated_at": datetime.now(tz=timezone.utc).isoformat(),
-            "source": DATASUS_SOURCE_LABEL,
-            "source_files": source_files,
-            "rows_read": self.rows_read,
-            "rows_written": self.rows_written,
-            "rows_dropped": self.rows_read - self.rows_written,
-            "rows_adjusted": self.adjusted_rows,
-            "adjustments": {
-                "por_codigo": dict(self.adjustments),
-                "significado": ADJUSTMENT_CODES,
-                "como_localizar": (
-                    "SELECT * FROM srag_cases WHERE ajustes_aplicados <> '' -- "
-                    "cada registro alterado carrega os codigos aplicados a ele"
-                ),
-            },
-            "coherence_flags": {
-                name: {
-                    "registros": self.coherence_flags[name],
-                    "percentual": (
-                        round(self.coherence_flags[name] / self.rows_read * 100, 3)
-                        if self.rows_read
-                        else 0.0
-                    ),
-                    "significado": description,
-                    "exclui_da_view_analitica": name == "flag_data_invalida",
-                }
-                for name, description in COHERENCE_FLAGS.items()
-            },
-            "rules": {
-                "datas_nao_parseaveis_por_coluna": dict(self.invalid_dates),
-                "valores_nulos_por_coluna": dict(self.null_counts),
-                "codigo_9_ignorado_por_coluna": dict(self.ignored_code_counts),
-                "uf_fora_do_dominio": self.unknown_uf,
-                "idade_fora_do_intervalo_plausivel": self.age_out_of_range,
-            },
-            "notes": [
-                "Nenhum registro e excluido: inconsistencias sao marcadas em "
-                "flags de coerencia e permanecem na base.",
-                "As flags sao por dimensao. Apenas flag_data_invalida exclui o "
-                "registro da view analitica, porque sem eixo temporal nenhuma "
-                "metrica pode situar o caso. As demais sao respeitadas apenas "
-                "pelas metricas que dependem daquela dimensao.",
-                "O codigo 9 (Ignorado) e preservado e excluido dos denominadores "
-                "na camada de metricas, nunca convertido em 'Nao' ou zero.",
-                "Colunas com dados pessoais nao sao lidas do arquivo bruto "
-                "(ver DENIED_COLUMNS em src/data/schema.py).",
-                "Toda alteracao de valor e registrada por registro na coluna "
-                "ajustes_aplicados, alem de contabilizada aqui.",
-            ],
-        }
-
-
-def _parse_dates(series: pd.Series) -> pd.Series:
-    """Converte uma coluna de datas aceitando os tres formatos ja publicados.
-
-    O DATASUS ja distribuiu o mesmo campo de tres maneiras, conforme a safra do
-    arquivo:
-
-    * ISO-8601 com sufixo `Z` -- `2026-04-30T00:00:00.000Z` (publicacoes atuais);
-    * ISO-8601 simples -- `2024-12-29` (ex.: INFLUD25 versao 26-06-2025);
-    * formato brasileiro -- `30/04/2026` (safras antigas).
-
-    O parse tenta ISO primeiro, que cobre os dois primeiros, e recorre ao
-    formato brasileiro apenas nos valores restantes -- evitando que `03/04/2026`
-    seja interpretado como 3 de abril ou 4 de marco conforme o acaso.
-    """
-    text = series.astype("string").str.strip()
-    text = text.replace({"": pd.NA})
-
-    parsed = pd.to_datetime(text, format="ISO8601", utc=True, errors="coerce")
-    parsed = parsed.dt.tz_localize(None)
-
-    pending = parsed.isna() & text.notna()
-    if pending.any():
-        fallback = pd.to_datetime(text[pending], format="%d/%m/%Y", errors="coerce")
-        parsed.loc[pending] = fallback
-
-    return parsed
-
-
-def _to_nullable_int(series: pd.Series) -> pd.Series:
-    """Converte codigos categoricos numericos para inteiro nulavel."""
-    return pd.to_numeric(series, errors="coerce").astype("Int16")
-
-
-def _age_in_years(values: pd.Series, units: pd.Series) -> pd.Series:
-    """Normaliza `NU_IDADE_N` para anos usando `TP_IDADE` (1-dia, 2-mes, 3-ano)."""
-    amount = pd.to_numeric(values, errors="coerce")
-    unit = pd.to_numeric(units, errors="coerce")
-
-    years = pd.Series(pd.NA, index=amount.index, dtype="Float32")
-    years[unit == 1] = amount[unit == 1] / 365.25
-    years[unit == 2] = amount[unit == 2] / 12
-    years[unit == 3] = amount[unit == 3]
-    return years
-
-
-def _age_band(years: pd.Series) -> pd.Series:
-    """Agrega a idade em faixas, para nao expor idade exata a camada analitica."""
-    band = pd.Series(pd.NA, index=years.index, dtype="string")
-    for low, high, label in AGE_BANDS:
-        band[(years >= low) & (years <= high)] = label
-    return band
-
-
-def transform_chunk(chunk: pd.DataFrame, year: int, report: QualityReport) -> pd.DataFrame:
-    """Aplica todas as regras de transformacao a um bloco do CSV.
-
-    Args:
-        chunk: bloco lido do arquivo bruto, ja restrito as colunas permitidas.
-        year: ano do arquivo de origem (vira `ano_referencia`).
-        report: acumulador das estatisticas de qualidade.
-
-    Returns:
-        Bloco transformado, com as colunas derivadas, as flags de coerencia e a
-        coluna de ajustes aplicados.
-    """
-    report.rows_read += len(chunk)
-    frame = chunk.copy()
-
-    # Cada alteracao de valor e registrada por registro, e nao apenas contada.
-    # Sem isso, um campo anulado pelo pipeline ficaria indistinguivel de um que
-    # ja veio vazio da fonte -- e a alteracao seria, na pratica, silenciosa.
-    adjustments = _AdjustmentLog(frame.index)
-
-    for column in DATE_COLUMNS + VACCINE_DATE_COLUMNS:
-        if column not in frame.columns:
-            continue
-        raw_present = frame[column].astype("string").str.strip().replace({"": pd.NA})
-        frame[column] = _parse_dates(frame[column])
-        unreadable = raw_present.notna() & frame[column].isna()
-        report.invalid_dates[column] += int(unreadable.sum())
-        adjustments.add(f"data_ilegivel:{column}", unreadable)
-        report.null_counts[column] += int(frame[column].isna().sum())
-
-    for column in CATEGORICAL_COLUMNS:
-        if column not in frame.columns or column == "CS_SEXO":
-            continue
-        frame[column] = _to_nullable_int(frame[column])
-        report.null_counts[column] += int(frame[column].isna().sum())
-        report.ignored_code_counts[column] += int((frame[column] == 9).sum())
-
-    if "CS_SEXO" in frame.columns:
-        frame["CS_SEXO"] = (
-            frame["CS_SEXO"]
-            .astype("string")
-            .str.strip()
-            .str.upper()
-            .replace({"": pd.NA})
-        )
-        report.null_counts["CS_SEXO"] += int(frame["CS_SEXO"].isna().sum())
-
-    for column in NUMERIC_COLUMNS:
-        if column in frame.columns:
-            frame[column] = pd.to_numeric(frame[column], errors="coerce").astype("Int32")
-
-    for column in GEOGRAPHIC_COLUMNS:
-        if column not in frame.columns:
-            continue
-        # A string vazia e ausencia na origem, nao valor fora do dominio:
-        # normaliza-la antes evita contar (e marcar como ajuste) um campo que o
-        # pipeline nunca alterou.
-        frame[column] = (
-            frame[column]
-            .astype("string")
-            .str.strip()
-            .str.upper()
-            .replace({"": pd.NA})
-        )
-        outside = frame[column].notna() & ~frame[column].isin(UF_CODES)
-        report.unknown_uf += int(outside.sum())
-        adjustments.add(f"uf_anulada:{column}", outside)
-        frame.loc[outside, column] = pd.NA
-
-    frame["idade_anos"] = _age_in_years(frame["NU_IDADE_N"], frame["TP_IDADE"])
-    implausible = frame["idade_anos"].notna() & (
-        (frame["idade_anos"] < 0) | (frame["idade_anos"] > 120)
-    )
-    report.age_out_of_range += int(implausible.sum())
-    adjustments.add("idade_anulada", implausible)
-    frame.loc[implausible, "idade_anos"] = pd.NA
-    frame["faixa_etaria"] = _age_band(frame["idade_anos"])
-
-    frame["ano_referencia"] = year
-    for name, values in _coherence_flags(frame).items():
-        frame[name] = values
-        report.coherence_flags[name] += int(values.sum())
-
-    frame[ADJUSTMENT_COLUMN] = adjustments.to_series()
-    report.adjusted_rows += int(adjustments.affected_rows())
-    for code, count in adjustments.counts().items():
-        report.adjustments[code] += count
-    report.rows_written += len(frame)
-
-    assert_no_denied_columns(list(frame.columns))
-    return frame
-
-
-class _AdjustmentLog:
-    """Acumula, por registro, os ajustes que a ingestao aplicou.
-
-    Existe para que a afirmacao "nada e alterado silenciosamente" valha no nivel
-    do registro, e nao apenas no agregado: depois da carga e possivel localizar
-    exatamente quais linhas o pipeline tocou, e por que.
-    """
-
-    def __init__(self, index: pd.Index) -> None:
-        self._index = index
-        self._entries: list[tuple[str, pd.Series]] = []
-
-    def add(self, code: str, mask: pd.Series) -> None:
-        """Registra que `code` foi aplicado aos registros marcados em `mask`."""
-        mask = mask.fillna(False).astype(bool)
-        if mask.any():
-            self._entries.append((code, mask))
-
-    def to_series(self) -> pd.Series:
-        """Codigos aplicados a cada registro, separados por virgula."""
-        result = pd.Series("", index=self._index, dtype="string")
-        for code, mask in self._entries:
-            result[mask] = result[mask].str.cat([code] * int(mask.sum()), sep=",")
-        return result.str.lstrip(",")
-
-    def affected_rows(self) -> int:
-        """Numero de registros que sofreram ao menos um ajuste."""
-        if not self._entries:
-            return 0
-        combined = pd.Series(False, index=self._index)
-        for _, mask in self._entries:
-            combined |= mask
-        return int(combined.sum())
-
-    def counts(self) -> dict[str, int]:
-        """Quantidade de registros afetados por codigo de ajuste."""
-        return {code: int(mask.sum()) for code, mask in self._entries}
-
-
-def _coherence_flags(frame: pd.DataFrame) -> dict[str, pd.Series]:
-    """Avalia a coerencia do registro, uma flag por dimensao.
-
-    As regras vem das restricoes declaradas no dicionario oficial (por exemplo:
-    "data de entrada na UTI deve ser maior ou igual a data dos primeiros
-    sintomas") e de impossibilidades logicas diretas.
-
-    A separacao por dimensao e deliberada. Uma data de internacao impossivel
-    compromete indicadores de internacao, mas nao a contagem de casos, que
-    depende apenas de `DT_SIN_PRI`. Um unico booleano forcaria descartar o
-    registro inteiro -- 4.452 registros a mais, na base de referencia -- por um
-    defeito que nao afeta a maior parte das metricas.
-
-    Nenhum registro e removido: as flags apenas descrevem o que ha de errado,
-    e cada metrica decide o que e relevante para si.
-
-    Args:
-        frame: bloco ja com as colunas de data convertidas.
-
-    Returns:
-        Mapa `nome da flag -> serie booleana`, nas chaves de `COHERENCE_FLAGS`.
-    """
-    floor = pd.Timestamp(MIN_VALID_DATE)
-    symptoms = frame["DT_SIN_PRI"]
-    typed = frame["DT_DIGITA"]
-    admission = frame["DT_INTERNA"]
-    icu_in, icu_out = frame["DT_ENTUTI"], frame["DT_SAIDUTI"]
-    outcome = frame["DT_EVOLUCA"]
-
-    # --- Eixo temporal primario ---------------------------------------------
-    invalid_axis = symptoms.isna()
-    invalid_axis |= symptoms.notna() & (symptoms < floor)
-    invalid_axis |= symptoms.notna() & typed.notna() & (symptoms > typed)
-
-    # --- Internacao -----------------------------------------------------------
-    invalid_admission = admission.notna() & symptoms.notna() & (admission < symptoms)
-    invalid_admission |= (frame["HOSPITAL"] == 1) & admission.isna()
-
-    # --- UTI ------------------------------------------------------------------
-    invalid_icu = icu_in.notna() & symptoms.notna() & (icu_in < symptoms)
-    invalid_icu |= icu_in.notna() & icu_out.notna() & (icu_out < icu_in)
-    invalid_icu |= (frame["UTI"] == 1) & icu_in.isna()
-
-    # --- Evolucao -------------------------------------------------------------
-    invalid_outcome = outcome.notna() & symptoms.notna() & (outcome < symptoms)
-    invalid_outcome |= frame["EVOLUCAO"].isin([1, 2, 3]) & outcome.isna()
-
-    return {
-        "flag_data_invalida": invalid_axis.fillna(False).astype(bool),
-        "flag_internacao_inconsistente": invalid_admission.fillna(False).astype(bool),
-        "flag_uti_inconsistente": invalid_icu.fillna(False).astype(bool),
-        "flag_evolucao_inconsistente": invalid_outcome.fillna(False).astype(bool),
-    }
 
 
 def _available_columns(path: Path) -> set[str]:
@@ -413,7 +90,7 @@ def preprocess_year(
     for chunk in reader:
         for column in absent:
             chunk[column] = pd.NA
-        frames.append(transform_chunk(chunk, year, report))
+        frames.append(clean_chunk(chunk, year, report))
 
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
@@ -494,7 +171,11 @@ def preprocess(
 
     combined.to_parquet(settings.processed_parquet_path, index=False)
 
-    payload = report.to_dict(source_files=source_files, run_id=trail.run_id)
+    payload = report.to_dict(
+        source_files=source_files,
+        run_id=trail.run_id,
+        pipeline=describe_pipeline(),
+    )
     payload["provenance"] = provenance
     settings.quality_report_path.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"

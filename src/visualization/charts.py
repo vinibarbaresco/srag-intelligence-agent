@@ -148,7 +148,7 @@ def render_monthly_cases_chart(series: dict[str, Any], output_path: Path | None 
     figure, axes = plt.subplots(figsize=_FIGSIZE, dpi=_DPI)
     bars = axes.bar(labels, values, color=colors, width=0.68)
 
-    for bar, point in zip(bars, points):
+    for bar, point in zip(bars, points, strict=True):
         axes.annotate(
             _thousands(point["casos"], 0),
             (bar.get_x() + bar.get_width() / 2, bar.get_height()),

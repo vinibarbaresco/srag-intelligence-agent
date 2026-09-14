@@ -127,8 +127,5 @@ def _tokens(normalized: str) -> list[str]:
     """
     words = normalized.split()
     padded = f" {normalized} "
-    ngrams = [
-        padded[index : index + _NGRAM_SIZE]
-        for index in range(len(padded) - _NGRAM_SIZE + 1)
-    ]
+    ngrams = [padded[index : index + _NGRAM_SIZE] for index in range(len(padded) - _NGRAM_SIZE + 1)]
     return words + ngrams

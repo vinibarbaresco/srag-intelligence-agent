@@ -9,6 +9,7 @@ importam: texto valido e texto que viola um guardrail.
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -72,9 +73,7 @@ class TestFluxoCompleto:
         assert state["report_paths"]["markdown"]
         assert state["report_paths"]["html"]
 
-    def test_artefatos_sao_gravados_em_disco(
-        self, synthetic_database, sem_noticias, monkeypatch
-    ):
+    def test_artefatos_sao_gravados_em_disco(self, synthetic_database, sem_noticias, monkeypatch):
         from pathlib import Path
 
         state = _run(monkeypatch, DeterministicNarrator())
@@ -99,15 +98,18 @@ class TestFluxoCompleto:
             for linha in Path(audit["audit_file"]).read_text(encoding="utf-8").splitlines()
         ]
         nos = {evento["node"] for evento in eventos if evento["node"]}
-        assert {"validate_request", "collect_epidemiological_metrics",
-                "collect_time_series", "search_external_news",
-                "validate_evidence", "generate_interpretation",
-                "generate_report"} <= nos
+        assert {
+            "validate_request",
+            "collect_epidemiological_metrics",
+            "collect_time_series",
+            "search_external_news",
+            "validate_evidence",
+            "generate_interpretation",
+            "generate_report",
+        } <= nos
         assert [evento["seq"] for evento in eventos] == list(range(1, len(eventos) + 1))
 
-    def test_run_id_e_unico_por_execucao(
-        self, synthetic_database, sem_noticias, monkeypatch
-    ):
+    def test_run_id_e_unico_por_execucao(self, synthetic_database, sem_noticias, monkeypatch):
         primeiro = _run(monkeypatch, DeterministicNarrator())["run_id"]
         segundo = _run(monkeypatch, DeterministicNarrator())["run_id"]
         assert primeiro != segundo
@@ -137,9 +139,7 @@ class TestPlanejamento:
 
 
 class TestGuardrailsNoFluxo:
-    def test_pedido_clinico_encerra_antes_de_consultar_dados(
-        self, synthetic_database, monkeypatch
-    ):
+    def test_pedido_clinico_encerra_antes_de_consultar_dados(self, synthetic_database, monkeypatch):
         monkeypatch.setattr(
             "src.agent.orchestrator.get_interpreter", lambda **_: DeterministicNarrator()
         )
@@ -180,9 +180,7 @@ class TestGuardrailsNoFluxo:
         assert "123.456.789-00" not in state["interpretation"]
         assert "sensitive_data" in state["guardrail_report"]["resultado"]["blocked_by"]
 
-    def test_texto_lastreado_e_preservado(
-        self, synthetic_database, sem_noticias, monkeypatch
-    ):
+    def test_texto_lastreado_e_preservado(self, synthetic_database, sem_noticias, monkeypatch):
         state = _run(monkeypatch, FakeInterpreter("O cenario apresenta estabilidade."))
         assert state["interpretation"] == "O cenario apresenta estabilidade."
         assert state["interpretation_source"] == "fake-llm"
@@ -203,9 +201,7 @@ class TestDegradacaoDeNoticias:
         assert state["external_context"]["articles"] == []
         assert state["report_paths"]["markdown"]
 
-    def test_falha_na_busca_vira_aviso_e_nao_excecao(
-        self, synthetic_database, monkeypatch
-    ):
+    def test_falha_na_busca_vira_aviso_e_nao_excecao(self, synthetic_database, monkeypatch):
         def indisponivel(*_args, **_kwargs):
             raise RuntimeError("vector db corrompido")
 
@@ -214,6 +210,45 @@ class TestDegradacaoDeNoticias:
 
         assert state["report_paths"]["markdown"]
         assert any("indisponivel" in aviso.lower() for aviso in state["warnings"])
+
+    def test_atualiza_noticias_antes_da_busca_quando_habilitado(
+        self, synthetic_database, sem_noticias, monkeypatch
+    ):
+        chamadas: list[bool] = []
+
+        monkeypatch.setattr(
+            "src.agent.nodes.get_settings",
+            lambda: SimpleNamespace(news_refresh_on_run=True),
+        )
+        monkeypatch.setattr(
+            "src.agent.nodes.ingest_news",
+            lambda *, trail: (
+                chamadas.append(trail is not None)
+                or {"feeds_com_falha": [], "noticias_gravadas": 0}
+            ),
+        )
+
+        state = _run(monkeypatch, DeterministicNarrator())
+
+        assert chamadas == [True]
+        assert state["external_context"]["refresh"]["noticias_gravadas"] == 0
+
+    def test_falha_na_atualizacao_usa_acervo_existente(
+        self, synthetic_database, sem_noticias, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "src.agent.nodes.get_settings",
+            lambda: SimpleNamespace(news_refresh_on_run=True),
+        )
+
+        def falha_na_atualizacao(*, trail):
+            raise RuntimeError("feed fora do ar")
+
+        monkeypatch.setattr("src.agent.nodes.ingest_news", falha_na_atualizacao)
+        state = _run(monkeypatch, DeterministicNarrator())
+
+        assert state["report_paths"]["markdown"]
+        assert any("acervo previamente armazenado" in item for item in state["warnings"])
 
 
 class TestSelecaoDoInterpretador:
@@ -267,6 +302,11 @@ class TestRelatorio:
         assert pagina.count("<table>") == pagina.count("</table>")
         assert "<h1>" in pagina
 
+    def test_html_bloqueia_esquema_executavel_em_link(self, state):
+        pagina = render_html("[fonte](javascript:alert%281%29)", state)
+        assert "javascript:" not in pagina
+        assert "fonte" in pagina
+
     def test_estado_inicial_tem_todos_os_compartimentos(self):
         state = initial_state("run-1", "pedido")
         assert state["metrics"] == {}
@@ -286,8 +326,7 @@ class TestPersistenciaDaAuditoria:
 
         with connect() as connection:
             total, distintos = connection.execute(
-                f"SELECT count(*), count(DISTINCT seq) FROM {TABLE_AUDIT} "
-                "WHERE run_id = ?",
+                f"SELECT count(*), count(DISTINCT seq) FROM {TABLE_AUDIT} WHERE run_id = ?",
                 [state["run_id"]],
             ).fetchone()
 

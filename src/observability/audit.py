@@ -17,12 +17,13 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import wraps
 from pathlib import Path
-from typing import Any, Callable, Iterator, TypeVar
+from typing import Any, TypeVar
 
 from src.config import get_settings
 from src.guardrails.pii import scrub_value
@@ -104,7 +105,7 @@ class AuditTrail:
         event = AuditEvent(
             run_id=self.run_id,
             seq=self._seq,
-            timestamp=datetime.now(tz=timezone.utc).isoformat(),
+            timestamp=datetime.now(tz=UTC).isoformat(),
             node=node,
             tool=tool,
             parameters=scrub_value(parameters or {}),
@@ -219,9 +220,7 @@ class AuditTrail:
 
         try:
             with connect(read_only=False, path=database_path) as connection:
-                connection.execute(
-                    f"DELETE FROM {TABLE_AUDIT} WHERE run_id = ?", [self.run_id]
-                )
+                connection.execute(f"DELETE FROM {TABLE_AUDIT} WHERE run_id = ?", [self.run_id])
                 connection.executemany(
                     f"""
                     INSERT INTO {TABLE_AUDIT}
@@ -259,7 +258,9 @@ class AuditTrail:
         }
 
 
-def audited(tool_name: str, source: str | None = None) -> Callable[[Callable[..., T]], Callable[..., T]]:
+def audited(
+    tool_name: str, source: str | None = None
+) -> Callable[[Callable[..., T]], Callable[..., T]]:
     """Decorator que registra a chamada de uma tool na trilha de auditoria.
 
     A funcao decorada precisa aceitar o argumento nomeado `trail`. Quando ele nao

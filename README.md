@@ -5,8 +5,8 @@ reais do Open DATASUS. Prova de conceito com orquestração em LangGraph, cálcu
 SQL, busca semântica de notícias, guardrails explícitos e trilha de auditoria por execução.
 
 ```bash
-python main.py --setup    # primeira execução: baixa dados, monta o banco, coleta notícias
-python main.py            # gera o relatório
+python main.py --setup    # primeira execução: baixa dados e monta os bancos
+python main.py            # atualiza notícias e gera o relatório
 ```
 
 ---
@@ -50,7 +50,8 @@ Diagrama completo: **[`docs/arquitetura.pdf`](docs/arquitetura.pdf)**.
   (tabela + view analítica)                        │
                                                    ▼
   Google News RSS ──► ingest.py ──►        ┌───────────────────────────┐
-  (allowlist + filtro de tema)             │  AGENTE (LangGraph)       │
+  (atualização por relatório; cache        │  AGENTE (LangGraph)       │
+   persistido em falha de rede)            │                           │
         │                                  │  1. validate_request      │
         ▼                                  │  2. collect_metrics       │
   data/analytics/news_vectors.duckdb ─────►│  3. collect_time_series   │◄── LLM (OpenAI)
@@ -116,6 +117,34 @@ a cada execução na página do dataset, que é renderizada no servidor.
 ## 6. Tratamento dos dados
 
 Documentação completa: [`docs/regras_transformacao.md`](docs/regras_transformacao.md).
+
+**O tratamento é um pipeline declarado de regras nomeadas**, não um procedimento. Cada regra é uma
+classe com nome, descrição e teste próprio; a ordem está declarada em `CLEANING_PIPELINE`:
+
+```
+src/data/
+  cleaning/
+    base.py          CleaningRule (contrato) + CleaningContext
+    dates.py         parse_datas ........ 3 formatos publicados pela fonte
+    codes.py         normaliza_codigos_categoricos · normaliza_sexo
+                     normaliza_numericos · valida_uf
+    demographics.py  deriva_idade · marca_ano_de_origem
+    coherence.py     avalia_coerencia ... 4 flags por dimensão
+    derived.py       deriva_semantica ... códigos → conceitos epidemiológicos
+    pipeline.py      a ordem, declarada
+  quality.py         QualityReport (agregado) + AdjustmentLog (por registro)
+  preprocess.py      orquestração: lê, aplica o pipeline, grava
+```
+
+Isso muda o que dá para auditar: o tratamento se lê como uma **lista de regras**, cada uma
+exercitável num teste sem executar a carga. A tabela de regras em `docs/regras_transformacao.md`
+é gerada dessa mesma estrutura, então não pode divergir do que roda.
+
+**A semântica vive em Python, não em SQL.** A tradução dos códigos do dicionário em conceitos
+(`eh_obito_srag`, `caso_encerrado`, `teve_admissao_uti`…) fica em `derived.py`, ao lado de
+`CODE_LABELS`. Manter essa tradução no SQL da view permitiria que uma mudança no dicionário não
+alcançasse o cálculo sem que nada falhasse — e definições em SQL só são testáveis com um banco
+montado. A view analítica faz apenas projeção de tipo.
 
 **Minimização na origem.** Das 194 colunas, **32** são lidas. As identificáveis (`NU_NOTIFIC`,
 `DT_NASC`, `NM_UN_INTE`, município, ocupação, textos livres, lotes de imunizante…) estão numa
@@ -215,6 +244,11 @@ O LLM atua em dois pontos: **planejamento** (escolhe tools, no `validate_request
 **interpretação** (`generate_interpretation`). O plano do modelo é **unido** ao conjunto obrigatório
 do relatório — o modelo pode acrescentar tools, nunca suprimir uma exigida pela entrega.
 
+Antes de consultar o Vector DB, o nó `search_external_news` tenta atualizar os feeds. Se a rede ou
+algum feed falhar, a execução continua sobre o acervo persistido e registra a degradação. Cada item
+mantém título, fonte, data de publicação, URL e instante de recuperação. Conteúdo externo é tratado
+como dado não confiável e nunca como instrução para o modelo.
+
 Sem `OPENAI_API_KEY`, ou com `--no-llm`, um `DeterministicNarrator` redige o relatório por template
 a partir dos mesmos resultados de tools. A via efetivamente usada é registrada no relatório e na
 auditoria.
@@ -227,11 +261,18 @@ padronizado:
 
 ```python
 {
-  "metric": "mortality_rate", "value": 5.25, "unit": "%",
-  "numerator": 921, "denominator": 17535,
-  "period": {...}, "filters": {...}, "components": {...},
-  "source": "Open DATASUS / SIVEP-Gripe (SRAG 2019-2026)",
-  "definition": "...", "limitations": [...], "unavailable_reason": null
+    "metric": "mortality_rate",
+    "value": 5.25,
+    "unit": "%",
+    "numerator": 921,
+    "denominator": 17535,
+    "period": {...},
+    "filters": {...},
+    "components": {...},
+    "source": "Open DATASUS / SIVEP-Gripe (SRAG 2019-2026)",
+    "definition": "...",
+    "limitations": [...],
+    "unavailable_reason": null,
 }
 ```
 
@@ -294,6 +335,10 @@ python main.py --setup        # ~5 min: baixa 603 MB, processa, monta os dois ba
 python main.py
 ```
 
+As dependencias possuem limites de versao principal para evitar atualizacoes
+incompativeis. Para executar tambem as verificacoes de qualidade do codigo, use
+`python -m pip install -r requirements-dev.txt`.
+
 `--setup` é idempotente: o download reaproveita o cache local.
 
 | Comando | Efeito |
@@ -318,9 +363,11 @@ Etapas isoladas: `python -m src.data.download`, `src.data.preprocess`, `src.data
 | `OPENAI_MODEL` | `gpt-4o-mini` | Modelo de planejamento e interpretação |
 | `REPORTING_LAG_DAYS` | `21` | Dias descontados por atraso de notificação |
 | `GROWTH_WINDOW_DAYS` | `30` | Tamanho das janelas comparadas |
-| `MIN_CELL_SIZE` | `5` | Piso de contagem para agregados |
 | `SRAG_YEARS` | `2025,2026` | Anos processados |
 | `NEWS_MAX_AGE_DAYS` | `45` | Janela de notícias |
+| `NEWS_MAX_RESULTS` | `12` | Limite máximo de notícias recuperadas |
+| `NEWS_REFRESH_ON_RUN` | `true` | Atualiza os feeds antes de cada relatório; usa cache em falha |
+| `LOG_LEVEL` | `INFO` | Nível mínimo do log estruturado |
 | `DATA_ROOT` | — | Redireciona `data/` e `outputs/` |
 
 ## 13. Exemplos
@@ -346,7 +393,8 @@ Gráficos gerados: `outputs/charts/casos_diarios.png` e `outputs/charts/casos_me
 ## 14. Testes
 
 ```bash
-python -m pytest -q          # 148 testes, ~30 s
+python -m pytest -q          # 175 testes
+python -m ruff check .
 ```
 
 A suíte roda sobre uma **base sintética de valores conhecidos**, montada em diretório temporário:
@@ -381,7 +429,7 @@ data/          raw/ · processed/ · analytics/          (não versionado)
 outputs/       reports/ · charts/ · audit/             (não versionado)
 docs/          arquitetura.pdf · dicionario_metricas.md · regras_transformacao.md
                catalogo_tools.md · gerar_diagrama_pdf.py · gerar_documentacao.py
-tests/         6 arquivos · 148 testes · fixture sintética
+tests/         6 arquivos · suíte hermética com fixture sintética
 ```
 
 ## 16. Limitações
@@ -411,7 +459,7 @@ a 2030, para não bloquear frases legítimas como "os 4 indicadores".
 3. **Séries plurianuais** — carregar 2019–2026 para comparação sazonal e detecção de anomalia contra
    a linha de base histórica.
 4. **Recorte por faixa etária** — o dado já está na camada analítica; falta expô-lo como parâmetro
-   de tool, com supressão por `MIN_CELL_SIZE`.
+   de tool e implementar supressão de pequenas células antes de liberar esse recorte mais granular.
 5. **Painel de execuções** — a trilha já é consultável em `audit_events`; falta uma visão que
    compare execuções ao longo do tempo (duração por tool, taxa de degradação, deriva dos
    indicadores).

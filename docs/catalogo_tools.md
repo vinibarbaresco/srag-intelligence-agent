@@ -19,14 +19,14 @@ Todas as tools sao deterministicas, com schema de entrada fechado (`extra=forbid
 | `get_monthly_cases` | serie | `uf`, `classification`, `window_months` | Serie mensal de casos de SRAG na janela analisavel (padrao: 12 meses). |
 | `render_daily_cases_chart` | grafico | `uf`, `classification` | Gera o grafico PNG do numero diario de casos dos ultimos 30 dias. |
 | `render_monthly_cases_chart` | grafico | `uf`, `classification` | Gera o grafico PNG do numero mensal de casos dos ultimos 12 meses. |
-| `search_srag_news` | contexto_externo | `query`, `top_k`, `max_age_days` | Busca semantica de noticias recentes sobre SRAG, surtos respiratorios, influenza, covid-19 e pressao hospitalar, no acervo ja coletado de fontes confiaveis. Contexto externo apenas: nao altera nenhum indicador. |
+| `search_srag_news` | contexto_externo | `query`, `top_k`, `max_age_days` | Busca semantica de noticias recentes sobre SRAG, surtos respiratorios, influenza, covid-19 e pressao hospitalar, no acervo de fontes confiaveis atualizado antes de cada relatorio. Em falha de rede, consulta o cache persistido. Contexto externo apenas: nao altera nenhum indicador. |
 
 ## Guardrails
 
 | # | Politica | Verificada em | Descricao |
 |---|----------|---------------|-----------|
 | 1 | Sem diagnostico ou conduta clinica | validate_request (entrada) e generate_report (saida) | O sistema produz analise epidemiologica agregada. Nao emite diagnostico, prescricao, recomendacao terapeutica nem orientacao de conduta clinica individual. |
-| 2 | Protecao de dados pessoais | schema de ingestao, auditoria e generate_report | Colunas identificaveis nunca sao lidas do dataset; toda saida passa por varredura de identificadores (CPF, CNS, e-mail, telefone) e agregados com contagem menor que MIN_CELL_SIZE sao suprimidos. |
+| 2 | Protecao de dados pessoais | schema de ingestao, auditoria e generate_report | Colunas identificaveis nunca sao lidas do dataset; toda saida passa por varredura de identificadores (CPF, CNS, e-mail, telefone). O agente consulta apenas agregados por periodo, UF e classificacao; nao existe tool para recuperar registros individuais. |
 | 3 | Toda afirmacao quantitativa precisa de evidencia | validate_evidence e generate_report | Numeros presentes na interpretacao sao confrontados com os valores efetivamente retornados pelas tools. Valor sem lastro bloqueia a publicacao do relatorio. |
 | 4 | Sem SQL arbitrario gerado pelo modelo | camada de tools e conexao DuckDB | Nao existe tool que execute consulta livre. O modelo escolhe tools e preenche parametros tipados, validados contra dominios fechados; o SQL e literal no codigo e recebe valores por binding. O banco e aberto em modo somente leitura. |
 | 5 | Noticias nao sobrescrevem dados oficiais | estado do grafo e renderizacao do relatorio | Noticias circulam em campo proprio do estado e entram no relatorio apenas sob o rotulo CONTEXTO EXTERNO. Nenhum indicador e calculado, ajustado ou corrigido a partir de conteudo jornalistico. |

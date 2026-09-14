@@ -41,6 +41,4 @@ def get_monthly_cases(**kwargs: Any) -> dict[str, Any]:
     query = MonthlySeriesQuery(**kwargs)
     filters = AnalyticFilters(uf=query.uf, classification=query.classification)
     with connect() as connection:
-        return timeseries.monthly_cases(
-            connection, filters, window_months=query.window_months
-        )
+        return timeseries.monthly_cases(connection, filters, window_months=query.window_months)

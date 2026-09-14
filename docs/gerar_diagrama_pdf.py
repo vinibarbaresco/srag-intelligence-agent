@@ -137,8 +137,11 @@ def draw_arrow(
         mid_x = (start[0] + end[0]) / 2
         mid_y = (start[1] + end[1]) / 2 - 4
         page.insert_text(
-            (mid_x - len(label) * 1.7, mid_y), label, fontsize=6.6,
-            fontname="helv", color=MUTED,
+            (mid_x - len(label) * 1.7, mid_y),
+            label,
+            fontsize=6.6,
+            fontname="helv",
+            color=MUTED,
         )
 
 
@@ -170,9 +173,7 @@ def build_diagram(output_path: Path) -> Path:
         fontname="helv",
         color=MUTED,
     )
-    page.draw_line(
-        fitz.Point(48, 82), fitz.Point(PAGE_WIDTH - 48, 82), color=LINE, width=0.8
-    )
+    page.draw_line(fitz.Point(48, 82), fitz.Point(PAGE_WIDTH - 48, 82), color=LINE, width=0.8)
 
     grouped = _tools_by_category()
 
@@ -231,6 +232,7 @@ def build_diagram(output_path: Path) -> Path:
             "Rotina: Google News RSS ->",
             "  allowlist de fontes + filtro de tema",
             "  -> embedding -> upsert (dedup)",
+            "Atualiza por relatorio; cache em falha",
             "Busca por similaridade de cosseno",
         ],
         stroke=ACCENT_EXTERNAL,
@@ -401,8 +403,8 @@ def build_diagram(output_path: Path) -> Path:
                 "Granularidade geografica: UF",
                 "Mascaramento de CPF, CNS, e-mail,",
                 "telefone e CEP em log e saida",
-                "Supressao de agregado com",
-                "contagem abaixo de MIN_CELL_SIZE",
+                "Tools expoem somente agregados;",
+                "sem acesso a registros individuais",
             ],
         ),
         (
@@ -420,15 +422,11 @@ def build_diagram(output_path: Path) -> Path:
 
     for index, (title, lines) in enumerate(blocks):
         x = governanca.x0 + 14 + index * column_width
-        page.insert_text(
-            (x, governanca.y0 + 40), title, fontsize=8.6, fontname="hebo", color=INK
-        )
+        page.insert_text((x, governanca.y0 + 40), title, fontsize=8.6, fontname="hebo", color=INK)
         cursor = governanca.y0 + 40
         for line in lines:
             cursor += 10.2
-            page.insert_text(
-                (x, cursor), line, fontsize=7.0, fontname="helv", color=INK
-            )
+            page.insert_text((x, cursor), line, fontsize=7.0, fontname="helv", color=INK)
 
     # --- Rodape ---------------------------------------------------------------
     page.insert_text(

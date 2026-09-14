@@ -11,9 +11,11 @@ from typing import Any
 
 from src.agent.llm import Interpreter
 from src.agent.state import SRAGState
+from src.config import get_settings
 from src.guardrails.input_guard import validate_request as guard_request
 from src.guardrails.output_guard import EvidenceSet, build_evidence, validate_output
 from src.guardrails.policies import ALL_POLICIES, DISCLAIMER, UNCERTAINTY_STATEMENT
+from src.news.ingest import ingest_news
 from src.observability.audit import STATUS_BLOCKED, STATUS_DEGRADED, AuditTrail
 from src.observability.logging_config import get_logger
 from src.tools.registry import call_tool, openai_tool_specs
@@ -79,7 +81,8 @@ def make_validate_request(context: GraphContext):
                 classification=state.get("classification"),
             )
             audit["summary"] = (
-                "solicitacao aceita" if validation.allowed
+                "solicitacao aceita"
+                if validation.allowed
                 else f"solicitacao recusada por {validation.blocked_by}"
             )
             if not validation.allowed:
@@ -182,8 +185,7 @@ def make_collect_series(context: GraphContext):
                 }
 
             audit["summary"] = (
-                f"{len(series)} series e {len(charts)} graficos gerados, "
-                f"{len(errors)} falhas"
+                f"{len(series)} series e {len(charts)} graficos gerados, {len(errors)} falhas"
             )
             if errors:
                 audit["status"] = STATUS_DEGRADED
@@ -194,10 +196,37 @@ def make_collect_series(context: GraphContext):
 
 
 def make_search_news(context: GraphContext):
-    """No 4 -- recupera contexto externo no Vector DB de noticias."""
+    """No 4 -- atualiza e consulta o Vector DB de noticias.
+
+    Por padrao, tenta coletar noticias no inicio do no para que o contexto seja
+    atual no momento do relatorio. Falha de rede nao interrompe a execucao: o
+    agente consulta o acervo previamente persistido e registra a degradacao.
+    """
 
     def node(state: SRAGState) -> dict[str, Any]:
         trail = context.trail
+        warnings: list[str] = []
+        refresh_summary: dict[str, Any] | None = None
+
+        if get_settings().news_refresh_on_run:
+            try:
+                refresh_summary = ingest_news(trail=trail)
+                failed_feeds = refresh_summary.get("feeds_com_falha") or []
+                if failed_feeds:
+                    warnings.append(
+                        "Atualizacao de noticias ocorreu com cobertura parcial: "
+                        f"{len(failed_feeds)} feed(s) indisponivel(is)."
+                    )
+            except Exception as exc:  # fonte externa: usa o cache como fallback
+                logger.warning(
+                    "atualizacao de noticias falhou; consultando acervo existente",
+                    extra={"motivo": f"{type(exc).__name__}: {exc}"},
+                )
+                warnings.append(
+                    "Nao foi possivel atualizar as noticias nesta execucao; "
+                    "o agente consultou o acervo previamente armazenado."
+                )
+
         with trail.step(node="search_external_news") as audit:
             result = call_tool(
                 "search_srag_news",
@@ -213,8 +242,8 @@ def make_search_news(context: GraphContext):
                         "unavailable_reason": result["error"],
                     },
                     "warnings": [
-                        "Contexto externo indisponivel nesta execucao: "
-                        f"{result['error']}"
+                        *warnings,
+                        f"Contexto externo indisponivel nesta execucao: {result['error']}",
                     ],
                 }
 
@@ -222,7 +251,7 @@ def make_search_news(context: GraphContext):
             if result["total"] == 0:
                 audit["status"] = STATUS_DEGRADED
 
-        warnings = []
+        result["refresh"] = refresh_summary
         if result.get("unavailable_reason"):
             warnings.append(result["unavailable_reason"])
         return {"external_context": result, "warnings": warnings}
@@ -325,7 +354,8 @@ def make_generate_interpretation(context: GraphContext):
         with trail.step(node="apply_output_guardrails") as audit:
             validation = validate_output(text, evidence)
             audit["summary"] = (
-                "saida aprovada" if validation.allowed
+                "saida aprovada"
+                if validation.allowed
                 else f"saida bloqueada por {validation.blocked_by}"
             )
             if not validation.allowed:

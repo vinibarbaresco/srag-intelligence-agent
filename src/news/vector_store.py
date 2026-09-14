@@ -15,10 +15,11 @@ reexecucoes da coleta atualizem em vez de duplicar.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import duckdb
 
@@ -40,7 +41,7 @@ def _as_naive_utc(moment: datetime) -> datetime:
     """
     if moment.tzinfo is None:
         return moment
-    return moment.astimezone(timezone.utc).replace(tzinfo=None)
+    return moment.astimezone(UTC).replace(tzinfo=None)
 
 
 TABLE_ARTICLES = "news_articles"
@@ -61,7 +62,9 @@ CREATE TABLE IF NOT EXISTS {TABLE_ARTICLES} (
 
 
 @contextmanager
-def connect(read_only: bool = False, path: Path | None = None) -> Iterator[duckdb.DuckDBPyConnection]:
+def connect(
+    read_only: bool = False, path: Path | None = None
+) -> Iterator[duckdb.DuckDBPyConnection]:
     """Abre o Vector DB, criando o esquema quando necessario."""
     store_path = path or get_settings().vector_store_path
     store_path.parent.mkdir(parents=True, exist_ok=True)
@@ -101,7 +104,7 @@ def upsert_articles(
 
     embedder = embedder or get_embedder()
     vectors = embedder.embed([f"{article.title}. {article.source}" for article in articles])
-    now = _as_naive_utc(datetime.now(tz=timezone.utc))
+    now = _as_naive_utc(datetime.now(tz=UTC))
 
     rows = [
         (
@@ -115,10 +118,30 @@ def upsert_articles(
             embedder.backend,
             now,
         )
-        for article, vector in zip(articles, vectors)
+        for article, vector in zip(articles, vectors, strict=True)
     ]
 
     with connect(read_only=False, path=path) as connection:
+        existing_backends = {
+            row[0]
+            for row in connection.execute(
+                f"SELECT DISTINCT embedding_backend FROM {TABLE_ARTICLES} "
+                "WHERE embedding_backend IS NOT NULL"
+            ).fetchall()
+        }
+        if existing_backends and existing_backends != {embedder.backend}:
+            # Vetores de modelos diferentes nao compartilham o mesmo espaco (e
+            # frequentemente nem a mesma dimensao). Uma reingestao com outro
+            # backend deve reconstruir o pequeno acervo, nunca deixar uma tabela
+            # hibrida que falhara durante a similaridade de cosseno.
+            connection.execute(f"DELETE FROM {TABLE_ARTICLES}")
+            logger.warning(
+                "acervo de noticias reconstruido por troca de embedding",
+                extra={
+                    "backends_anteriores": sorted(existing_backends),
+                    "backend_novo": embedder.backend,
+                },
+            )
         connection.executemany(
             f"""
             INSERT OR REPLACE INTO {TABLE_ARTICLES}
@@ -149,12 +172,16 @@ def stored_backend(path: Path | None = None) -> str | None:
     """Backend de embedding com que o acervo atual foi vetorizado."""
     try:
         with connect(read_only=True, path=path) as connection:
-            row = connection.execute(
-                f"SELECT any_value(embedding_backend) FROM {TABLE_ARTICLES}"
-            ).fetchone()
+            rows = connection.execute(
+                f"SELECT DISTINCT embedding_backend FROM {TABLE_ARTICLES} "
+                "WHERE embedding_backend IS NOT NULL ORDER BY 1"
+            ).fetchall()
     except (FileNotFoundError, duckdb.Error):
         return None
-    return row[0] if row else None
+    if not rows:
+        return None
+    backends = [row[0] for row in rows]
+    return backends[0] if len(backends) == 1 else f"mistos:{','.join(backends)}"
 
 
 def search(
@@ -204,10 +231,10 @@ def search(
     with connect(read_only=True, path=path) as connection:
         rows = connection.execute(
             f"""
-            SELECT title, source, published_at, url, embedding_backend,
+            SELECT title, source, published_at, url, embedding_backend, ingested_at,
                    list_cosine_similarity(embedding, ?) AS similaridade
             FROM {TABLE_ARTICLES}
-            WHERE {' AND '.join(predicates)}
+            WHERE {" AND ".join(predicates)}
             ORDER BY similaridade DESC NULLS LAST, published_at DESC
             LIMIT ?
             """,
@@ -219,11 +246,13 @@ def search(
             "titulo": title,
             "fonte": source,
             "data": published.date().isoformat(),
+            "publication_date": published.replace(tzinfo=UTC).isoformat(),
             "url": url,
+            "retrieved_at": ingested.replace(tzinfo=UTC).isoformat(),
             "similaridade": round(float(score), 4) if score is not None else None,
             "embedding_backend": backend,
         }
-        for title, source, published, url, backend, score in rows
+        for title, source, published, url, backend, ingested, score in rows
     ]
 
 

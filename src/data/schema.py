@@ -214,6 +214,24 @@ COHERENCE_FLAGS: Final[dict[str, str]] = {
     ),
 }
 
+#: Colunas booleanas que traduzem os codigos do dicionario em conceitos
+#: epidemiologicos. Sao derivadas em Python (`src/data/cleaning/derived.py`),
+#: ao lado de :data:`CODE_LABELS`, e nao no SQL da view: a semantica dos codigos
+#: vem do dicionario oficial, e manter a traducao em outra linguagem permitiria
+#: que uma mudanca no dicionario nao chegasse ao calculo sem nada falhar.
+DERIVED_SEMANTIC_COLUMNS: Final[tuple[str, ...]] = (
+    "eh_obito_srag",
+    "caso_encerrado",
+    "foi_hospitalizado",
+    "teve_admissao_uti",
+    "uti_informado",
+    "estadia_uti_utilizavel",
+    "vacinado_covid",
+    "vacina_covid_informada",
+    "vacinado_influenza",
+    "vacina_influenza_informada",
+)
+
 #: Coluna que registra, por registro, quais valores a ingestao alterou.
 #:
 #: Flags de coerencia descrevem o que o dado tem de errado; esta coluna descreve
@@ -243,7 +261,10 @@ ADJUSTMENT_CODES: Final[dict[str, str]] = {
 
 #: Conjunto completo de colunas derivadas.
 ALL_DERIVED_COLUMNS: Final[tuple[str, ...]] = (
-    DERIVED_COLUMNS + tuple(COHERENCE_FLAGS) + (ADJUSTMENT_COLUMN,)
+    DERIVED_COLUMNS
+    + tuple(COHERENCE_FLAGS)
+    + DERIVED_SEMANTIC_COLUMNS
+    + (ADJUSTMENT_COLUMN,)
 )
 
 AGE_BANDS: Final[tuple[tuple[int, int, str], ...]] = (

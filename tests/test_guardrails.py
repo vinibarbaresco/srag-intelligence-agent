@@ -107,6 +107,30 @@ class TestGuardrail2DadosSensiveis:
         assert scrubbed["contato"] == [MASK]
         assert scrubbed["n"] == 10
 
+    def test_mascaramento_remove_segredos_por_nome_e_formato(self):
+        scrubbed = scrub_value(
+            {
+                "api_key": "valor-sem-formato-especial",
+                "mensagem": "Authorization: Bearer abcdefghijklmnopqrst",
+            }
+        )
+        assert scrubbed["api_key"] == MASK
+        assert "abcdefghijklmnopqrst" not in scrubbed["mensagem"]
+
+    def test_formatador_de_log_sanitiza_campos_extras(self):
+        import json
+        import logging
+
+        from src.observability.logging_config import JsonFormatter
+
+        record = logging.LogRecord("teste", logging.INFO, "", 0, "ok", (), None)
+        record.api_key = "segredo-local"
+        record.contato = "medico@hospital.com.br"
+
+        payload = json.loads(JsonFormatter().format(record))
+        assert payload["api_key"] == MASK
+        assert payload["contato"] == MASK
+
     def test_saida_com_dado_pessoal_e_bloqueada(self):
         result = validate_output("Paciente de CPF 123.456.789-00 evoluiu.", _EVIDENCE)
         assert result.allowed is False
@@ -133,9 +157,9 @@ class TestGuardrail3Evidencia:
         assert validate_output("Queda de 32,39%.", _EVIDENCE).allowed is True
 
     def test_numeros_de_enumeracao_nao_exigem_lastro(self):
-        assert validate_output(
-            "Os 4 indicadores foram calculados em 2026.", _EVIDENCE
-        ).allowed is True
+        assert (
+            validate_output("Os 4 indicadores foram calculados em 2026.", _EVIDENCE).allowed is True
+        )
 
     def test_violacao_identifica_o_valor_problematico(self):
         result = validate_output("A taxa foi de 99,9%.", _EVIDENCE)

@@ -47,8 +47,9 @@ SENSITIVE_DATA = GuardrailPolicy(
     name="Protecao de dados pessoais",
     description=(
         "Colunas identificaveis nunca sao lidas do dataset; toda saida passa por "
-        "varredura de identificadores (CPF, CNS, e-mail, telefone) e agregados "
-        "com contagem menor que MIN_CELL_SIZE sao suprimidos."
+        "varredura de identificadores (CPF, CNS, e-mail, telefone). O agente "
+        "consulta apenas agregados por periodo, UF e classificacao; nao existe "
+        "tool para recuperar registros individuais."
     ),
     enforced_at="schema de ingestao, auditoria e generate_report",
 )
@@ -127,8 +128,11 @@ CLINICAL_REQUEST_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
 #: Linguagem prescritiva, proibida na saida do modelo.
 PRESCRIPTIVE_OUTPUT_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
     re.compile(r"\brecomend\w*\s+(o uso|administrar|prescrever|tomar)\b", re.I),
-    re.compile(r"\b(deve|devem|deveria)\s+(tomar|usar|administrar|receber)\s+\w*"
-               r"(medicament|antivir|antibiotic|oseltamivir|tamiflu)\w*", re.I),
+    re.compile(
+        r"\b(deve|devem|deveria)\s+(tomar|usar|administrar|receber)\s+\w*"
+        r"(medicament|antivir|antibiotic|oseltamivir|tamiflu)\w*",
+        re.I,
+    ),
     re.compile(r"\b(prescrev|receit)\w*\b", re.I),
     re.compile(r"\bo\s+diagnostico\s+(e|é)\b", re.I),
     re.compile(r"\bdose\s+recomendada\b", re.I),

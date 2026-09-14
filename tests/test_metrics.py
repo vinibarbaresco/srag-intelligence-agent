@@ -72,9 +72,7 @@ class TestTaxaDeMortalidade:
         assert result.components["casos_em_aberto"] == 80
         assert result.denominator < result.components["casos_no_periodo"]
 
-    def test_obito_por_outras_causas_conta_como_encerrado_mas_nao_como_obito_srag(
-        self, connection
-    ):
+    def test_obito_por_outras_causas_conta_como_encerrado_mas_nao_como_obito_srag(self, connection):
         result = mortality_rate(connection, SP)
         assert result.components["obitos_por_outras_causas"] == 5
         assert result.components["obitos_por_srag"] == 15
@@ -100,9 +98,7 @@ class TestUTI:
         assert all("pacientes_em_uti" in point for point in census)
         assert max(point["pacientes_em_uti"] for point in census) > 0
 
-    def test_estadia_incoerente_sai_do_censo_mas_nao_da_taxa_de_admissao(
-        self, connection
-    ):
+    def test_estadia_incoerente_sai_do_censo_mas_nao_da_taxa_de_admissao(self, connection):
         """Flags por dimensao: o defeito exclui do que depende dele, e so."""
         from src.metrics.epidemiology import icu_stay_completeness
 
@@ -119,9 +115,7 @@ class TestUTI:
         assert icu_stay_completeness(connection, SP) == completude
 
     def test_completude_da_permanencia_quantifica_a_imputacao(self, connection):
-        completude = icu_metrics(connection, SP).components[
-            "completude_da_permanencia_em_uti"
-        ]
+        completude = icu_metrics(connection, SP).components["completude_da_permanencia_em_uti"]
         utilizaveis = completude["estadias_utilizaveis_no_censo"]
 
         soma = (
@@ -174,9 +168,9 @@ class TestFiltros:
     def test_filtro_restringe_o_recorte(self, connection):
         nacional = case_growth_rate(connection)
         recorte = case_growth_rate(connection, AnalyticFilters(uf="RJ"))
-        assert recorte.components["casos_periodo_atual"] < nacional.components[
-            "casos_periodo_atual"
-        ]
+        assert (
+            recorte.components["casos_periodo_atual"] < nacional.components["casos_periodo_atual"]
+        )
 
     def test_filtro_sem_resultado_nao_quebra(self, connection):
         result = mortality_rate(connection, AnalyticFilters(uf="AC"))

@@ -16,8 +16,9 @@ abruptamente.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Final
+from typing import Any, Final
 
 from pydantic import BaseModel, ValidationError
 
@@ -146,8 +147,9 @@ TOOLS: Final[tuple[ToolSpec, ...]] = (
         description=(
             "Busca semantica de noticias recentes sobre SRAG, surtos "
             "respiratorios, influenza, covid-19 e pressao hospitalar, no acervo "
-            "ja coletado de fontes confiaveis. Contexto externo apenas: nao "
-            "altera nenhum indicador."
+            "de fontes confiaveis atualizado antes de cada relatorio. Em falha "
+            "de rede, consulta o cache persistido. Contexto externo apenas: "
+            "nao altera nenhum indicador."
         ),
         input_model=NewsQuery,
         handler=news_tools.search_srag_news,
@@ -200,9 +202,7 @@ def call_tool(
     """
     spec = REGISTRY.get(name)
     if spec is None:
-        raise UnknownToolError(
-            f"Tool nao registrada: {name!r}. Disponiveis: {sorted(REGISTRY)}"
-        )
+        raise UnknownToolError(f"Tool nao registrada: {name!r}. Disponiveis: {sorted(REGISTRY)}")
 
     raw = parameters or {}
     try:

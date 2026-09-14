@@ -30,8 +30,7 @@ class MetricQuery(_StrictModel):
     uf: UFLiteral | None = Field(
         default=None,
         description=(
-            "Sigla da unidade federativa de notificacao (ex.: 'SP'). "
-            "Omitir para analise nacional."
+            "Sigla da unidade federativa de notificacao (ex.: 'SP'). Omitir para analise nacional."
         ),
     )
     classification: Literal[1, 2, 3, 4, 5] | None = Field(
@@ -48,8 +47,7 @@ class MetricQuery(_StrictModel):
         ge=7,
         le=365,
         description=(
-            "Tamanho da janela de analise em dias. Omitir para usar o padrao "
-            "configurado (30 dias)."
+            "Tamanho da janela de analise em dias. Omitir para usar o padrao configurado (30 dias)."
         ),
     )
 
@@ -95,9 +93,7 @@ class NewsQuery(_StrictModel):
             "natural (ex.: 'aumento de casos de SRAG em criancas')."
         ),
     )
-    top_k: int = Field(
-        default=5, ge=1, le=20, description="Numero maximo de noticias retornadas."
-    )
+    top_k: int = Field(default=5, ge=1, le=20, description="Numero maximo de noticias retornadas.")
     max_age_days: int | None = Field(
         default=None,
         ge=1,

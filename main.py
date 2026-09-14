@@ -26,9 +26,7 @@ from src.observability.logging_config import configure_logging, get_logger
 logger = get_logger(__name__)
 
 
-def _run_setup(
-    years: list[int] | None = None, csv_paths: list[Path] | None = None
-) -> int:
+def _run_setup(years: list[int] | None = None, csv_paths: list[Path] | None = None) -> int:
     """Prepara dados, banco analitico e acervo de noticias.
 
     Args:
@@ -130,17 +128,16 @@ def _print_summary(state: dict) -> None:
     for metric in (state.get("metrics") or {}).values():
         value = metric.get("value")
         unit = metric.get("unit", "")
-        rendered = (
-            "nao calculavel" if value is None else f"{value}{'%' if unit == '%' else ''}"
+        rendered = "nao calculavel" if value is None else f"{value}{'%' if unit == '%' else ''}"
+        print(
+            f"  - {metric['metric']:36s} {rendered:>16s}"
+            f"   (n={metric.get('numerator')}/{metric.get('denominator')})"
         )
-        print(f"  - {metric['metric']:36s} {rendered:>16s}"
-              f"   (n={metric.get('numerator')}/{metric.get('denominator')})")
 
     print("\nSeries:")
     for key, series in (state.get("series") or {}).items():
         summary = series["summary"]
-        print(f"  - {key:36s} {summary['total_de_casos']:>10} casos em "
-              f"{summary['pontos']} pontos")
+        print(f"  - {key:36s} {summary['total_de_casos']:>10} casos em {summary['pontos']} pontos")
 
     print("\nGraficos:")
     for chart in (state.get("charts") or {}).values():
@@ -152,8 +149,7 @@ def _print_summary(state: dict) -> None:
         print(f"  - [{article['data']}] {article['fonte']}: {article['titulo'][:62]}")
 
     audit = state.get("audit_summary") or {}
-    print(f"\nAuditoria: {audit.get('total_events')} eventos, "
-          f"{audit.get('total_duration_ms')} ms")
+    print(f"\nAuditoria: {audit.get('total_events')} eventos, {audit.get('total_duration_ms')} ms")
     print(f"  {audit.get('audit_file')}")
 
     print("\nRelatorio:")
@@ -214,8 +210,7 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="+",
         default=None,
         help=(
-            "CSV(s) de SRAG ja presentes em disco, usados no lugar do download "
-            "(usado com --setup)"
+            "CSV(s) de SRAG ja presentes em disco, usados no lugar do download (usado com --setup)"
         ),
     )
     parser.add_argument(

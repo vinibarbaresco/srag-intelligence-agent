@@ -25,7 +25,7 @@ from typing import Iterator
 import duckdb
 
 from src.config import get_settings
-from src.data.schema import DENIED_COLUMNS
+from src.data.schema import DENIED_COLUMNS, DERIVED_SEMANTIC_COLUMNS
 from src.observability.logging_config import configure_logging, get_logger
 
 logger = get_logger(__name__)
@@ -44,29 +44,32 @@ VIEW_ANALYTICS = "srag_analytics"
 #:
 #: Os registros excluidos permanecem em `srag_cases`, e a diferenca entre as
 #: duas contagens e reportada.
+#: Recorte analitico canonico, compartilhado por todas as metricas.
+#:
+#: A view faz apenas **projecao de tipo**: converte timestamp para data e
+#: trunca o mes. Toda a semantica -- o que e um obito, um caso encerrado, uma
+#: admissao em UTI -- e derivada em Python, na camada de tratamento, ao lado do
+#: dicionario de codigos que a define (`src/data/cleaning/derived.py`). Manter a
+#: traducao dos codigos em SQL permitiria que uma mudanca no dicionario nao
+#: chegasse ao calculo sem que nada falhasse.
+#:
+#: Apenas `flag_data_invalida` exclui o registro: sem eixo temporal utilizavel
+#: nenhuma metrica consegue situar o caso. As demais flags de coerencia seguem
+#: disponiveis como colunas, para que cada metrica exclua somente o que
+#: compromete o seu proprio calculo.
+#:
+#: Os registros excluidos permanecem em `srag_cases`, e a diferenca entre as
+#: duas contagens e reportada.
 _ANALYTICS_VIEW_SQL = f"""
 CREATE OR REPLACE VIEW {VIEW_ANALYTICS} AS
 SELECT
     *,
-    CAST(DT_SIN_PRI AS DATE)                         AS data_sintomas,
-    CAST(DT_DIGITA  AS DATE)                         AS data_digitacao,
-    CAST(DT_EVOLUCA AS DATE)                         AS data_evolucao,
-    CAST(DT_ENTUTI  AS DATE)                         AS data_entrada_uti,
-    CAST(DT_SAIDUTI AS DATE)                         AS data_saida_uti,
-    date_trunc('month', CAST(DT_SIN_PRI AS DATE))    AS mes_sintomas,
-    (EVOLUCAO = 2)                                   AS eh_obito_srag,
-    (EVOLUCAO IN (1, 2, 3))                          AS caso_encerrado,
-    (HOSPITAL = 1)                                   AS foi_hospitalizado,
-    (UTI = 1)                                        AS teve_admissao_uti,
-    -- Estadia utilizavel para o censo diario: exige data de entrada e ausencia
-    -- de inconsistencia na dimensao UTI.
-    (UTI = 1 AND DT_ENTUTI IS NOT NULL
-             AND NOT flag_uti_inconsistente)         AS estadia_uti_utilizavel,
-    (UTI IN (1, 2))                                  AS uti_informado,
-    (VACINA_COV = 1)                                 AS vacinado_covid,
-    (VACINA_COV IN (1, 2))                           AS vacina_covid_informada,
-    (VACINA = 1)                                     AS vacinado_influenza,
-    (VACINA IN (1, 2))                               AS vacina_influenza_informada
+    CAST(DT_SIN_PRI AS DATE)                      AS data_sintomas,
+    CAST(DT_DIGITA  AS DATE)                      AS data_digitacao,
+    CAST(DT_EVOLUCA AS DATE)                      AS data_evolucao,
+    CAST(DT_ENTUTI  AS DATE)                      AS data_entrada_uti,
+    CAST(DT_SAIDUTI AS DATE)                      AS data_saida_uti,
+    date_trunc('month', CAST(DT_SIN_PRI AS DATE)) AS mes_sintomas
 FROM {TABLE_CASES}
 WHERE flag_data_invalida = FALSE
 """
@@ -157,6 +160,16 @@ def load_database(parquet_path: Path | None = None, database_path: Path | None =
         if violations:
             raise ValueError(
                 f"Colunas com dados pessoais presentes no banco analitico: {violations}"
+            )
+
+        # A semantica e derivada no tratamento, nao aqui. Se as colunas nao
+        # chegarem, a view compila mas as metricas falhariam so na consulta --
+        # melhor falhar na carga, com a causa explicita.
+        missing = sorted(set(DERIVED_SEMANTIC_COLUMNS) - set(columns))
+        if missing:
+            raise ValueError(
+                "Camada processada sem as colunas semanticas derivadas: "
+                f"{missing}. Reexecute: python -m src.data.preprocess"
             )
 
         total = connection.execute(f"SELECT count(*) FROM {TABLE_CASES}").fetchone()[0]

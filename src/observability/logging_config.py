@@ -11,8 +11,10 @@ import json
 import logging
 import sys
 from contextvars import ContextVar
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
+
+from src.guardrails.pii import scrub_value
 
 #: `run_id` da execucao corrente, propagado automaticamente para os logs.
 current_run_id: ContextVar[str | None] = ContextVar("current_run_id", default=None)
@@ -25,9 +27,7 @@ class JsonFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
-            "timestamp": datetime.fromtimestamp(
-                record.created, tz=timezone.utc
-            ).isoformat(),
+            "timestamp": datetime.fromtimestamp(record.created, tz=UTC).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
@@ -44,7 +44,7 @@ class JsonFormatter(logging.Formatter):
         if record.exc_info:
             payload["error"] = self.formatException(record.exc_info)
 
-        return json.dumps(payload, ensure_ascii=False, default=str)
+        return json.dumps(scrub_value(payload), ensure_ascii=False, default=str)
 
 
 def configure_logging(level: str = "INFO") -> None:

@@ -17,6 +17,23 @@ from typing import Any, Final, NamedTuple
 
 MASK: Final[str] = "[REDACTED]"
 
+# Segredos nao sao PII, mas compartilham a mesma fronteira de sanitizacao dos
+# logs e da auditoria. Chaves sensiveis sao mascaradas pelo nome; formatos
+# comuns tambem sao reconhecidos quando aparecem dentro de texto livre.
+SENSITIVE_KEY_FRAGMENTS: Final[tuple[str, ...]] = (
+    "api_key",
+    "apikey",
+    "authorization",
+    "password",
+    "secret",
+    "token",
+)
+
+SECRET_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
+    re.compile(r"\bsk-[A-Za-z0-9_-]{12,}\b"),
+    re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{12,}\b", re.IGNORECASE),
+)
+
 
 class PIIPattern(NamedTuple):
     """Padrao de identificador pessoal reconhecido pelo guardrail."""
@@ -75,11 +92,13 @@ def find_pii(text: str) -> list[str]:
 
 
 def scrub_text(text: str) -> str:
-    """Substitui todo dado pessoal reconhecido por :data:`MASK`."""
+    """Substitui dados pessoais e segredos reconhecidos por :data:`MASK`."""
     if not text:
         return text
     for pattern in PII_PATTERNS:
         text = pattern.regex.sub(MASK, text)
+    for pattern in SECRET_PATTERNS:
+        text = pattern.sub(MASK, text)
     return text
 
 
@@ -92,7 +111,14 @@ def scrub_value(value: Any) -> Any:
     if isinstance(value, str):
         return scrub_text(value)
     if isinstance(value, dict):
-        return {key: scrub_value(item) for key, item in value.items()}
+        return {
+            key: (
+                MASK
+                if any(fragment in str(key).lower() for fragment in SENSITIVE_KEY_FRAGMENTS)
+                else scrub_value(item)
+            )
+            for key, item in value.items()
+        }
     if isinstance(value, (list, tuple)):
         return [scrub_value(item) for item in value]
     return value
