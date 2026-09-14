@@ -10,8 +10,10 @@ from src.data.schema import (
     CODE_LABELS,
     GEOGRAPHIC_COLUMNS,
     MISSING_CODES,
+    MISSING_CODES_BY_COLUMN,
     NUMERIC_COLUMNS,
     UF_CODES,
+    missing_codes_for,
 )
 
 #: Coluna categorica textual, tratada a parte das numericas.
@@ -34,12 +36,14 @@ class NormalizeCategoricalCodes(CleaningRule):
     name = "normaliza_codigos_categoricos"
     description = (
         "Converte os campos categoricos do SIVEP-Gripe para inteiro nulavel, "
-        f"contabiliza os codigos de ausencia {sorted(MISSING_CODES)} (Ignorado) e "
-        "conta os codigos fora do dominio declarado no dicionario oficial. Nada e "
+        f"contabiliza os codigos de ausencia (padrao {sorted(MISSING_CODES)}, "
+        f"vazio em {sorted(MISSING_CODES_BY_COLUMN)}, que nao possuem o codigo 9 "
+        "no dicionario) e conta os codigos fora do dominio declarado. Nada e "
         "anulado nem convertido: o codigo e preservado como esta, e quem o exclui "
-        "e a camada de metricas, ao montar numerador e denominador. Um codigo "
-        "fora do dominio fica visivel no relatorio de qualidade em vez de se "
-        "confundir com um caso em aberto."
+        "e a camada de metricas, ao montar numerador e denominador. Um valor "
+        "presente mas nao numerico -- sem correspondencia possivel no dicionario "
+        "-- vira nulo e e registrado como ajuste `codigo_ilegivel`, para nao se "
+        "confundir com um campo vazio na origem."
     )
 
     def apply(self, frame: pd.DataFrame, context: CleaningContext) -> pd.DataFrame:
@@ -47,15 +51,35 @@ class NormalizeCategoricalCodes(CleaningRule):
             if column not in frame.columns or column == _SEX_COLUMN:
                 continue
 
+            # Mesma contabilidade que `dates.py` faz para datas: `to_numeric`
+            # com `errors="coerce"` transforma "X" e "" no mesmo nulo, e sem
+            # medir antes nao ha como distinguir um campo preenchido com lixo de
+            # um campo que nunca foi preenchido. A promessa "nada e alterado
+            # silenciosamente" tem de valer aqui tambem.
+            present_before = _normalize_text(frame[column]).notna()
             frame[column] = pd.to_numeric(frame[column], errors="coerce").astype("Int16")
-            context.report.null_counts[column] += int(frame[column].isna().sum())
-            for code in MISSING_CODES:
-                context.report.ignored_code_counts[column] += int((frame[column] == code).sum())
+
+            unreadable = present_before & frame[column].isna()
+            context.report.unreadable_codes[column] += int(unreadable.sum())
+            context.adjustments.add(f"codigo_ilegivel:{column}", unreadable)
+
+            context.report.code_totals[column] += len(frame)
+            absent = frame[column].isna()
+            context.report.null_counts[column] += int(absent.sum())
 
             domain = CODE_LABELS.get(column)
             if domain:
                 outside = frame[column].notna() & ~frame[column].isin(list(domain))
                 context.report.out_of_domain_counts[column] += int(outside.sum())
+            else:  # sem dominio declarado nao ha como afirmar "fora do dominio"
+                outside = pd.Series(False, index=frame.index)
+
+            # "Ignorado" so existe onde o dicionario o preve. Um 9 em CLASSI_FIN
+            # nao e ausencia declarada: e codigo inexistente, e ja foi contado
+            # acima como fora do dominio. Contar nas duas categorias quebraria a
+            # identidade total = validos + ignorados + ausentes + fora_do_dominio.
+            ignored = frame[column].isin(list(missing_codes_for(column))) & ~outside
+            context.report.ignored_code_counts[column] += int(ignored.fillna(False).sum())
 
         return frame
 

@@ -83,10 +83,57 @@ class QualityReport:
     adjusted_rows: int = 0
     adjustments: Counter = field(default_factory=Counter)
     out_of_domain_counts: Counter = field(default_factory=Counter)
+    #: Registros lidos por coluna categorica. Denominador da identidade de
+    #: completude -- sem ele, "1.846 ignorados" nao diz de quanto.
+    code_totals: Counter = field(default_factory=Counter)
+    #: Valores categoricos presentes no arquivo mas nao numericos, por coluna.
+    #: Viram nulo e recebem o ajuste `codigo_ilegivel:<coluna>`.
+    unreadable_codes: Counter = field(default_factory=Counter)
+    #: Registros em que a semana derivada de DT_SIN_PRI diverge de SEM_PRI.
+    #: Contagem pura: a derivada manda, e nenhuma das duas corrige a outra.
+    epiweek_mismatch: int = 0
+    #: Registros em que SEM_PRI esta presente e comparavel com a derivada.
+    #: Denominador da divergencia acima.
+    epiweek_compared: int = 0
+    #: Idades fora do dominio da unidade declarada em TP_IDADE.
+    age_unit_out_of_domain: int = 0
     #: Linhas identicas em todas as colunas lidas. Informativo: sem o
     #: identificador da notificacao (negado por minimizacao) nao ha como
     #: distinguir duplicata real de pacientes distintos com atributos iguais.
     identical_rows: int = 0
+    #: Colunas sobre as quais a duplicidade foi medida. Publicada junto com a
+    #: contagem porque o numero so significa alguma coisa com a lista ao lado.
+    identical_rows_subset: list[str] = field(default_factory=list)
+
+    def code_completeness(self) -> dict[str, dict[str, int | bool]]:
+        """Completude por coluna categorica, com a identidade verificada.
+
+        Um unico numero de "nulos" por coluna confunde tres situacoes
+        diferentes: campo vazio na origem, codigo de ausencia declarado pelo
+        dicionario (9-Ignorado) e codigo que o dicionario nao preve. As tres
+        exigem tratamentos distintos nas metricas, e so a primeira e "dado que
+        nao veio". A identidade
+        `total = validos + ignorados + ausentes + fora_do_dominio` e publicada
+        junto, para que a decomposicao seja verificavel em vez de acreditada.
+
+        Returns:
+            Mapa `coluna -> contagens`, com `identidade_confere` por coluna.
+        """
+        completeness: dict[str, dict[str, int | bool]] = {}
+        for column, total in sorted(self.code_totals.items()):
+            absent = self.null_counts[column]
+            ignored = self.ignored_code_counts[column]
+            outside = self.out_of_domain_counts[column]
+            valid = total - absent - ignored - outside
+            completeness[column] = {
+                "total": total,
+                "validos": valid,
+                "ignorados": ignored,
+                "ausentes": absent,
+                "fora_do_dominio": outside,
+                "identidade_confere": valid + ignored + absent + outside == total,
+            }
+        return completeness
 
     def absorb(self, log: AdjustmentLog) -> None:
         """Incorpora ao agregado os ajustes registrados em um bloco."""
@@ -100,6 +147,7 @@ class QualityReport:
         source_files: list[str],
         run_id: str = "",
         pipeline: list[dict[str, str]] | None = None,
+        schema_drift: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Serializa o relatorio de qualidade da carga.
 
@@ -107,6 +155,13 @@ class QualityReport:
             source_files: arquivos brutos processados.
             run_id: identificador da execucao da ingestao.
             pipeline: regras aplicadas, na ordem em que rodaram.
+            schema_drift: secao `schema` produzida por
+                :meth:`src.data.drift.DriftReport.to_dict` -- o que mudou no
+                arquivo bruto em relacao a safra anterior do mesmo ano. Entra
+                aqui, e nao num relatorio proprio, porque "a fonte mudou" e um
+                fato de qualidade da carga: sem ele, um indicador que zerou por
+                causa de uma coluna renomeada seria investigado como defeito do
+                calculo.
         """
         return {
             "run_id": run_id,
@@ -114,6 +169,7 @@ class QualityReport:
             "source": DATASUS_SOURCE_LABEL,
             "source_files": source_files,
             "pipeline": pipeline or [],
+            "schema": schema_drift or {},
             "rows_read": self.rows_read,
             "rows_written": self.rows_written,
             "rows_dropped": self.rows_read - self.rows_written,
@@ -144,9 +200,22 @@ class QualityReport:
                 "valores_nulos_por_coluna": dict(self.null_counts),
                 "codigo_9_ignorado_por_coluna": dict(self.ignored_code_counts),
                 "codigo_fora_do_dominio_por_coluna": dict(self.out_of_domain_counts),
-                "linhas_identicas_nas_colunas_lidas": self.identical_rows,
+                "codigo_ilegivel_por_coluna": dict(self.unreadable_codes),
+                "completude_por_coluna_categorica": self.code_completeness(),
+                "linhas_identicas_nas_colunas_persistidas": self.identical_rows,
+                "colunas_da_medicao_de_duplicidade": self.identical_rows_subset,
                 "uf_fora_do_dominio": self.unknown_uf,
                 "idade_fora_do_intervalo_plausivel": self.age_out_of_range,
+                "idade_fora_do_dominio_da_unidade": self.age_unit_out_of_domain,
+                "semana_epidemiologica": {
+                    "registros_comparados_com_SEM_PRI": self.epiweek_compared,
+                    "divergencias": self.epiweek_mismatch,
+                    "percentual": (
+                        round(self.epiweek_mismatch / self.epiweek_compared * 100, 3)
+                        if self.epiweek_compared
+                        else 0.0
+                    ),
+                },
             },
             "notes": [
                 "Nenhum registro e excluido: inconsistencias sao marcadas em "
@@ -164,7 +233,20 @@ class QualityReport:
                 "Codigos fora do dominio do dicionario sao contados, nao anulados: "
                 "a camada de metricas so reconhece codigos validos, entao eles nao "
                 "entram em numerador nem denominador.",
-                "Linhas identicas nas colunas lidas sao contadas mas NAO "
+                "A semana epidemiologica e derivada de DT_SIN_PRI pela regra do "
+                "Ministerio da Saude (semana iniciada no domingo). SEM_PRI e "
+                "lida apenas para reconciliacao: a divergencia e contada e "
+                "nenhuma das duas corrige ou preenche a outra.",
+                "Codigos fora do dominio e codigos de ausencia sao contados "
+                "separadamente por coluna, e a identidade total = validos + "
+                "ignorados + ausentes + fora_do_dominio e publicada verificada.",
+                "A secao 'schema' compara o arquivo bruto contra a safra "
+                "anterior do MESMO ano (coluna nova, coluna sumida, tipo, "
+                "categoria nova, completude e contagem de registros). Todo "
+                "achado aparece classificado em ERROR ou WARNING; nenhum e "
+                "ignorado em silencio, e aceitar uma mudanca conhecida exige "
+                "--accept-drift, que fica gravado na linha de base.",
+                "Linhas identicas nas colunas persistidas sao contadas mas NAO "
                 "deduplicadas: sem o identificador da notificacao (excluido por "
                 "minimizacao) nao e possivel distinguir duplicata de pacientes "
                 "distintos com os mesmos atributos agregados. Deduplicar "

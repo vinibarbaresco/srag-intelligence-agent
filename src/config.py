@@ -60,6 +60,25 @@ class Settings(BaseSettings):
     # antes do validador abaixo ser chamado, porque nao e JSON valido.
     srag_years: Annotated[list[int], NoDecode] = Field(default=[2025, 2026])
 
+    # --- Deteccao de mudanca de esquema entre safras -------------------------
+    # O DATASUS republica o mesmo ano varias vezes, e a comparacao e sempre
+    # entre safras do MESMO ano (ver src/data/drift.py). Os tres limiares foram
+    # calibrados contra as safras medidas, nao arbitrados.
+    #
+    # 5 pontos percentuais de variacao de ausencia: uma republicacao completa o
+    # que faltava e move pouco a completude do mesmo ano. As diferencas grandes
+    # medidas sao entre anos distintos (DT_DIGITA vazia em 34,37% do INFLUD19
+    # contra 0,00% do INFLUD25), e a comparacao por ano ja as isola.
+    drift_missing_rate_delta_pp: float = Field(default=5.0, ge=0, le=100)
+    # 20% de queda de registros interrompe a carga: o ano e republicado de forma
+    # cumulativa, entao perder ficha so pode vir de arquivo truncado, download
+    # incompleto ou ano trocado. A folga cobre uma revisao de encerramento.
+    drift_record_drop_pct: float = Field(default=20.0, ge=0, le=100)
+    # 50% de crescimento apenas avisa: medido 165.397 -> 336.391 (+103%) entre
+    # duas safras do mesmo INFLUD25. E legitimo e nao pode interromper, mas
+    # dobrar o denominador desloca toda a serie historica do ano.
+    drift_record_growth_pct: float = Field(default=50.0, ge=0)
+
     # --- Baseline sazonal ----------------------------------------------------
     # Anos usados como referencia historica para a mesma janela de calendario.
     # 2020 e 2021 ficam SEMPRE fora: a pandemia de covid-19 multiplicou as
@@ -242,6 +261,31 @@ class Settings(BaseSettings):
         return self.raw_dir / "manifest.json"
 
     @property
+    def schema_baseline_path(self) -> Path:
+        """Linha de base do esquema do arquivo bruto, por ano.
+
+        Vive em `data/processed` porque segue `DATA_ROOT` -- os testes precisam
+        de uma linha de base isolada, e uma carga apontada para outra raiz de
+        dados nao pode escrever sobre a linha de base do projeto. E o unico
+        arquivo de `data/processed` versionado (excecao declarada no
+        `.gitignore`): ele descreve o **contrato** com a fonte, nao um artefato
+        reproduzivel da execucao, e a revisao de uma mudanca de esquema comeca
+        justamente pelo diff dele.
+        """
+        return self.processed_dir / "schema_baseline.json"
+
+    @property
+    def schema_drift_path(self) -> Path:
+        """Achados de mudanca de esquema da carga mais recente.
+
+        Existe separado do `quality_report.json` por causa do caso em que ele
+        mais importa: uma carga interrompida por ERROR de esquema nao gera
+        relatorio de qualidade -- ela nao chegou a produzir dado --, e sem este
+        arquivo o motivo da interrupcao ficaria apenas no log.
+        """
+        return self.processed_dir / "schema_drift.json"
+
+    @property
     def ingestion_history_path(self) -> Path:
         """Historico de cargas, uma linha JSON por execucao da ingestao.
 
@@ -281,6 +325,12 @@ DATASUS_SOURCE_LABEL = "Open DATASUS / SIVEP-Gripe (SRAG 2019-2026)"
 
 # Formato do arquivo bruto, verificado na fonte em 2026-09.
 RAW_CSV_SEPARATOR = ";"
+
+#: Encoding de ultimo recurso. O encoding real e **detectado por arquivo** em
+#: `src/data/encoding.py`, porque ele nao e estavel entre safras do DATASUS:
+#: as publicacoes recentes sao UTF-8 e as antigas, latin-1. Esta constante e
+#: apenas o fallback, mantida aqui para quem precise ler um CSV fora do
+#: pipeline; a carga nao a consulta.
 RAW_CSV_ENCODING = "latin-1"
 
 # Nenhuma data anterior a esta e considerada valida (inicio da serie SIVEP-Gripe

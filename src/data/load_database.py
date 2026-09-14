@@ -26,7 +26,11 @@ import duckdb
 
 from src.config import get_settings
 from src.data.reference.tables import load_reference_tables
-from src.data.schema import DENIED_COLUMNS, DERIVED_SEMANTIC_COLUMNS
+from src.data.schema import (
+    DENIED_COLUMNS,
+    DERIVED_SEMANTIC_COLUMNS,
+    EPIWEEK_DERIVED_COLUMNS,
+)
 from src.observability.logging_config import configure_logging, get_logger
 
 logger = get_logger(__name__)
@@ -61,15 +65,26 @@ VIEW_ANALYTICS = "srag_analytics"
 #:
 #: Os registros excluidos permanecem em `srag_cases`, e a diferenca entre as
 #: duas contagens e reportada.
+
+#: `mes_sintomas` sai do `SELECT *` e volta como `date_trunc`: a camada de
+#: tratamento persiste o rotulo textual "AAAA-MM", que e o que se publica, e as
+#: series agregam por data. Os dois convivem com nomes distintos --
+#: `mes_sintomas_rotulo` e `mes_sintomas` -- em vez de um sobrescrever o outro.
 _ANALYTICS_VIEW_SQL = f"""
 CREATE OR REPLACE VIEW {VIEW_ANALYTICS} AS
 SELECT
-    *,
+    * EXCLUDE (mes_sintomas),
     CAST(DT_SIN_PRI AS DATE)                      AS data_sintomas,
     CAST(DT_DIGITA  AS DATE)                      AS data_digitacao,
     CAST(DT_EVOLUCA AS DATE)                      AS data_evolucao,
+    CAST(DT_ENCERRA AS DATE)                      AS data_encerramento,
     CAST(DT_ENTUTI  AS DATE)                      AS data_entrada_uti,
     CAST(DT_SAIDUTI AS DATE)                      AS data_saida_uti,
+    CAST(SG_UF AS VARCHAR)                        AS uf_residencia,
+    CAST(semana_epi AS VARCHAR)                   AS semana_epidemiologica,
+    CAST(semana_epi_ano AS SMALLINT)              AS semana_epidemiologica_ano,
+    CAST(semana_epi_num AS TINYINT)               AS semana_epidemiologica_numero,
+    CAST(mes_sintomas AS VARCHAR)                 AS mes_sintomas_rotulo,
     date_trunc('month', CAST(DT_SIN_PRI AS DATE)) AS mes_sintomas
 FROM {TABLE_CASES}
 WHERE flag_data_invalida = FALSE
@@ -170,7 +185,9 @@ def load_database(parquet_path: Path | None = None, database_path: Path | None =
         # A semantica e derivada no tratamento, nao aqui. Se as colunas nao
         # chegarem, a view compila mas as metricas falhariam so na consulta --
         # melhor falhar na carga, com a causa explicita.
-        missing = sorted(set(DERIVED_SEMANTIC_COLUMNS) - set(columns))
+        missing = sorted(
+            (set(DERIVED_SEMANTIC_COLUMNS) | set(EPIWEEK_DERIVED_COLUMNS)) - set(columns)
+        )
         if missing:
             raise ValueError(
                 "Camada processada sem as colunas semanticas derivadas: "

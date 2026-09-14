@@ -11,14 +11,14 @@
 
 | Metrica | Campo(s) | Numerador | Denominador | Calculavel |
 |---------|----------|-----------|-------------|------------|
-| `case_growth_rate` | DT_SIN_PRI, DT_DIGITA | casos com DT_SIN_PRI na janela atual menos casos na janela anterior | casos com DT_SIN_PRI na janela anterior | sim |
+| `case_growth_rate` | DT_SIN_PRI, DT_DIGITA | casos com DT_SIN_PRI na janela atual menos casos na janela anterior | casos com DT_SIN_PRI na janela anterior digitados ate o fechamento dessa janela mais REPORTING_LAG_DAYS dias | sim |
 | `mortality_rate` | EVOLUCAO, DT_SIN_PRI | casos com EVOLUCAO = 2 (Obito por SRAG) | casos com EVOLUCAO em (1-Cura, 2-Obito, 3-Obito por outras causas) | sim |
-| `icu_admission_rate` | UTI, HOSPITAL, DT_SIN_PRI | hospitalizados com UTI = 1 (Sim) | hospitalizados com UTI informado (1-Sim ou 2-Nao) | sim |
+| `icu_admission_rate` | UTI, HOSPITAL, DT_SIN_PRI | internados com UTI = 1 (Sim) | internados com UTI informado (1-Sim ou 2-Nao) | sim |
 | `icu_bed_occupancy_rate` | - | leitos de UTI ocupados | leitos de UTI disponiveis (capacidade instalada) | nao |
 | `icu_patient_census` | DT_ENTUTI, DT_SAIDUTI, DT_EVOLUCA | pacientes de SRAG com permanencia em UTI cobrindo o dia | nao aplicavel (contagem absoluta, nao proporcao) | sim |
 | `vaccination_coverage_among_cases` | VACINA_COV, VACINA, DT_SIN_PRI | casos com vacinacao declarada como 1-Sim | casos com a informacao vacinal preenchida (1-Sim ou 2-Nao) | sim |
 | `population_vaccination_coverage` | - | doses aplicadas na campanha, na UF e no ano de referencia (SI-PNI) | populacao-alvo da campanha ou populacao residente (IBGE) | sim |
-| `incidence_rate` | DT_SIN_PRI, SG_UF_NOT | casos com DT_SIN_PRI na janela analisada | populacao residente estimada (IBGE) da UF ou do Brasil, no ano mais proximo | sim |
+| `incidence_rate` | DT_SIN_PRI, SG_UF | casos com DT_SIN_PRI na janela analisada, pela UF de residencia (SG_UF) | populacao residente estimada (IBGE) da UF ou do Brasil, no ano mais proximo | sim |
 | `seasonal_excess` | DT_SIN_PRI | casos na janela atual menos a mediana dos anos de baseline na mesma janela | mediana dos casos na mesma janela de calendario nos anos de baseline | sim |
 | `daily_cases` | DT_SIN_PRI | casos com DT_SIN_PRI igual ao dia | nao aplicavel (contagem absoluta) | sim |
 | `monthly_cases` | DT_SIN_PRI | casos com DT_SIN_PRI no mes | nao aplicavel (contagem absoluta) | sim |
@@ -29,15 +29,16 @@
 
 - **Definicao:** Variacao percentual do numero de casos de SRAG entre duas janelas consecutivas de mesmo tamanho, medidas pela data dos primeiros sintomas: (casos_periodo_atual - casos_periodo_anterior) / casos_periodo_anterior x 100.
 - **Numerador:** casos com DT_SIN_PRI na janela atual menos casos na janela anterior
-- **Denominador:** casos com DT_SIN_PRI na janela anterior
+- **Denominador:** casos com DT_SIN_PRI na janela anterior digitados ate o fechamento dessa janela mais REPORTING_LAG_DAYS dias
 - **Campos utilizados:** `DT_SIN_PRI`, `DT_DIGITA`
 - **Periodo:** duas janelas consecutivas de GROWTH_WINDOW_DAYS dias (padrao: 30)
 - **Unidade:** %
-- **Tratamento de dados ausentes:** Registros sem DT_SIN_PRI ou com linha do tempo inconsistente ficam fora da view analitica e sao contabilizados no relatorio de qualidade.
+- **Tratamento de dados ausentes:** Registros sem DT_SIN_PRI ou com linha do tempo inconsistente ficam fora da view analitica e sao contabilizados no relatorio de qualidade. Registros da janela anterior digitados depois do prazo de observacao dela ficam fora do denominador e sao publicados em `casos_excluidos_por_imaturidade`.
 
 **Limitacoes:**
 
 - A serie recente e incompleta por atraso de notificacao: casos com sintomas nos ultimos dias ainda nao foram digitados. As janelas excluem os dias mais recentes (REPORTING_LAG_DAYS) e usam como referencia a maior data de digitacao da base, nunca a data de hoje.
+- As duas janelas sao comparadas com maturidade simetrica: cada uma e contada como era conhecida REPORTING_LAG_DAYS dias apos o proprio fechamento. Sem isso a janela atual teria menos tempo de digitacao que a anterior e o crescimento sairia subestimado de forma sistematica. As contagens sem censura ficam publicadas ao lado, nos componentes.
 - Mede variacao de casos notificados, nao incidencia populacional: nao ha denominador populacional no dataset.
 - Quando a janela anterior tem zero casos, a variacao percentual e indefinida e o indicador retorna valor nulo.
 - O SIVEP-Gripe registra casos de SRAG notificados, majoritariamente hospitalizados. Nenhum indicador aqui representa a populacao geral.
@@ -60,15 +61,15 @@
 - A serie recente e incompleta por atraso de notificacao: casos com sintomas nos ultimos dias ainda nao foram digitados. As janelas excluem os dias mais recentes (REPORTING_LAG_DAYS) e usam como referencia a maior data de digitacao da base, nunca a data de hoje.
 - O SIVEP-Gripe registra casos de SRAG notificados, majoritariamente hospitalizados. Nenhum indicador aqui representa a populacao geral.
 
-### `icu_admission_rate` - Taxa de admissao em UTI entre hospitalizados por SRAG
+### `icu_admission_rate` - Taxa de admissao em UTI entre internados por SRAG
 
-- **Definicao:** Proporcao de pacientes hospitalizados por SRAG que foram internados em UTI: UTI = 1 / (UTI em 1 ou 2), restrito a HOSPITAL = 1.
-- **Numerador:** hospitalizados com UTI = 1 (Sim)
-- **Denominador:** hospitalizados com UTI informado (1-Sim ou 2-Nao)
+- **Definicao:** Proporcao de pacientes internados por SRAG que foram admitidos em UTI: UTI = 1 / (UTI em 1 ou 2), restrito a internados. Um caso e considerado internado quando HOSPITAL = 1 **ou** quando ha admissao em UTI declarada (UTI = 1).
+- **Numerador:** internados com UTI = 1 (Sim)
+- **Denominador:** internados com UTI informado (1-Sim ou 2-Nao)
 - **Campos utilizados:** `UTI`, `HOSPITAL`, `DT_SIN_PRI`
 - **Periodo:** casos com primeiros sintomas na janela analisada
 - **Unidade:** %
-- **Tratamento de dados ausentes:** UTI = 9 (Ignorado) e UTI nulo sao excluidos do numerador e do denominador, e o volume de ignorados e reportado junto do resultado.
+- **Tratamento de dados ausentes:** UTI = 9 (Ignorado) e UTI nulo sao excluidos do numerador e do denominador, e o volume de ignorados e reportado junto do resultado. HOSPITAL ausente ou igual a 9 (Ignorado) NAO e lido como 'nao internado': a base e de SRAG hospitalizada e uma admissao em UTI declarada e evidencia direta de internacao. Os registros recuperados por essa regra sao publicados em separado nos componentes, discriminados entre HOSPITAL ausente, ignorado e negado.
 
 **Limitacoes:**
 
@@ -146,16 +147,17 @@
 ### `incidence_rate` - Incidencia de SRAG notificada por 100 mil habitantes
 
 - **Definicao:** Casos de SRAG com primeiros sintomas na janela analisada, por 100 mil habitantes: casos / populacao residente estimada (IBGE) x 100.000.
-- **Numerador:** casos com DT_SIN_PRI na janela analisada
+- **Numerador:** casos com DT_SIN_PRI na janela analisada, pela UF de residencia (SG_UF)
 - **Denominador:** populacao residente estimada (IBGE) da UF ou do Brasil, no ano mais proximo
-- **Campos utilizados:** `DT_SIN_PRI`, `SG_UF_NOT`
+- **Campos utilizados:** `DT_SIN_PRI`, `SG_UF`
 - **Periodo:** ultimos GROWTH_WINDOW_DAYS dias ate a data de corte analitica
-- **Unidade:** por 100 mil hab.
-- **Tratamento de dados ausentes:** Sem a referencia populacional carregada, o indicador e declarado nao calculavel; nunca se usa um denominador aproximado.
+- **Unidade:** por 100 mil hab. no periodo
+- **Tratamento de dados ausentes:** Sem a referencia populacional carregada, o indicador e declarado nao calculavel; nunca se usa um denominador aproximado. Casos sem UF de residencia ficam fora do numerador quando ha recorte por UF, e o volume e publicado nos componentes.
 
 **Limitacoes:**
 
 - Incidencia de casos NOTIFICADOS de SRAG (majoritariamente hospitalizados), nao de infeccao respiratoria na populacao.
+- O recorte geografico e a UF de RESIDENCIA, para casar com o denominador residente do IBGE. Os indicadores de carga assistencial (UTI, ventilacao, censo) usam a UF de NOTIFICACAO, porque o leito e ocupado onde o paciente foi internado. As duas dimensoes nao sao intercambiaveis e nunca devem ser cruzadas numa mesma tabela.
 - A populacao e a estimativa anual do IBGE mais proxima da data de corte; o ano usado e publicado junto do indicador.
 - Permite comparar UFs de tamanhos diferentes, o que a contagem absoluta nao permite.
 - A serie recente e incompleta por atraso de notificacao: casos com sintomas nos ultimos dias ainda nao foram digitados. As janelas excluem os dias mais recentes (REPORTING_LAG_DAYS) e usam como referencia a maior data de digitacao da base, nunca a data de hoje.

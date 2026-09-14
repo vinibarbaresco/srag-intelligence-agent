@@ -242,7 +242,7 @@ def _components_block(key: str, components: dict[str, Any]) -> list[str]:
         occupancy = components.get("taxa_de_ocupacao_de_leitos_de_uti", {})
         completeness = components.get("completude_da_permanencia_em_uti", {})
         lines += [
-            f"- **Hospitalizados no periodo:** {components.get('hospitalizados_no_periodo')}",
+            f"- **Internados no periodo:** {components.get('internados_no_periodo')}",
             f"- **Admitidos em UTI:** {components.get('admitidos_em_uti')}",
             f"- **UTI ignorado (codigo 9):** {components.get('uti_ignorado')}",
             f"- **Pico do censo diario em UTI:** "
@@ -250,9 +250,12 @@ def _components_block(key: str, components: dict[str, Any]) -> list[str]:
             f"{components.get('censo_diario_pico_data')} "
             f"({components.get('censo_diario_pico_percentual_imputado')}% desse valor "
             "depende de imputacao de permanencia)",
-            f"- **Admitidos em UTI sem o campo HOSPITAL preenchido:** "
-            f"{components.get('admitidos_em_uti_sem_campo_hospital')} "
-            "(entram no censo, nao na taxa de admissao)",
+            f"- **Admitidos em UTI sem HOSPITAL='Sim':** ausente "
+            f"{components.get('admitidos_em_uti_com_hospital_ausente')}, ignorado "
+            f"{components.get('admitidos_em_uti_com_hospital_ignorado')}, negado "
+            f"{components.get('admitidos_em_uti_com_hospital_negado')} "
+            "(contam como internados: admissao em UTI declarada e evidencia de "
+            "internacao, e ausencia nao e lida como 'Nao')",
         ]
 
         if completeness:
@@ -269,10 +272,12 @@ def _components_block(key: str, components: dict[str, Any]) -> list[str]:
                 f"{completeness.get('permanencia_imputada_pela_data_de_evolucao')}",
                 f"- **Permanencia imputada em aberto: "
                 f"{completeness.get('permanencia_imputada_em_aberto')} "
-                f"({completeness.get('percentual_imputado_em_aberto')}%)**, das quais "
-                f"{completeness.get('das_quais_truncadas_pelo_teto')} truncadas pelo teto "
-                f"de {completeness.get('teto_de_permanencia_dias')} dias "
-                f"({completeness.get('origem_do_teto')})",
+                f"({completeness.get('percentual_imputado_em_aberto')}%)**",
+                f"- Estadias imputadas truncadas pelo teto de "
+                f"{completeness.get('teto_de_permanencia_dias')} dias "
+                f"({completeness.get('origem_do_teto')}): "
+                f"{completeness.get('imputadas_truncadas_pelo_teto')} -- o teto limita "
+                f"tanto a imputacao pela data de evolucao quanto a imputacao em aberto",
                 f"- {completeness.get('efeito_da_imputacao')}",
             ]
 

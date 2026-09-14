@@ -18,6 +18,7 @@ import pytest
 from src.config import reset_settings_cache
 from src.data.cleaning.base import CleaningContext
 from src.data.cleaning.derived import DeriveSemanticFlags
+from src.data.cleaning.epiweek import DeriveEpidemiologicalWeek
 from src.data.quality import AdjustmentLog, QualityReport
 
 #: Data de digitacao mais recente da base sintetica. Todas as janelas dos testes
@@ -26,6 +27,11 @@ REFERENCE_DATE = date(2026, 8, 23)
 
 #: Corte analitico esperado com REPORTING_LAG_DAYS = 21.
 EXPECTED_CUTOFF = REFERENCE_DATE - timedelta(days=21)
+
+#: Atraso entre sintomas e digitacao nas janelas comparadas pela taxa de
+#: aumento. Menor que REPORTING_LAG_DAYS, de modo que os casos das duas janelas
+#: ja estejam digitados quando cada janela e observada.
+_REPORTING_DELAY_DAYS = 10
 
 #: Populacao sintetica por UF (IBGE simulado): SP 10 mi, RJ 5 mi, demais 1 mi.
 #: Total de 40 milhoes. O validador exige as 27 UFs, como a referencia real.
@@ -130,6 +136,9 @@ def _build_synthetic_frame() -> pd.DataFrame:
         saida_uti=None,
         digitacao=None,
         evolucao_data=None,
+        suport_ven=None,
+        nosocomial=2,
+        criterio=1,
     ) -> None:
         rows.append(
             {
@@ -138,15 +147,20 @@ def _build_synthetic_frame() -> pd.DataFrame:
                 "DT_ENTUTI": pd.Timestamp(entrada_uti) if entrada_uti else pd.NaT,
                 "DT_SAIDUTI": pd.Timestamp(saida_uti) if saida_uti else pd.NaT,
                 "DT_EVOLUCA": pd.Timestamp(evolucao_data) if evolucao_data else pd.NaT,
+                "DT_ENCERRA": pd.Timestamp(evolucao_data) if evolucao_data else pd.NaT,
                 "DT_DIGITA": pd.Timestamp(digitacao or REFERENCE_DATE),
                 "CS_SEXO": "F",
                 "HOSPITAL": hospital,
                 "UTI": uti,
+                "SUPORT_VEN": suport_ven,
+                "NOSOCOMIAL": nosocomial,
                 "CLASSI_FIN": classi_fin,
+                "CRITERIO": criterio,
                 "EVOLUCAO": evolucao,
                 "VACINA": vacina,
                 "VACINA_COV": vacina_cov,
                 "SG_UF_NOT": uf,
+                "SG_UF": uf,
                 "faixa_etaria": "40-49",
                 "ano_referencia": symptoms.year,
                 # As flags de coerencia sao definidas explicitamente aqui: a base
@@ -156,16 +170,33 @@ def _build_synthetic_frame() -> pd.DataFrame:
                 "flag_internacao_inconsistente": False,
                 "flag_uti_inconsistente": False,
                 "flag_evolucao_inconsistente": False,
+                "flag_data_implausivel": False,
             }
         )
 
+    # Atraso de notificacao das janelas comparadas.
+    #
+    # Todo caso das duas janelas e digitado `_REPORTING_DELAY_DAYS` dias apos o
+    # inicio dos sintomas, em vez de todos na data de referencia. A diferenca
+    # importa: com digitacao uniforme na data de referencia, a janela anterior
+    # apareceria como notificada com 30 a 80 dias de atraso, e a comparacao de
+    # maturidade simetrica -- que conta cada janela como ela era conhecida
+    # `REPORTING_LAG_DAYS` dias apos o proprio fechamento -- esvaziaria a janela
+    # anterior. Uma base sintetica em que ninguem atrasa nao consegue exercitar
+    # atraso de notificacao.
+    #
+    # A data de referencia continua ancorada em REFERENCE_DATE pelos registros
+    # que nao passam `digitacao` explicitamente.
+
     # --- Janela anterior: exatamente 100 casos -------------------------------
     for index in range(100):
-        add(previous_start + timedelta(days=index % 30))
+        day = previous_start + timedelta(days=index % 30)
+        add(day, digitacao=day + timedelta(days=_REPORTING_DELAY_DAYS))
 
     # --- Janela atual: exatamente 150 casos ----------------------------------
     for index in range(150):
         day = current_start + timedelta(days=index % 30)
+        digitacao = min(day + timedelta(days=_REPORTING_DELAY_DAYS), REFERENCE_DATE)
 
         # 60 casos encerrados: 15 obitos por SRAG, 5 por outras causas, 40 curas.
         if index < 15:
@@ -213,6 +244,7 @@ def _build_synthetic_frame() -> pd.DataFrame:
             entrada_uti=entrada,
             saida_uti=saida,
             evolucao_data=day + timedelta(days=5) if evolucao in (1, 2, 3) else None,
+            digitacao=digitacao,
         )
 
     # --- Registro inconsistente: deve ficar fora da view analitica ------------
@@ -251,6 +283,7 @@ def _build_synthetic_frame() -> pd.DataFrame:
     context = CleaningContext(
         year=2026, report=QualityReport(), adjustments=AdjustmentLog(frame.index)
     )
+    frame = DeriveEpidemiologicalWeek().apply(frame, context)
     return DeriveSemanticFlags().apply(frame, context)
 
 

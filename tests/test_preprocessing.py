@@ -337,7 +337,7 @@ class TestCodigosForaDoDominio:
         report = QualityReport()
         report.identical_rows = 7
         payload = report.to_dict(source_files=["x.csv"])
-        assert payload["rules"]["linhas_identicas_nas_colunas_lidas"] == 7
+        assert payload["rules"]["linhas_identicas_nas_colunas_persistidas"] == 7
         assert "codigo_fora_do_dominio_por_coluna" in payload["rules"]
         assert any("NAO" in note and "deduplicadas" in note for note in payload["notes"])
 
@@ -405,7 +405,10 @@ class TestCargaPontaAPonta:
         assert parquet.exists()
         report = json.loads(settings.quality_report_path.read_text(encoding="utf-8"))
         assert report["rows_read"] == 3 and report["rows_dropped"] == 0
-        assert report["rules"]["linhas_identicas_nas_colunas_lidas"] >= 1
+        assert report["rules"]["linhas_identicas_nas_colunas_persistidas"] >= 1
+        # A duplicidade e medida sobre o que de fato foi persistido, e a
+        # lista das colunas medidas acompanha a contagem.
+        assert "NU_IDADE_N" not in report["rules"]["colunas_da_medicao_de_duplicidade"]
         assert report["provenance"][0]["origin"] == "arquivo local de teste"
         assert report["pipeline"]  # o pipeline aplicado e publicado
         assert settings.ingestion_history_path.exists()
@@ -416,3 +419,148 @@ class TestCargaPontaAPonta:
         assert not set(frame.columns) & set(DENIED_COLUMNS)
         assert not {"idade_anos", "NU_IDADE_N", "TP_IDADE"} & set(frame.columns)
         assert "ajustes_aplicados" in frame.columns
+
+
+class TestSemanaEpidemiologica:
+    """A semana do Ministerio da Saude comeca no domingo -- nao e a semana ISO."""
+
+    @pytest.mark.parametrize(
+        ("data", "ano_esperado", "semana_esperada"),
+        [
+            # SE 1 e a primeira semana iniciada em domingo com >= 4 dias no ano
+            # novo. 2024-12-29 e domingo e ja pertence a 2025 -- a semana ISO
+            # diria 2024-W52.
+            ("2024-12-28", 2024, 52),
+            ("2024-12-29", 2025, 1),
+            ("2025-01-01", 2025, 1),
+            # 2025 e um ano de 53 semanas: a SE 53 comeca em 28/12/2025 e
+            # atravessa a virada.
+            ("2025-12-27", 2025, 52),
+            ("2025-12-31", 2025, 53),
+            ("2026-01-01", 2025, 53),
+            ("2026-01-03", 2025, 53),
+            ("2026-01-04", 2026, 1),
+            # 2020 tambem tem 53 semanas, e a SE 1 comeca ainda em 2019.
+            ("2019-12-29", 2020, 1),
+            ("2020-12-31", 2020, 53),
+        ],
+    )
+    def test_semana_epidemiologica_virada_de_ano(self, data, ano_esperado, semana_esperada):
+        from src.data.cleaning.epiweek import epidemiological_week
+
+        semanas = epidemiological_week(pd.Series(pd.to_datetime([data])))
+
+        assert int(semanas["semana_epi_ano"].iloc[0]) == ano_esperado
+        assert int(semanas["semana_epi_num"].iloc[0]) == semana_esperada
+
+    def test_rotulo_e_ordenavel_e_acompanha_o_ano_epidemiologico(self):
+        frame = clean_chunk(
+            _raw_chunk(DT_SIN_PRI="2026-01-01", DT_DIGITA="2026-02-01"), 2026, QualityReport()
+        )
+
+        assert frame["semana_epi"].iloc[0] == "2025-53"
+        # O ano civil dos sintomas e outro campo: 1 de janeiro de 2026 pertence
+        # a semana epidemiologica 53 de 2025.
+        assert int(frame["ano_sintomas"].iloc[0]) == 2026
+        assert frame["mes_sintomas"].iloc[0] == "2026-01"
+
+    def test_semana_epi_divergente_de_sem_pri_conta_sem_corrigir(self):
+        """Reconciliacao, nao correcao: nenhuma das duas colunas preenche a outra."""
+        report = QualityReport()
+        frame = clean_chunk(_raw_chunk(DT_SIN_PRI="2024-12-29", SEM_PRI="52"), 2024, report)
+
+        # A derivada manda: 29/12/2024 e a SE 1 de 2025.
+        assert int(frame["semana_epi_num"].iloc[0]) == 1
+        assert int(frame["semana_epi_ano"].iloc[0]) == 2025
+        # SEM_PRI e preservada exatamente como veio -- nunca sobrescrita nem
+        # usada em coalesce para preencher a derivada.
+        assert frame["SEM_PRI"].iloc[0] == "52"
+        # E a divergencia vira contagem, nao ajuste.
+        assert report.epiweek_compared == 1
+        assert report.epiweek_mismatch == 1
+        assert frame[ADJUSTMENT_COLUMN].iloc[0] == ""
+
+    def test_semana_epi_coincidente_nao_conta_divergencia(self):
+        report = QualityReport()
+        clean_chunk(_raw_chunk(DT_SIN_PRI="2024-12-29", SEM_PRI="01"), 2024, report)
+
+        assert report.epiweek_compared == 1
+        assert report.epiweek_mismatch == 0
+
+    def test_sem_pri_ausente_nao_impede_a_derivacao(self):
+        report = QualityReport()
+        frame = clean_chunk(_raw_chunk(DT_SIN_PRI="2026-05-08", SEM_PRI=""), 2026, report)
+
+        assert frame["semana_epi"].iloc[0] == "2026-18"
+        assert report.epiweek_compared == 0
+
+
+class TestCodigoIlegivel:
+    """A promessa "nada e alterado silenciosamente" vale tambem para categoricos."""
+
+    def test_codigo_ilegivel_registrado_como_ajuste(self):
+        report = QualityReport()
+        frame = clean_chunk(_raw_chunk(UTI="X"), 2026, report)
+
+        assert pd.isna(frame["UTI"].iloc[0])
+        assert report.unreadable_codes["UTI"] == 1
+        assert frame[ADJUSTMENT_COLUMN].iloc[0] == "codigo_ilegivel:UTI"
+
+    def test_celula_vazia_nao_e_codigo_ilegivel(self):
+        """A razao de existir do ajuste: distinguir lixo de campo nunca preenchido."""
+        report = QualityReport()
+        frame = clean_chunk(_raw_chunk(UTI=""), 2026, report)
+
+        assert pd.isna(frame["UTI"].iloc[0])
+        assert report.unreadable_codes["UTI"] == 0
+        assert frame[ADJUSTMENT_COLUMN].iloc[0] == ""
+
+
+class TestCompletudePorColuna:
+    """vazio / codigo_ignorado / fora_do_dominio sao tres coisas diferentes."""
+
+    def test_identidade_da_completude_confere(self):
+        report = QualityReport()
+        for valor in ("1", "2", "9", "7", ""):
+            clean_chunk(_raw_chunk(UTI=valor), 2026, report)
+
+        completude = report.code_completeness()["UTI"]
+        assert completude["total"] == 5
+        assert completude["validos"] == 2
+        assert completude["ignorados"] == 1
+        assert completude["ausentes"] == 1
+        assert completude["fora_do_dominio"] == 1
+        assert completude["identidade_confere"] is True
+
+    def test_classi_fin_nao_tem_codigo_9_e_nao_o_conta_como_ignorado(self):
+        """O dicionario declara 1..5 para CLASSI_FIN: um 9 ali e codigo inexistente."""
+        from src.data.schema import missing_codes_for
+
+        assert missing_codes_for("CLASSI_FIN") == frozenset()
+        assert missing_codes_for("CRITERIO") == frozenset()
+        assert missing_codes_for("UTI") == MISSING_CODES
+
+        report = QualityReport()
+        clean_chunk(_raw_chunk(CLASSI_FIN="9"), 2026, report)
+
+        assert report.ignored_code_counts["CLASSI_FIN"] == 0
+        assert report.out_of_domain_counts["CLASSI_FIN"] == 1
+
+    def test_relatorio_publica_a_completude_e_a_reconciliacao(self):
+        report = QualityReport()
+        clean_chunk(_raw_chunk(UTI="9"), 2026, report)
+        rules = report.to_dict(source_files=["INFLUD26.csv"])["rules"]
+
+        assert rules["completude_por_coluna_categorica"]["UTI"]["ignorados"] == 1
+        assert "semana_epidemiologica" in rules
+        assert "codigo_ilegivel_por_coluna" in rules
+
+
+class TestVentilacaoNoContratoDeColunas:
+    def test_suport_ven_nao_usa_o_dominio_sim_nao_ignorado(self):
+        """Regressao explicita: 1/2/9 aqui inverteria o indicador de ventilacao."""
+        from src.data.schema import CODE_LABELS, YES_NO_IGNORED
+
+        assert CODE_LABELS["SUPORT_VEN"] is not YES_NO_IGNORED
+        assert CODE_LABELS["SUPORT_VEN"][2] == "Sim, nao invasivo"
+        assert set(CODE_LABELS["SUPORT_VEN"]) == {1, 2, 3, 9}

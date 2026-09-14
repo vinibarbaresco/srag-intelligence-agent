@@ -9,7 +9,7 @@ que nenhum texto vindo do modelo chega a ser interpretado pelo banco.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from src.config import get_settings
@@ -51,13 +51,25 @@ class AnalyticFilters:
                     f"Valores aceitos: {sorted(valid)}"
                 )
 
-    def where_clause(self) -> tuple[str, list[Any]]:
-        """Monta o predicado SQL e a lista de parametros para binding."""
+    def where_clause(self, *, uf_dimension: str = "SG_UF_NOT") -> tuple[str, list[Any]]:
+        """Monta o predicado SQL e a lista de parametros para binding.
+
+        Args:
+            uf_dimension: coluna de UF a recortar. O padrao e `SG_UF_NOT`, a UF
+                de **notificacao**, que e a dimensao correta para carga
+                assistencial: o leito e ocupado onde o paciente foi internado.
+                Indicadores com denominador populacional externo passam
+                `SG_UF` (UF de **residencia**), para casar numerador e
+                denominador -- ver `incidence_rate`.
+
+        Returns:
+            Par `(predicado, parametros)`.
+        """
         predicates: list[str] = []
         parameters: list[Any] = []
 
         if self.uf is not None:
-            predicates.append("SG_UF_NOT = ?")
+            predicates.append(f"{uf_dimension} = ?")
             parameters.append(self.uf)
 
         if self.classification is not None:
@@ -80,21 +92,41 @@ class AnalyticFilters:
         }
 
 
-def reference_date(connection: Any) -> date:
-    """Maior data de digitacao presente na base.
+def reference_date(connection: Any, today: date | None = None) -> date:
+    """Maior data de digitacao **plausivel** presente na base.
 
     Toda janela temporal do sistema e ancorada nesta data, e nao em `today()`:
     a base publicada pelo DATASUS tem defasagem em relacao ao dia corrente, e
     usar a data atual produziria janelas artificialmente vazias.
 
+    A ancoragem no maximo da coluna, porem, e fragil a um unico valor corrompido:
+    uma digitacao registrada no futuro -- e o arquivo bruto tem datas com anos
+    como 2202 e 8202 em outras colunas -- deslocaria **todas** as janelas do
+    sistema para um periodo vazio, e o relatorio sairia anunciando queda total de
+    casos sem nenhuma pista da causa. Por isso a data de referencia ignora
+    digitacoes posteriores ao dia de execucao: uma ficha nao pode ter sido
+    digitada amanha.
+
+    Args:
+        connection: conexao com o banco analitico.
+        today: dia de execucao; o padrao e a data corrente. Explicito para que
+            os testes possam fixar o teto.
+
+    Returns:
+        Maior data de digitacao que nao esta no futuro.
+
     Raises:
-        ValueError: se a base nao possuir nenhuma data de digitacao valida.
+        ValueError: se a base nao possuir nenhuma data de digitacao plausivel.
     """
-    row = connection.execute(f"SELECT max(data_digitacao) FROM {VIEW_ANALYTICS}").fetchone()
+    ceiling = today or datetime.now(tz=UTC).date()
+    row = connection.execute(
+        f"SELECT max(data_digitacao) FROM {VIEW_ANALYTICS} WHERE data_digitacao <= ?",
+        [ceiling],
+    ).fetchone()
     if row is None or row[0] is None:
         raise ValueError(
-            "Base analitica sem data de digitacao valida; nao e possivel "
-            "definir a data de referencia."
+            "Base analitica sem data de digitacao plausivel (nao futura); nao e "
+            "possivel definir a data de referencia."
         )
     return row[0]
 

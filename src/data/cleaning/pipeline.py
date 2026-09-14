@@ -9,8 +9,10 @@ A ordem nao e arbitraria:
 1. datas primeiro, porque as regras de coerencia comparam datas;
 2. codigos e texto em seguida, porque a semantica depende deles;
 3. derivacoes demograficas, que consomem os numericos ja normalizados;
-4. coerencia, que precisa de todas as datas e codigos prontos;
-5. semantica por ultimo, porque `estadia_uti_utilizavel` depende da flag de
+4. semana epidemiologica, que depende de `DT_SIN_PRI` ja convertida e de
+   `SEM_PRI` ainda bruta, para reconcilia-las;
+5. coerencia, que precisa de todas as datas e codigos prontos;
+6. semantica por ultimo, porque `estadia_uti_utilizavel` depende da flag de
    coerencia de UTI.
 """
 
@@ -31,6 +33,7 @@ from src.data.cleaning.coherence import EvaluateCoherence
 from src.data.cleaning.dates import ParseDateColumns
 from src.data.cleaning.demographics import DeriveAge, TagSourceYear
 from src.data.cleaning.derived import DeriveSemanticFlags
+from src.data.cleaning.epiweek import DeriveEpidemiologicalWeek
 from src.data.quality import AdjustmentLog, QualityReport
 from src.data.schema import ADJUSTMENT_COLUMN, assert_no_denied_columns
 
@@ -43,6 +46,7 @@ CLEANING_PIPELINE: Final[tuple[CleaningRule, ...]] = (
     NormalizeStateCodes(),
     DeriveAge(),
     TagSourceYear(),
+    DeriveEpidemiologicalWeek(),
     EvaluateCoherence(),
     DeriveSemanticFlags(),
 )

@@ -174,19 +174,57 @@ def case_growth_rate(
     previous_end = current_start - timedelta(days=1)
     previous_start = previous_end - timedelta(days=window - 1)
 
+    # --- Maturidade simetrica -------------------------------------------------
+    #
+    # As duas janelas nao sao observadas com a mesma maturidade. A janela atual
+    # termina no corte e teve `REPORTING_LAG_DAYS` dias para ser digitada; a
+    # anterior termina uma janela antes e teve `lag + janela` dias. Comparar as
+    # duas cruas subestima o crescimento de forma sistematica -- e o erro que
+    # produz "queda de casos" durante uma subida real, justamente no indicador
+    # que dispara o alerta.
+    #
+    # A correcao e censura a direita simetrica **por janela**: cada janela e
+    # contada como era conhecida `L` dias apos o seu proprio fechamento. Para a
+    # janela atual isso e todo o dado disponivel (cutoff + L = data de
+    # referencia); para a anterior, apenas o que ja havia sido digitado ate
+    # `fim da janela anterior + L`. As duas passam a ter exatamente o mesmo
+    # prazo de observacao depois do ultimo dia de sintomas que contem.
+    #
+    # Preferida a censura por registro (`atraso <= L` em ambas): esta descarta
+    # apenas as chegadas tardias da janela anterior, enquanto aquela descartaria
+    # tambem os notificadores lentos da janela atual, jogando fora dado
+    # legitimo dos dois lados sem ganho de comparabilidade.
+    maturity_days = get_settings().reporting_lag_days
+    previous_observed_until = previous_end + timedelta(days=maturity_days)
+
     clause, parameters = filters.where_clause()
     row = connection.execute(
         f"""
         SELECT
+            count(*) FILTER (WHERE data_sintomas BETWEEN ? AND ?) AS atual_bruto,
+            count(*) FILTER (WHERE data_sintomas BETWEEN ? AND ?) AS anterior_bruto,
             count(*) FILTER (WHERE data_sintomas BETWEEN ? AND ?) AS atual,
-            count(*) FILTER (WHERE data_sintomas BETWEEN ? AND ?) AS anterior
+            count(*) FILTER (WHERE data_sintomas BETWEEN ? AND ?
+                             AND data_digitacao IS NOT NULL
+                             AND data_digitacao <= ?) AS anterior
         FROM {VIEW_ANALYTICS}
         WHERE {clause}
         """,
-        [current_start, cutoff, previous_start, previous_end, *parameters],
+        [
+            current_start,
+            cutoff,
+            previous_start,
+            previous_end,
+            current_start,
+            cutoff,
+            previous_start,
+            previous_end,
+            previous_observed_until,
+            *parameters,
+        ],
     ).fetchone()
 
-    current_cases, previous_cases = int(row[0]), int(row[1])
+    raw_current, raw_previous, current_cases, previous_cases = (int(value) for value in row)
     period = _period(
         previous_start,
         cutoff,
@@ -196,6 +234,14 @@ def case_growth_rate(
     components = {
         "casos_periodo_atual": current_cases,
         "casos_periodo_anterior": previous_cases,
+        # Contagens sem censura, publicadas para que a diferenca entre o valor
+        # corrigido e o ingenuo seja visivel em vez de afirmada.
+        "casos_periodo_atual_sem_censura": raw_current,
+        "casos_periodo_anterior_sem_censura": raw_previous,
+        "maturidade_simetrica_dias": maturity_days,
+        "janela_anterior_observada_ate": previous_observed_until.isoformat(),
+        "casos_excluidos_por_imaturidade": (raw_current - current_cases)
+        + (raw_previous - previous_cases),
         "janela_dias": window,
         "periodo_atual": _period(current_start, cutoff, "janela atual"),
         "periodo_anterior": _period(previous_start, previous_end, "janela anterior"),
@@ -206,8 +252,10 @@ def case_growth_rate(
     if previous_cases == 0:
         return _unavailable(
             CASE_GROWTH_RATE,
-            "A janela anterior nao possui casos registrados; a variacao "
-            "percentual e matematicamente indefinida (divisao por zero).",
+            "A janela anterior nao possui casos digitados ate "
+            f"{previous_observed_until.isoformat()} (fechamento da janela mais "
+            f"{maturity_days} dias de observacao); a variacao percentual e "
+            "matematicamente indefinida (divisao por zero).",
             period=period,
             filters=filters,
             numerator=current_cases - previous_cases,
@@ -328,33 +376,59 @@ def icu_metrics(
     row = connection.execute(
         f"""
         SELECT
-            count(*) FILTER (WHERE foi_hospitalizado)                       AS hospitalizados,
-            count(*) FILTER (WHERE foi_hospitalizado AND uti_informado)     AS uti_informado,
-            count(*) FILTER (WHERE foi_hospitalizado AND teve_admissao_uti) AS admitidos_uti,
-            count(*) FILTER (WHERE foi_hospitalizado AND UTI = 9)           AS uti_ignorado,
-            count(*) FILTER (WHERE foi_hospitalizado AND UTI IS NULL)       AS uti_ausente,
-            count(*) FILTER (WHERE teve_admissao_uti AND HOSPITAL IS NULL)  AS uti_sem_hospital
-        FROM {VIEW_ANALYTICS}
-        WHERE data_sintomas BETWEEN ? AND ? AND {clause}
+            count(*) FILTER (WHERE eh_internado)                     AS hospitalizados,
+            count(*) FILTER (WHERE eh_internado AND uti_informado)   AS uti_informado,
+            count(*) FILTER (WHERE eh_internado AND teve_admissao_uti) AS admitidos_uti,
+            count(*) FILTER (WHERE eh_internado AND UTI = 9)         AS uti_ignorado,
+            count(*) FILTER (WHERE eh_internado AND UTI IS NULL)     AS uti_ausente,
+            count(*) FILTER (WHERE teve_admissao_uti AND NOT foi_hospitalizado
+                             AND HOSPITAL IS NULL)                   AS uti_hospital_ausente,
+            count(*) FILTER (WHERE teve_admissao_uti AND HOSPITAL = 9) AS uti_hospital_ignorado,
+            count(*) FILTER (WHERE teve_admissao_uti AND HOSPITAL = 2) AS uti_hospital_negado
+        FROM (
+            SELECT *,
+                   -- Denominador da taxa de admissao em UTI. `HOSPITAL` ausente
+                   -- ou ignorado nao pode ser lido como "nao internado": esta
+                   -- base e de SRAG **hospitalizada**, e uma admissao em UTI
+                   -- declarada e evidencia direta de internacao. Tratar a
+                   -- ausencia como "Nao" era o unico ponto do pipeline onde
+                   -- missing virava negativa, contrariando a regra declarada em
+                   -- src/data/schema.py.
+                   foi_hospitalizado OR teve_admissao_uti AS eh_internado
+            FROM {VIEW_ANALYTICS}
+            WHERE data_sintomas BETWEEN ? AND ? AND {clause}
+        )
         """,
         [start, cutoff, *parameters],
     ).fetchone()
 
-    hospitalized, icu_known, icu_yes, icu_ignored, icu_absent, icu_no_hospital = (
-        int(value) for value in row
-    )
+    (
+        hospitalized,
+        icu_known,
+        icu_yes,
+        icu_ignored,
+        icu_absent,
+        icu_hospital_missing,
+        icu_hospital_ignored,
+        icu_hospital_denied,
+    ) = (int(value) for value in row)
     period = _period(start, cutoff, f"ultimos {window} dias ate a data de corte analitica")
 
     census = icu_patient_census(connection, filters, window_days=window)
     peak = max(census, key=lambda point: point["pacientes_em_uti"], default=None)
 
     components = {
-        "hospitalizados_no_periodo": hospitalized,
+        "internados_no_periodo": hospitalized,
         "com_informacao_de_uti": icu_known,
         "admitidos_em_uti": icu_yes,
         "uti_ignorado": icu_ignored,
         "uti_nao_informado": icu_absent,
-        "admitidos_em_uti_sem_campo_hospital": icu_no_hospital,
+        # Registros recuperados para o denominador por terem admissao em UTI
+        # declarada apesar de `HOSPITAL` nao dizer "Sim". Publicados em separado
+        # para que o efeito da regra seja auditavel, e nao apenas afirmado.
+        "admitidos_em_uti_com_hospital_ausente": icu_hospital_missing,
+        "admitidos_em_uti_com_hospital_ignorado": icu_hospital_ignored,
+        "admitidos_em_uti_com_hospital_negado": icu_hospital_denied,
         "censo_diario_pico_pacientes_em_uti": peak["pacientes_em_uti"] if peak else 0,
         "censo_diario_pico_data": peak["data"] if peak else None,
         "censo_diario_pico_percentual_imputado": (peak["percentual_imputado"] if peak else None),
@@ -448,17 +522,31 @@ def icu_stay_cap(connection: Any, filters: AnalyticFilters | None = None) -> dic
 #:
 #: Ordem de preferencia: saida registrada; data de evolucao (alta ou obito e um
 #: evento real, e a saida da UTI e anterior a ele); e, so entao, imputacao ate o
-#: teto de permanencia. Tudo limitado a data de corte.
+#: teto de permanencia.
+#:
+#: O teto limita **todos** os ramos imputados, nao apenas o ultimo. A versao
+#: anterior aplicava `entrada + teto` so dentro do `coalesce`, de modo que uma
+#: estadia sem `DT_SAIDUTI` mas com `DT_EVOLUCA` distante escapava do teto e era
+#: contada ate a data de corte -- reintroduzindo, por outro caminho, exatamente
+#: o defeito que o teto existe para corrigir. A saida registrada continua
+#: soberana: ela e o dado, nao uma imputacao, e por isso nao e truncada.
 _ICU_STAY_END_SQL = """
     least(
         coalesce(
             data_saida_uti,
-            data_evolucao,
+            least(
+                data_evolucao,
+                data_entrada_uti + to_days(CAST(? AS INTEGER))
+            ),
             data_entrada_uti + to_days(CAST(? AS INTEGER))
         ),
         CAST(? AS DATE)
     )
 """
+
+#: Numero de parametros consumidos por :data:`_ICU_STAY_END_SQL`, na ordem:
+#: teto (ramo da evolucao), teto (ramo em aberto), data de corte.
+_ICU_STAY_END_PARAMS = 3
 
 
 def icu_stay_completeness(
@@ -487,8 +575,12 @@ def icu_stay_completeness(
                 data_saida_uti IS NOT NULL AS saida_real,
                 data_saida_uti IS NULL AND data_evolucao IS NOT NULL AS por_evolucao,
                 data_saida_uti IS NULL AND data_evolucao IS NULL AS em_aberto,
-                data_saida_uti IS NULL AND data_evolucao IS NULL
-                    AND data_entrada_uti + to_days(CAST(? AS INTEGER)) < CAST(? AS DATE)
+                -- Truncamento pelo teto, em qualquer ramo imputado: sem saida
+                -- registrada e com o fim candidato (evolucao, ou o proprio
+                -- corte quando nao ha evolucao) alem de `entrada + teto`.
+                data_saida_uti IS NULL
+                    AND coalesce(data_evolucao, CAST(? AS DATE))
+                        > data_entrada_uti + to_days(CAST(? AS INTEGER))
                     AS truncada
             FROM {VIEW_ANALYTICS}
             WHERE estadia_uti_utilizavel AND {clause}
@@ -502,7 +594,7 @@ def icu_stay_completeness(
         FROM estadias
         WHERE entrada <= ? AND saida >= ?
         """,
-        [cap["dias"], cutoff, cap["dias"], cutoff, *parameters, cutoff, start],
+        [cap["dias"], cap["dias"], cutoff, cutoff, cap["dias"], *parameters, cutoff, start],
     ).fetchone()
 
     total, com_saida, por_evolucao, em_aberto, truncadas = (int(value) for value in row)
@@ -512,7 +604,7 @@ def icu_stay_completeness(
         "saida_registrada": com_saida,
         "permanencia_imputada_pela_data_de_evolucao": por_evolucao,
         "permanencia_imputada_em_aberto": em_aberto,
-        "das_quais_truncadas_pelo_teto": truncadas,
+        "imputadas_truncadas_pelo_teto": truncadas,
         "teto_de_permanencia_dias": cap["dias"],
         "origem_do_teto": cap["origem"],
         "percentual_com_saida_registrada": _ratio(com_saida, total) if total else None,
@@ -565,7 +657,7 @@ def icu_patient_census(
         GROUP BY calendario.dia
         ORDER BY calendario.dia
         """,
-        [start, cutoff, cap["dias"], cutoff, *parameters],
+        [start, cutoff, cap["dias"], cap["dias"], cutoff, *parameters],
     ).fetchall()
 
     return [
@@ -799,25 +891,38 @@ def incidence_rate(
     filters: AnalyticFilters | None = None,
     window_days: int | None = None,
 ) -> MetricResult:
-    """Casos notificados por 100 mil habitantes na janela analisada.
+    """Casos por 100 mil habitantes residentes na janela analisada.
 
     O denominador vem da tabela `populacao_uf` (estimativa do IBGE carregada em
     `data/reference/`). A classificacao final recorta o numerador, nao o
     denominador: a incidencia de covid-19 continua sendo por habitante.
+
+    O recorte geografico aqui e a UF de **residencia** (`SG_UF`), e nao a de
+    notificacao, porque o denominador do IBGE e populacao **residente**. Usar a
+    UF de notificacao compara universos diferentes: um paciente que mora em GO e
+    interna no DF entra no numerador do DF e no denominador de GO. Foi medido
+    que 2.807 registros (1,70%) tem residencia e notificacao em UFs distintas, e
+    o erro nao e uniforme -- concentra-se nas UFs com fluxo assistencial
+    liquido, com vies da ordem de 20 a 25% nelas.
+
+    Os registros sem UF de residencia ficam fora do numerador quando ha recorte
+    por UF, e o volume e publicado nos componentes.
     """
     filters = filters or AnalyticFilters()
     start, cutoff, window = _analysis_window(connection, window_days)
 
-    clause, parameters = filters.where_clause()
-    cases = int(
-        connection.execute(
-            f"""
-            SELECT count(*) FROM {VIEW_ANALYTICS}
-            WHERE data_sintomas BETWEEN ? AND ? AND {clause}
-            """,
-            [start, cutoff, *parameters],
-        ).fetchone()[0]
-    )
+    clause, parameters = filters.where_clause(uf_dimension="SG_UF")
+    row = connection.execute(
+        f"""
+        SELECT
+            count(*) FILTER (WHERE {clause}),
+            count(*) FILTER (WHERE uf_residencia IS NULL)
+        FROM {VIEW_ANALYTICS}
+        WHERE data_sintomas BETWEEN ? AND ?
+        """,
+        [*parameters, start, cutoff],
+    ).fetchone()
+    cases, without_residence = int(row[0]), int(row[1])
     population, reference_year = _reference_population(connection, filters, cutoff.year)
 
     period = _period(start, cutoff, f"ultimos {window} dias ate a data de corte analitica")
@@ -826,6 +931,8 @@ def incidence_rate(
         # A escala e parte do resultado: sem ela, "por 100 mil habitantes" na
         # redacao seria um numero sem lastro para o guardrail de evidencia.
         "escala": {"por_habitantes": 100_000, "em_milhares": 100},
+        "dimensao_geografica": "UF de residencia (SG_UF)",
+        "casos_sem_uf_de_residencia_na_janela": without_residence,
         "populacao_de_referencia": population,
         "ano_da_estimativa_populacional": reference_year,
         "fonte_da_populacao": "IBGE - populacao residente estimada (tabela 6579)",
@@ -874,18 +981,38 @@ def _shift_year(day: date, delta_years: int) -> date:
         return day.replace(year=target_year, day=28)
 
 
-def _years_present(connection: Any, years: list[int]) -> list[int]:
-    """Anos de baseline que tem ao menos um caso na base analitica."""
+def _years_present(
+    connection: Any, years: list[int], filters: AnalyticFilters | None = None
+) -> list[int]:
+    """Anos de baseline que tem ao menos um caso **dentro do recorte analitico**.
+
+    O recorte importa. Sem ele, um ano com casos no Brasil mas nenhum no estado
+    filtrado seria considerado "presente" e entraria na mediana do baseline com
+    valor zero -- derrubando a mediana e inflando o excesso sazonal, ou tornando
+    o indicador nao calculavel por "mediana zero" quando o correto seria
+    declarar o ano ausente. O efeito e maior justamente nas UFs pequenas, onde o
+    alerta mais importa.
+
+    Args:
+        connection: conexao com o banco analitico.
+        years: anos candidatos a baseline.
+        filters: recorte de UF/classificacao; sem ele, considera a base inteira.
+
+    Returns:
+        Anos com ao menos um caso no recorte, em ordem crescente.
+    """
     if not years:
         return []
+    filters = filters or AnalyticFilters()
+    clause, parameters = filters.where_clause()
     placeholders = ", ".join("?" for _ in years)
     rows = connection.execute(
         f"""
         SELECT DISTINCT year(data_sintomas)
         FROM {VIEW_ANALYTICS}
-        WHERE year(data_sintomas) IN ({placeholders})
+        WHERE year(data_sintomas) IN ({placeholders}) AND {clause}
         """,
-        years,
+        [*years, *parameters],
     ).fetchall()
     return sorted(int(row[0]) for row in rows)
 
@@ -908,7 +1035,9 @@ def seasonal_baseline(
 
     configured = sorted(set(settings.baseline_years) - set(PANDEMIC_YEARS))
     excluded_by_config = sorted(set(settings.baseline_years) & set(PANDEMIC_YEARS))
-    present = [year for year in _years_present(connection, configured) if year < cutoff.year]
+    present = [
+        year for year in _years_present(connection, configured, filters) if year < cutoff.year
+    ]
     absent = sorted(set(configured) - set(present))
 
     clause, parameters = filters.where_clause()
