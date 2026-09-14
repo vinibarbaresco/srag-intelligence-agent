@@ -138,6 +138,18 @@ maioria das métricas. Só a flag do eixo temporal exclui da camada analítica:
 | `flag_uti_inconsistente` | 4.194 | 0,79% | não |
 | `flag_evolucao_inconsistente` | 39.174 | 7,33% | não |
 
+**Rastreamento dos ajustes.** Flags de coerência dizem o que o dado tem de errado; a coluna
+`ajustes_aplicados` diz o que o pipeline **fez** com ele. Sem ela, um campo anulado pela limpeza
+seria indistinguível de um que já veio vazio da fonte — a alteração seria, na prática, silenciosa.
+Cada carga recebe um `run_id`, grava sua proveniência no relatório de qualidade e acrescenta uma
+linha a `ingestion_history.jsonl`, o que permite comparar versões da base.
+
+```sql
+SELECT ajustes_aplicados, count(*) FROM srag_cases
+WHERE ajustes_aplicados <> '' GROUP BY 1;
+-- idade_anulada | 2
+```
+
 **Imputação declarada, não escondida.** O censo de UTI precisa de uma data de saída; quando ela
 falta, a permanência é imputada pela data de evolução e, na ausência dela, até a data de corte. Na
 janela recente **32,2% das estadias caem nesse último caso**, o que superestima o censo — o número

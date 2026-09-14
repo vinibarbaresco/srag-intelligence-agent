@@ -214,8 +214,37 @@ COHERENCE_FLAGS: Final[dict[str, str]] = {
     ),
 }
 
-#: Conjunto completo de colunas derivadas, incluindo as flags de coerencia.
-ALL_DERIVED_COLUMNS: Final[tuple[str, ...]] = DERIVED_COLUMNS + tuple(COHERENCE_FLAGS)
+#: Coluna que registra, por registro, quais valores a ingestao alterou.
+#:
+#: Flags de coerencia descrevem o que o dado tem de errado; esta coluna descreve
+#: o que o pipeline *fez* com ele. Sao coisas diferentes: um registro pode estar
+#: incoerente sem ter sido tocado, e pode ter sido alterado sem estar incoerente.
+#:
+#: Conteudo: codigos separados por virgula, ou string vazia quando o registro
+#: chegou intacto a camada analitica. Permite localizar cada alteracao com SQL:
+#: `SELECT * FROM srag_cases WHERE ajustes_aplicados <> ''`.
+ADJUSTMENT_COLUMN: Final[str] = "ajustes_aplicados"
+
+#: Codigos de ajuste possiveis e o que cada um significa.
+ADJUSTMENT_CODES: Final[dict[str, str]] = {
+    "uf_anulada": (
+        "sigla de UF fora das 27 unidades federativas; o valor original era "
+        "inutilizavel e foi substituido por nulo"
+    ),
+    "idade_anulada": (
+        "idade normalizada fora do intervalo plausivel [0, 120] anos; "
+        "substituida por nulo"
+    ),
+    "data_ilegivel": (
+        "valor de data presente no arquivo bruto mas nao interpretavel em "
+        "nenhum dos formatos publicados pela fonte; substituido por nulo"
+    ),
+}
+
+#: Conjunto completo de colunas derivadas.
+ALL_DERIVED_COLUMNS: Final[tuple[str, ...]] = (
+    DERIVED_COLUMNS + tuple(COHERENCE_FLAGS) + (ADJUSTMENT_COLUMN,)
+)
 
 AGE_BANDS: Final[tuple[tuple[int, int, str], ...]] = (
     (0, 4, "0-4"),

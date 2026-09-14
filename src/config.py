@@ -140,6 +140,17 @@ class Settings(BaseSettings):
         return self.raw_dir / "manifest.json"
 
     @property
+    def ingestion_history_path(self) -> Path:
+        """Historico de cargas, uma linha JSON por execucao da ingestao.
+
+        `quality_report.json` guarda apenas a carga mais recente. Este arquivo
+        acumula o resumo de todas, permitindo comparar o que mudou entre duas
+        versoes da base -- inclusive detectar uma degradacao de qualidade na
+        fonte.
+        """
+        return self.processed_dir / "ingestion_history.jsonl"
+
+    @property
     def llm_enabled(self) -> bool:
         """Indica se ha credencial para a camada de interpretacao."""
         return bool(self.openai_api_key)

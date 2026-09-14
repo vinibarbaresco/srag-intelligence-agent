@@ -9,9 +9,12 @@ Responsabilidades:
 3. **Tratamento explicito de ausencia** -- o codigo `9-Ignorado` e preservado
    como esta e excluido dos denominadores na camada de metricas; nunca e
    convertido em `Nao` nem em zero.
-4. **Transparencia** -- nenhum registro e descartado silenciosamente.
-   Inconsistencias sao marcadas em `flag_data_invalida` e contabilizadas em
-   `data/processed/quality_report.json`.
+4. **Transparencia** -- nenhum registro e descartado nem alterado
+   silenciosamente. Inconsistencias viram flags de coerencia por dimensao, e
+   toda alteracao de valor e registrada no proprio registro, na coluna
+   `ajustes_aplicados`. Os totais vao para
+   `data/processed/quality_report.json`, e cada carga recebe um `run_id`
+   e uma linha em `data/processed/ingestion_history.jsonl`.
 
 Uso::
 
@@ -42,6 +45,8 @@ from src.config import (
     get_settings,
 )
 from src.data.schema import (
+    ADJUSTMENT_CODES,
+    ADJUSTMENT_COLUMN,
     AGE_BANDS,
     ALLOWED_COLUMNS,
     COHERENCE_FLAGS,
@@ -53,6 +58,7 @@ from src.data.schema import (
     VACCINE_DATE_COLUMNS,
     assert_no_denied_columns,
 )
+from src.observability.audit import AuditTrail
 from src.observability.logging_config import configure_logging, get_logger
 
 logger = get_logger(__name__)
@@ -76,15 +82,27 @@ class QualityReport:
     unknown_uf: int = 0
     coherence_flags: Counter = field(default_factory=Counter)
     age_out_of_range: int = 0
+    adjusted_rows: int = 0
+    adjustments: Counter = field(default_factory=Counter)
 
-    def to_dict(self, *, source_files: list[str]) -> dict:
+    def to_dict(self, *, source_files: list[str], run_id: str = "") -> dict:
         return {
+            "run_id": run_id,
             "generated_at": datetime.now(tz=timezone.utc).isoformat(),
             "source": DATASUS_SOURCE_LABEL,
             "source_files": source_files,
             "rows_read": self.rows_read,
             "rows_written": self.rows_written,
             "rows_dropped": self.rows_read - self.rows_written,
+            "rows_adjusted": self.adjusted_rows,
+            "adjustments": {
+                "por_codigo": dict(self.adjustments),
+                "significado": ADJUSTMENT_CODES,
+                "como_localizar": (
+                    "SELECT * FROM srag_cases WHERE ajustes_aplicados <> '' -- "
+                    "cada registro alterado carrega os codigos aplicados a ele"
+                ),
+            },
             "coherence_flags": {
                 name: {
                     "registros": self.coherence_flags[name],
@@ -116,6 +134,8 @@ class QualityReport:
                 "na camada de metricas, nunca convertido em 'Nao' ou zero.",
                 "Colunas com dados pessoais nao sao lidas do arquivo bruto "
                 "(ver DENIED_COLUMNS em src/data/schema.py).",
+                "Toda alteracao de valor e registrada por registro na coluna "
+                "ajustes_aplicados, alem de contabilizada aqui.",
             ],
         }
 
@@ -182,19 +202,25 @@ def transform_chunk(chunk: pd.DataFrame, year: int, report: QualityReport) -> pd
         report: acumulador das estatisticas de qualidade.
 
     Returns:
-        Bloco transformado, com as colunas derivadas e a flag de inconsistencia.
+        Bloco transformado, com as colunas derivadas, as flags de coerencia e a
+        coluna de ajustes aplicados.
     """
     report.rows_read += len(chunk)
     frame = chunk.copy()
+
+    # Cada alteracao de valor e registrada por registro, e nao apenas contada.
+    # Sem isso, um campo anulado pelo pipeline ficaria indistinguivel de um que
+    # ja veio vazio da fonte -- e a alteracao seria, na pratica, silenciosa.
+    adjustments = _AdjustmentLog(frame.index)
 
     for column in DATE_COLUMNS + VACCINE_DATE_COLUMNS:
         if column not in frame.columns:
             continue
         raw_present = frame[column].astype("string").str.strip().replace({"": pd.NA})
         frame[column] = _parse_dates(frame[column])
-        report.invalid_dates[column] += int(
-            (raw_present.notna() & frame[column].isna()).sum()
-        )
+        unreadable = raw_present.notna() & frame[column].isna()
+        report.invalid_dates[column] += int(unreadable.sum())
+        adjustments.add(f"data_ilegivel:{column}", unreadable)
         report.null_counts[column] += int(frame[column].isna().sum())
 
     for column in CATEGORICAL_COLUMNS:
@@ -205,7 +231,13 @@ def transform_chunk(chunk: pd.DataFrame, year: int, report: QualityReport) -> pd
         report.ignored_code_counts[column] += int((frame[column] == 9).sum())
 
     if "CS_SEXO" in frame.columns:
-        frame["CS_SEXO"] = frame["CS_SEXO"].astype("string").str.strip().str.upper()
+        frame["CS_SEXO"] = (
+            frame["CS_SEXO"]
+            .astype("string")
+            .str.strip()
+            .str.upper()
+            .replace({"": pd.NA})
+        )
         report.null_counts["CS_SEXO"] += int(frame["CS_SEXO"].isna().sum())
 
     for column in NUMERIC_COLUMNS:
@@ -215,9 +247,19 @@ def transform_chunk(chunk: pd.DataFrame, year: int, report: QualityReport) -> pd
     for column in GEOGRAPHIC_COLUMNS:
         if column not in frame.columns:
             continue
-        frame[column] = frame[column].astype("string").str.strip().str.upper()
+        # A string vazia e ausencia na origem, nao valor fora do dominio:
+        # normaliza-la antes evita contar (e marcar como ajuste) um campo que o
+        # pipeline nunca alterou.
+        frame[column] = (
+            frame[column]
+            .astype("string")
+            .str.strip()
+            .str.upper()
+            .replace({"": pd.NA})
+        )
         outside = frame[column].notna() & ~frame[column].isin(UF_CODES)
         report.unknown_uf += int(outside.sum())
+        adjustments.add(f"uf_anulada:{column}", outside)
         frame.loc[outside, column] = pd.NA
 
     frame["idade_anos"] = _age_in_years(frame["NU_IDADE_N"], frame["TP_IDADE"])
@@ -225,6 +267,7 @@ def transform_chunk(chunk: pd.DataFrame, year: int, report: QualityReport) -> pd
         (frame["idade_anos"] < 0) | (frame["idade_anos"] > 120)
     )
     report.age_out_of_range += int(implausible.sum())
+    adjustments.add("idade_anulada", implausible)
     frame.loc[implausible, "idade_anos"] = pd.NA
     frame["faixa_etaria"] = _age_band(frame["idade_anos"])
 
@@ -232,10 +275,54 @@ def transform_chunk(chunk: pd.DataFrame, year: int, report: QualityReport) -> pd
     for name, values in _coherence_flags(frame).items():
         frame[name] = values
         report.coherence_flags[name] += int(values.sum())
+
+    frame[ADJUSTMENT_COLUMN] = adjustments.to_series()
+    report.adjusted_rows += int(adjustments.affected_rows())
+    for code, count in adjustments.counts().items():
+        report.adjustments[code] += count
     report.rows_written += len(frame)
 
     assert_no_denied_columns(list(frame.columns))
     return frame
+
+
+class _AdjustmentLog:
+    """Acumula, por registro, os ajustes que a ingestao aplicou.
+
+    Existe para que a afirmacao "nada e alterado silenciosamente" valha no nivel
+    do registro, e nao apenas no agregado: depois da carga e possivel localizar
+    exatamente quais linhas o pipeline tocou, e por que.
+    """
+
+    def __init__(self, index: pd.Index) -> None:
+        self._index = index
+        self._entries: list[tuple[str, pd.Series]] = []
+
+    def add(self, code: str, mask: pd.Series) -> None:
+        """Registra que `code` foi aplicado aos registros marcados em `mask`."""
+        mask = mask.fillna(False).astype(bool)
+        if mask.any():
+            self._entries.append((code, mask))
+
+    def to_series(self) -> pd.Series:
+        """Codigos aplicados a cada registro, separados por virgula."""
+        result = pd.Series("", index=self._index, dtype="string")
+        for code, mask in self._entries:
+            result[mask] = result[mask].str.cat([code] * int(mask.sum()), sep=",")
+        return result.str.lstrip(",")
+
+    def affected_rows(self) -> int:
+        """Numero de registros que sofreram ao menos um ajuste."""
+        if not self._entries:
+            return 0
+        combined = pd.Series(False, index=self._index)
+        for _, mask in self._entries:
+            combined |= mask
+        return int(combined.sum())
+
+    def counts(self) -> dict[str, int]:
+        """Quantidade de registros afetados por codigo de ajuste."""
+        return {code: int(mask.sum()) for code, mask in self._entries}
 
 
 def _coherence_flags(frame: pd.DataFrame) -> dict[str, pd.Series]:
@@ -331,12 +418,19 @@ def preprocess_year(
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
-def preprocess(years: list[int], chunk_size: int = _DEFAULT_CHUNK_SIZE) -> Path:
+def preprocess(
+    years: list[int],
+    chunk_size: int = _DEFAULT_CHUNK_SIZE,
+    *,
+    trail: AuditTrail | None = None,
+) -> Path:
     """Transforma os anos solicitados e grava a camada processada em Parquet.
 
     Args:
         years: anos ja baixados em `data/raw`.
         chunk_size: numero de linhas lidas por bloco.
+        trail: trilha de auditoria da carga; criada automaticamente se omitida,
+            para que toda ingestao tenha um `run_id` rastreavel.
 
     Returns:
         Caminho do Parquet gerado.
@@ -346,6 +440,7 @@ def preprocess(years: list[int], chunk_size: int = _DEFAULT_CHUNK_SIZE) -> Path:
     """
     settings = get_settings()
     settings.ensure_directories()
+    trail = trail or AuditTrail()
 
     manifest_path = settings.raw_manifest_path
     if not manifest_path.exists():
@@ -358,6 +453,7 @@ def preprocess(years: list[int], chunk_size: int = _DEFAULT_CHUNK_SIZE) -> Path:
     report = QualityReport()
     frames: list[pd.DataFrame] = []
     source_files: list[str] = []
+    provenance: list[dict] = []
 
     for year in sorted(years):
         entry = manifest.get(str(year))
@@ -376,26 +472,84 @@ def preprocess(years: list[int], chunk_size: int = _DEFAULT_CHUNK_SIZE) -> Path:
                 "acessivel; registre-o novamente."
             )
         source_files.append(entry["filename"])
-        frames.append(preprocess_year(path, year, report, chunk_size))
+        with trail.step(
+            node="preprocess",
+            tool=f"preprocess_year:{year}",
+            parameters={"ano": year, "arquivo": entry["filename"]},
+            source=entry.get("origin", DATASUS_SOURCE_LABEL),
+        ) as audit:
+            frames.append(preprocess_year(path, year, report, chunk_size))
+            audit["summary"] = f"{report.rows_read} linhas lidas ate aqui"
+        provenance.append(
+            {
+                "year": year,
+                "filename": entry["filename"],
+                "sha256": entry.get("sha256"),
+                "origin": entry.get("origin", "desconhecida"),
+            }
+        )
 
     combined = pd.concat(frames, ignore_index=True)
     assert_no_denied_columns(list(combined.columns))
 
     combined.to_parquet(settings.processed_parquet_path, index=False)
+
+    payload = report.to_dict(source_files=source_files, run_id=trail.run_id)
+    payload["provenance"] = provenance
     settings.quality_report_path.write_text(
-        json.dumps(report.to_dict(source_files=source_files), ensure_ascii=False, indent=2),
-        encoding="utf-8",
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+    _append_history(settings.ingestion_history_path, payload)
+
+    trail.record(
+        node="preprocess",
+        status="ok",
+        result_summary=(
+            f"{report.rows_written} linhas gravadas, {report.adjusted_rows} ajustadas"
+        ),
+        parameters={"anos": sorted(years)},
+        source=DATASUS_SOURCE_LABEL,
+    )
+    trail.persist_to_database()
 
     logger.info(
         "pre-processamento concluido",
         extra={
+            "run_id": trail.run_id,
             "linhas": len(combined),
             "colunas": len(combined.columns),
+            "linhas_ajustadas": report.adjusted_rows,
             "parquet": str(settings.processed_parquet_path),
         },
     )
     return settings.processed_parquet_path
+
+
+def _append_history(path: Path, payload: dict) -> None:
+    """Acrescenta o resumo da carga ao historico de ingestoes.
+
+    Guarda apenas os totais: o detalhe fica no `quality_report.json` da carga
+    corrente e na coluna de ajustes da propria base. O objetivo aqui e permitir
+    comparar cargas -- perceber, por exemplo, que a proporcao de registros
+    ajustados dobrou depois de uma republicacao da fonte.
+    """
+    summary = {
+        "run_id": payload["run_id"],
+        "generated_at": payload["generated_at"],
+        "source_files": payload["source_files"],
+        "provenance": payload.get("provenance", []),
+        "rows_read": payload["rows_read"],
+        "rows_written": payload["rows_written"],
+        "rows_dropped": payload["rows_dropped"],
+        "rows_adjusted": payload["rows_adjusted"],
+        "adjustments": payload["adjustments"]["por_codigo"],
+        "coherence_flags": {
+            name: detail["registros"]
+            for name, detail in payload["coherence_flags"].items()
+        },
+    }
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(summary, ensure_ascii=False) + "\n")
 
 
 def main(argv: list[str] | None = None) -> int:

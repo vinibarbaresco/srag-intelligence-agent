@@ -354,13 +354,53 @@ def _data_quality_section(state: dict[str, Any]) -> str:
     except (json.JSONDecodeError, OSError):
         return ""
 
+    adjustments = report.get("adjustments") or {}
+    by_code = adjustments.get("por_codigo") or {}
+
     lines = [
         "## Qualidade e tratamento dos dados",
         "",
+        f"- **Carga (run_id):** `{report.get('run_id')}`",
+        f"- **Processada em:** {str(report.get('generated_at', ''))[:19]}",
         f"- **Arquivos de origem:** {', '.join(report.get('source_files', []))}",
         f"- **Registros lidos:** {report.get('rows_read'):,}".replace(",", "."),
         f"- **Registros descartados:** {report.get('rows_dropped')} "
         "(nenhum registro e removido silenciosamente)",
+        f"- **Registros com valor alterado:** {report.get('rows_adjusted')}",
+        "",
+        "### Proveniencia dos dados",
+        "",
+        "| Ano | Arquivo | sha256 | Origem |",
+        "|-----|---------|--------|--------|",
+        *(
+            f"| {item.get('year')} | `{item.get('filename')}` | "
+            f"`{str(item.get('sha256'))[:16]}...` | {item.get('origin')} |"
+            for item in (report.get("provenance") or [])
+        ),
+        "",
+        "### Alteracoes de valor aplicadas",
+        "",
+        "Toda alteracao e registrada no proprio registro, na coluna "
+        "`ajustes_aplicados`. Os registros afetados podem ser localizados "
+        "individualmente: "
+        "`SELECT * FROM srag_cases WHERE ajustes_aplicados <> ''`.",
+        "",
+    ]
+
+    if by_code:
+        lines += [
+            "| Codigo | Registros | Significado |",
+            "|--------|-----------|-------------|",
+            *(
+                f"| `{code}` | {count} | "
+                f"{_escape_cell(_adjustment_meaning(code, adjustments))} |"
+                for code, count in sorted(by_code.items())
+            ),
+        ]
+    else:
+        lines.append("Nenhum valor foi alterado nesta carga.")
+
+    lines += [
         "",
         "### Flags de coerencia",
         "",
@@ -401,6 +441,18 @@ def _data_quality_section(state: dict[str, Any]) -> str:
         lines += [f"| `{column}` | {count} |" for column, count in relevantes.items()]
 
     return "\n".join(lines)
+
+
+def _escape_cell(text: str) -> str:
+    """Escapa o separador de coluna do Markdown."""
+    return str(text).replace("|", "\\|")
+
+
+def _adjustment_meaning(code: str, adjustments: dict[str, Any]) -> str:
+    """Descricao do codigo de ajuste, tolerando o sufixo de coluna."""
+    meanings = adjustments.get("significado") or {}
+    base = code.split(":", 1)[0]
+    return meanings.get(base, base)
 
 
 def _limitations_section(state: dict[str, Any]) -> str:

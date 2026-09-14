@@ -30,6 +30,8 @@ from src.config import (  # noqa: E402
     get_settings,
 )
 from src.data.schema import (  # noqa: E402
+    ADJUSTMENT_CODES,
+    ADJUSTMENT_COLUMN,
     AGE_BANDS,
     ALLOWED_COLUMNS,
     CODE_LABELS,
@@ -212,6 +214,47 @@ def build_transformation_doc() -> str:
             f"{_escape(description)} |"
             for name, description in COHERENCE_FLAGS.items()
         ),
+        "",
+        "## Rastreamento dos ajustes",
+        "",
+        "Flags de coerencia descrevem o que o dado tem de errado. Esta secao "
+        "trata do que o pipeline **fez** com ele -- sao coisas distintas: um "
+        "registro pode estar incoerente sem ter sido tocado, e pode ter sido "
+        "alterado sem estar incoerente.",
+        "",
+        f"Toda alteracao de valor e gravada no proprio registro, na coluna "
+        f"`{ADJUSTMENT_COLUMN}` (codigos separados por virgula; vazia quando o "
+        "registro chegou intacto). Isso torna cada alteracao localizavel:",
+        "",
+        "```sql",
+        f"SELECT ano_referencia, {ADJUSTMENT_COLUMN}, count(*)",
+        f"FROM srag_cases WHERE {ADJUSTMENT_COLUMN} <> '' GROUP BY 1, 2;",
+        "```",
+        "",
+        "Sem isso, um campo anulado pelo pipeline seria indistinguivel de um "
+        "que ja veio vazio da fonte -- e a alteracao seria, na pratica, "
+        "silenciosa.",
+        "",
+        "| Codigo | Significado |",
+        "|--------|-------------|",
+        *(
+            f"| `{code}` | {_escape(description)} |"
+            for code, description in ADJUSTMENT_CODES.items()
+        ),
+        "",
+        "### Rastreabilidade da carga",
+        "",
+        "| Artefato | Conteudo |",
+        "|----------|----------|",
+        "| `data/raw/manifest.json` | proveniencia do arquivo-fonte: origem, "
+        "URL ou caminho, tamanho, sha256 e data |",
+        "| `data/processed/quality_report.json` | `run_id` da carga, contagens "
+        "por regra, flags, ajustes e proveniencia |",
+        "| `data/processed/ingestion_history.jsonl` | uma linha por carga, para "
+        "comparar versoes da base e detectar degradacao na fonte |",
+        "| coluna `ajustes_aplicados` | alteracoes aplicadas a cada registro |",
+        "| tabela `audit_events` | eventos da ingestao e das execucoes do "
+        "agente, consultaveis por `run_id` |",
         "",
         "## Janela de analise",
         "",

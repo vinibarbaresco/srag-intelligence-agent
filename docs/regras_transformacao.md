@@ -109,6 +109,35 @@ Por isso a coerencia e avaliada por dimensao. Cada metrica exclui somente o que 
 | `flag_uti_inconsistente` | nao | DT_ENTUTI anterior aos primeiros sintomas, DT_SAIDUTI anterior a DT_ENTUTI, ou UTI=1 sem data de entrada. Afeta o censo de UTI, que depende da permanencia. |
 | `flag_evolucao_inconsistente` | nao | DT_EVOLUCA anterior aos primeiros sintomas, ou caso encerrado (EVOLUCAO em 1,2,3) sem data de evolucao. Nao afeta a taxa de mortalidade, que usa o codigo e nao a data, mas afeta a imputacao de permanencia em UTI. |
 
+## Rastreamento dos ajustes
+
+Flags de coerencia descrevem o que o dado tem de errado. Esta secao trata do que o pipeline **fez** com ele -- sao coisas distintas: um registro pode estar incoerente sem ter sido tocado, e pode ter sido alterado sem estar incoerente.
+
+Toda alteracao de valor e gravada no proprio registro, na coluna `ajustes_aplicados` (codigos separados por virgula; vazia quando o registro chegou intacto). Isso torna cada alteracao localizavel:
+
+```sql
+SELECT ano_referencia, ajustes_aplicados, count(*)
+FROM srag_cases WHERE ajustes_aplicados <> '' GROUP BY 1, 2;
+```
+
+Sem isso, um campo anulado pelo pipeline seria indistinguivel de um que ja veio vazio da fonte -- e a alteracao seria, na pratica, silenciosa.
+
+| Codigo | Significado |
+|--------|-------------|
+| `uf_anulada` | sigla de UF fora das 27 unidades federativas; o valor original era inutilizavel e foi substituido por nulo |
+| `idade_anulada` | idade normalizada fora do intervalo plausivel [0, 120] anos; substituida por nulo |
+| `data_ilegivel` | valor de data presente no arquivo bruto mas nao interpretavel em nenhum dos formatos publicados pela fonte; substituido por nulo |
+
+### Rastreabilidade da carga
+
+| Artefato | Conteudo |
+|----------|----------|
+| `data/raw/manifest.json` | proveniencia do arquivo-fonte: origem, URL ou caminho, tamanho, sha256 e data |
+| `data/processed/quality_report.json` | `run_id` da carga, contagens por regra, flags, ajustes e proveniencia |
+| `data/processed/ingestion_history.jsonl` | uma linha por carga, para comparar versoes da base e detectar degradacao na fonte |
+| coluna `ajustes_aplicados` | alteracoes aplicadas a cada registro |
+| tabela `audit_events` | eventos da ingestao e das execucoes do agente, consultaveis por `run_id` |
+
 ## Janela de analise
 
 Toda janela temporal e ancorada na **maior data de digitacao da base** (`max(DT_DIGITA)`), nunca em `today()`: a base publicada tem defasagem em relacao ao dia corrente. Da data de referencia sao descontados `REPORTING_LAG_DAYS` dias, para nao confundir atraso de notificacao com queda real de casos. A tool `get_notification_completeness` mede os percentis do atraso observado e sinaliza quando o corte configurado e menor que o percentil 75.

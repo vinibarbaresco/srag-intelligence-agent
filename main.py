@@ -40,8 +40,14 @@ def _run_setup(
     from src.data.load_database import load_database
     from src.data.preprocess import preprocess
     from src.news.ingest import ingest_news
+    from src.observability.audit import AuditTrail
 
     settings = get_settings()
+    # Uma unica trilha para toda a preparacao: download, transformacao, carga e
+    # ingestao de noticias compartilham o mesmo run_id, de modo que a origem de
+    # uma base possa ser reconstituida a partir de um unico identificador.
+    trail = AuditTrail()
+    print(f"Preparacao (run_id): {trail.run_id}\n")
 
     try:
         if csv_paths:
@@ -57,13 +63,13 @@ def _run_setup(
             download_years(target_years)
 
         print("[2/4] Pre-processando e aplicando o contrato de colunas...")
-        preprocess(target_years)
+        preprocess(target_years, trail=trail)
 
         print("[3/4] Carregando o banco analitico DuckDB...")
         load_database()
 
         print("[4/4] Coletando noticias e populando o Vector DB...")
-        summary = ingest_news()
+        summary = ingest_news(trail=trail)
         print(f"      {summary['noticias_gravadas']} noticias gravadas.")
     except (DownloadError, FileNotFoundError, ValueError) as exc:
         logger.error("preparacao falhou", extra={"motivo": str(exc)})

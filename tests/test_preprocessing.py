@@ -12,6 +12,8 @@ import pytest
 
 from src.data.preprocess import QualityReport, _age_in_years, _parse_dates, transform_chunk
 from src.data.schema import (
+    ADJUSTMENT_CODES,
+    ADJUSTMENT_COLUMN,
     ALLOWED_COLUMNS,
     DENIED_COLUMNS,
     MISSING_CODES,
@@ -212,3 +214,62 @@ class TestRelatorioDeQualidade:
         # Apenas a flag do eixo temporal exclui o registro da view analitica.
         excluem = [n for n, d in flags.items() if d["exclui_da_view_analitica"]]
         assert excluem == ["flag_data_invalida"]
+
+
+class TestRastreamentoDeAjustes:
+    """Toda alteracao de valor deve ser localizavel no proprio registro."""
+
+    def test_registro_intacto_nao_recebe_marcacao(self):
+        frame = transform_chunk(_raw_chunk(), 2026, QualityReport())
+        assert frame[ADJUSTMENT_COLUMN].iloc[0] == ""
+
+    def test_idade_anulada_e_marcada_no_registro(self):
+        report = QualityReport()
+        frame = transform_chunk(_raw_chunk(NU_IDADE_N="200"), 2026, report)
+
+        assert frame[ADJUSTMENT_COLUMN].iloc[0] == "idade_anulada"
+        assert report.adjusted_rows == 1
+        assert report.adjustments["idade_anulada"] == 1
+
+    def test_uf_anulada_identifica_a_coluna_afetada(self):
+        frame = transform_chunk(_raw_chunk(SG_UF_NOT="ZZ"), 2026, QualityReport())
+        assert frame[ADJUSTMENT_COLUMN].iloc[0] == "uf_anulada:SG_UF_NOT"
+
+    def test_data_ilegivel_identifica_a_coluna_afetada(self):
+        frame = transform_chunk(_raw_chunk(DT_EVOLUCA="nao-e-data"), 2026, QualityReport())
+        assert frame[ADJUSTMENT_COLUMN].iloc[0] == "data_ilegivel:DT_EVOLUCA"
+
+    def test_ajustes_multiplos_sao_acumulados_no_mesmo_registro(self):
+        report = QualityReport()
+        frame = transform_chunk(
+            _raw_chunk(NU_IDADE_N="200", SG_UF_NOT="ZZ", DT_EVOLUCA="lixo"),
+            2026,
+            report,
+        )
+
+        codigos = set(frame[ADJUSTMENT_COLUMN].iloc[0].split(","))
+        assert codigos == {"idade_anulada", "uf_anulada:SG_UF_NOT", "data_ilegivel:DT_EVOLUCA"}
+        # Um registro com tres ajustes conta como UM registro alterado.
+        assert report.adjusted_rows == 1
+
+    def test_valor_anulado_e_distinguivel_de_valor_ausente_na_origem(self):
+        """A razao de existir do rastreamento por registro."""
+        anulado = transform_chunk(_raw_chunk(SG_UF_NOT="ZZ"), 2026, QualityReport())
+        vazio = transform_chunk(_raw_chunk(SG_UF_NOT=""), 2026, QualityReport())
+
+        # Ambos terminam com SG_UF_NOT nulo...
+        assert pd.isna(anulado["SG_UF_NOT"].iloc[0])
+        assert pd.isna(vazio["SG_UF_NOT"].iloc[0])
+        # ...mas apenas um foi alterado pelo pipeline, e isso e recuperavel.
+        assert anulado[ADJUSTMENT_COLUMN].iloc[0] == "uf_anulada:SG_UF_NOT"
+        assert vazio[ADJUSTMENT_COLUMN].iloc[0] == ""
+
+    def test_relatorio_declara_como_localizar_os_registros(self):
+        report = QualityReport()
+        transform_chunk(_raw_chunk(NU_IDADE_N="200"), 2026, report)
+        payload = report.to_dict(source_files=["INFLUD26.csv"], run_id="run-1")
+
+        assert payload["run_id"] == "run-1"
+        assert payload["rows_adjusted"] == 1
+        assert "ajustes_aplicados" in payload["adjustments"]["como_localizar"]
+        assert set(payload["adjustments"]["significado"]) == set(ADJUSTMENT_CODES)
