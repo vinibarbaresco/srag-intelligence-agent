@@ -35,6 +35,9 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+# Ambientes de verificacao local contra as versoes fixadas em
+# requirements.txt (ex.: .venv-ci), usados para reproduzir a CI.
+.venv-*/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/

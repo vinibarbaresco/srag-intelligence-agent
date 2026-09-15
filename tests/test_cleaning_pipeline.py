@@ -312,14 +312,47 @@ class TestCoerenciaRevisada:
         frame = self._derive(context, UTI="", DT_ENTUTI="", DT_SAIDUTI="2026-05-15")
         assert bool(frame["flag_uti_inconsistente"].iloc[0]) is True
 
-    def test_data_implausivel_ano_5202(self, context):
-        """Erro de digitacao de ano preserva a ordem entre as datas e escapa das demais regras."""
-        frame = self._derive(context, DT_INTERNA="5202-05-09")
+    def test_data_implausivel_ano_2202(self, context):
+        """Erro de digitacao de ano preserva a ordem entre as datas e escapa das demais regras.
+
+        2202-06-07 e o maior valor de `DT_INTERNA` medido na base de referencia.
+        Esta dentro do intervalo representavel por `Timestamp` em qualquer versao
+        do pandas suportada, entao o caminho exercitado aqui e sempre o da flag.
+        """
+        frame = self._derive(context, DT_INTERNA="2202-06-07")
 
         assert bool(frame["flag_data_implausivel"].iloc[0]) is True
         # Marca e conta, mas nao exclui: so flag_data_invalida tira da view.
         assert bool(frame["flag_data_invalida"].iloc[0]) is False
         assert context.report.coherence_flags["flag_data_implausivel"] == 1
+
+    def test_ano_fora_do_intervalo_representavel_nunca_vira_data_utilizavel(self, context):
+        """Ano absurdo alem do limite de `Timestamp` e barrado por um dos dois caminhos.
+
+        O limite depende da versao do pandas: em 2.x a resolucao e sempre
+        nanossegundos e `5202-05-09` estoura `Timestamp.max` (2262-04-11),
+        virando `NaT` no parse; em 3.x a resolucao se adapta e a data e
+        representada, chegando a regra de plausibilidade.
+
+        O teste afirma o que importa em qualquer uma das duas: o valor **nunca**
+        vira uma data utilizavel em silencio. Ou e marcado como implausivel, ou e
+        anulado no parse e registrado como ajuste `data_ilegivel` -- que existe
+        exatamente para distinguir "presente e ilegivel" de "vazio na origem".
+        """
+        frame = self._derive(context, DT_INTERNA="5202-05-09")
+
+        marcado_como_implausivel = bool(frame["flag_data_implausivel"].iloc[0])
+        anulado_no_parse = bool(frame["DT_INTERNA"].isna().iloc[0])
+        assert marcado_como_implausivel or anulado_no_parse
+
+        if anulado_no_parse:
+            assert context.report.invalid_dates["DT_INTERNA"] == 1
+            # O ajuste e lido do contexto, e nao da coluna `ajustes_aplicados`:
+            # ela e escrita por `clean_chunk` ao fim do bloco, e este teste
+            # aplica as regras diretamente.
+            assert context.adjustments.counts()["data_ilegivel:DT_INTERNA"] == 1
+        else:
+            assert context.report.coherence_flags["flag_data_implausivel"] == 1
 
     def test_data_anterior_ao_inicio_da_serie_e_implausivel(self, context):
         frame = self._derive(context, DT_INTERNA="1695-01-17")
