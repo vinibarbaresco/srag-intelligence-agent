@@ -127,7 +127,7 @@ class TestUTI:
         )
         assert soma == completude["estadias_no_censo"]  # toda estadia cai em um so caso
         assert completude["percentual_com_saida_registrada"] == pytest.approx(100.0)
-        assert completude["das_quais_truncadas_pelo_teto"] == 0
+        assert completude["imputadas_truncadas_pelo_teto"] == 0
         assert "teto" in completude["efeito_da_imputacao"]
 
     def test_teto_de_permanencia_e_empirico_e_declarado(self, connection):

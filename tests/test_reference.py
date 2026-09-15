@@ -144,7 +144,7 @@ class TestToolsComplementares:
         result = call_tool("get_incidence_rate", {"uf": "SP"})
         assert result["metric"] == "incidence_rate"
         assert result["value"] == pytest.approx(1.5)
-        assert result["unit"] == "por 100 mil hab."
+        assert result["unit"] == "por 100 mil hab. no periodo"
 
     def test_baseline_via_tool(self, synthetic_database):
         result = call_tool("get_seasonal_baseline", {})

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 from src.data.cleaning.base import CleaningContext, CleaningRule
@@ -10,8 +11,10 @@ from src.data.schema import (
     CODE_LABELS,
     GEOGRAPHIC_COLUMNS,
     MISSING_CODES,
+    MISSING_CODES_BY_COLUMN,
     NUMERIC_COLUMNS,
     UF_CODES,
+    missing_codes_for,
 )
 
 #: Coluna categorica textual, tratada a parte das numericas.
@@ -28,18 +31,48 @@ def _normalize_text(series: pd.Series) -> pd.Series:
     return series.astype("string").str.strip().str.upper().replace({"": pd.NA})
 
 
+def _to_nullable_int(series: pd.Series, dtype: str) -> pd.Series:
+    """Converte para inteiro nulavel **sem** deixar valor estourar o dtype.
+
+    `astype("Int16")` faz wraparound silencioso: `65537` vira `1`, que e um
+    codigo valido ("Sim") no dicionario. O valor corrompido nao aparece como
+    ilegivel, nem como fora do dominio, nem como ajuste -- e a corrupcao mais
+    perigosa possivel, porque o resultado e indistinguivel de um dado bom.
+
+    Aqui o valor fora do intervalo representavel vira nulo **antes** do
+    `astype`, e o chamador o contabiliza como `codigo_ilegivel` pelo mesmo
+    caminho de um valor nao numerico. Um codigo apenas fora do dominio
+    declarado (um `7` em UTI, por exemplo) continua preservado: ele cabe no
+    dtype e e assunto de `out_of_domain_counts`, nao desta funcao.
+
+    Args:
+        series: coluna bruta, como lida do CSV.
+        dtype: inteiro nulavel de destino (`"Int16"`, `"Int32"`).
+
+    Returns:
+        Coluna no dtype pedido, com nulo onde o valor nao era numerico ou nao
+        cabia no intervalo.
+    """
+    numeric = pd.to_numeric(series, errors="coerce")
+    info = np.iinfo(dtype.lower())
+    representable = numeric.between(info.min, info.max)
+    return numeric.where(representable).astype(dtype)
+
+
 class NormalizeCategoricalCodes(CleaningRule):
     """Converte os codigos categoricos numericos para inteiro nulavel."""
 
     name = "normaliza_codigos_categoricos"
     description = (
         "Converte os campos categoricos do SIVEP-Gripe para inteiro nulavel, "
-        f"contabiliza os codigos de ausencia {sorted(MISSING_CODES)} (Ignorado) e "
-        "conta os codigos fora do dominio declarado no dicionario oficial. Nada e "
+        f"contabiliza os codigos de ausencia (padrao {sorted(MISSING_CODES)}, "
+        f"vazio em {sorted(MISSING_CODES_BY_COLUMN)}, que nao possuem o codigo 9 "
+        "no dicionario) e conta os codigos fora do dominio declarado. Nada e "
         "anulado nem convertido: o codigo e preservado como esta, e quem o exclui "
-        "e a camada de metricas, ao montar numerador e denominador. Um codigo "
-        "fora do dominio fica visivel no relatorio de qualidade em vez de se "
-        "confundir com um caso em aberto."
+        "e a camada de metricas, ao montar numerador e denominador. Um valor "
+        "presente mas nao numerico, ou numerico grande demais para caber no "
+        "tipo de destino, vira nulo e e registrado como ajuste `codigo_ilegivel`, "
+        "para nao se confundir com um campo vazio na origem."
     )
 
     def apply(self, frame: pd.DataFrame, context: CleaningContext) -> pd.DataFrame:
@@ -47,15 +80,35 @@ class NormalizeCategoricalCodes(CleaningRule):
             if column not in frame.columns or column == _SEX_COLUMN:
                 continue
 
-            frame[column] = pd.to_numeric(frame[column], errors="coerce").astype("Int16")
-            context.report.null_counts[column] += int(frame[column].isna().sum())
-            for code in MISSING_CODES:
-                context.report.ignored_code_counts[column] += int((frame[column] == code).sum())
+            # Mesma contabilidade que `dates.py` faz para datas: `to_numeric`
+            # com `errors="coerce"` transforma "X" e "" no mesmo nulo, e sem
+            # medir antes nao ha como distinguir um campo preenchido com lixo de
+            # um campo que nunca foi preenchido. A promessa "nada e alterado
+            # silenciosamente" tem de valer aqui tambem.
+            present_before = _normalize_text(frame[column]).notna()
+            frame[column] = _to_nullable_int(frame[column], "Int16")
+
+            unreadable = present_before & frame[column].isna()
+            context.report.unreadable_codes[column] += int(unreadable.sum())
+            context.adjustments.add(f"codigo_ilegivel:{column}", unreadable)
+
+            context.report.code_totals[column] += len(frame)
+            absent = frame[column].isna()
+            context.report.null_counts[column] += int(absent.sum())
 
             domain = CODE_LABELS.get(column)
             if domain:
                 outside = frame[column].notna() & ~frame[column].isin(list(domain))
                 context.report.out_of_domain_counts[column] += int(outside.sum())
+            else:  # sem dominio declarado nao ha como afirmar "fora do dominio"
+                outside = pd.Series(False, index=frame.index)
+
+            # "Ignorado" so existe onde o dicionario o preve. Um 9 em CLASSI_FIN
+            # nao e ausencia declarada: e codigo inexistente, e ja foi contado
+            # acima como fora do dominio. Contar nas duas categorias quebraria a
+            # identidade total = validos + ignorados + ausentes + fora_do_dominio.
+            ignored = frame[column].isin(list(missing_codes_for(column))) & ~outside
+            context.report.ignored_code_counts[column] += int(ignored.fillna(False).sum())
 
         return frame
 
@@ -88,7 +141,7 @@ class NormalizeNumericColumns(CleaningRule):
     def apply(self, frame: pd.DataFrame, context: CleaningContext) -> pd.DataFrame:
         for column in NUMERIC_COLUMNS:
             if column in frame.columns:
-                frame[column] = pd.to_numeric(frame[column], errors="coerce").astype("Int32")
+                frame[column] = _to_nullable_int(frame[column], "Int32")
         return frame
 
 

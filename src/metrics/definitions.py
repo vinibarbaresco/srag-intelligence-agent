@@ -128,15 +128,26 @@ CASE_GROWTH_RATE = MetricDefinition(
         "(casos_periodo_atual - casos_periodo_anterior) / casos_periodo_anterior x 100."
     ),
     numerator="casos com DT_SIN_PRI na janela atual menos casos na janela anterior",
-    denominator="casos com DT_SIN_PRI na janela anterior",
+    denominator=(
+        "casos com DT_SIN_PRI na janela anterior digitados ate o fechamento "
+        "dessa janela mais REPORTING_LAG_DAYS dias"
+    ),
     fields=("DT_SIN_PRI", "DT_DIGITA"),
     period="duas janelas consecutivas de GROWTH_WINDOW_DAYS dias (padrao: 30)",
     missing_data_handling=(
         "Registros sem DT_SIN_PRI ou com linha do tempo inconsistente ficam fora "
-        "da view analitica e sao contabilizados no relatorio de qualidade."
+        "da view analitica e sao contabilizados no relatorio de qualidade. "
+        "Registros da janela anterior digitados depois do prazo de observacao "
+        "dela ficam fora do denominador e sao publicados em "
+        "`casos_excluidos_por_imaturidade`."
     ),
     limitations=(
         _REPORTING_LAG_NOTE,
+        "As duas janelas sao comparadas com maturidade simetrica: cada uma e "
+        "contada como era conhecida REPORTING_LAG_DAYS dias apos o proprio "
+        "fechamento. Sem isso a janela atual teria menos tempo de digitacao que "
+        "a anterior e o crescimento sairia subestimado de forma sistematica. As "
+        "contagens sem censura ficam publicadas ao lado, nos componentes.",
         "Mede variacao de casos notificados, nao incidencia populacional: nao ha "
         "denominador populacional no dataset.",
         "Quando a janela anterior tem zero casos, a variacao percentual e "
@@ -171,8 +182,17 @@ MORTALITY_RATE = MetricDefinition(
         "SRAG, nao de mortalidade populacional por SRAG.",
         "Casos recentes ainda sem encerramento ficam fora do denominador. Como "
         "obitos costumam ser encerrados antes das curas, a letalidade da janela "
-        "recente tende a ser SUPERESTIMADA; o percentual de casos em aberto e "
-        "publicado junto do indicador para dimensionar esse vies.",
+        "recente tende a ser SUPERESTIMADA; o percentual de casos em aberto e o "
+        "percentual encerrado sao publicados junto do indicador para dimensionar "
+        "esse vies.",
+        "Duas janelas com percentuais de encerramento diferentes NAO sao "
+        "diretamente comparaveis: a variacao entre elas pode ser artefato de "
+        "maturacao, e nao mudanca real de gravidade. Por isso o indicador "
+        "publica em `coorte_madura` a mesma taxa sobre uma janela deslocada o "
+        "tempo tipico ate o encerramento (percentil 90 medido na propria base), "
+        "com o percentual encerrado das duas. Na base de referencia a janela "
+        "recente marca 7,86% com 68,8% encerrado, contra 6,04% com 85,5% na "
+        "coorte madura -- a diferenca e maturacao, nao gravidade.",
         "EVOLUCAO = 3 (obito por outras causas) entra no denominador como caso "
         "encerrado, mas nao no numerador.",
         _REPORTING_LAG_NOTE,
@@ -187,18 +207,25 @@ MORTALITY_RATE = MetricDefinition(
 
 ICU_ADMISSION_RATE = MetricDefinition(
     key="icu_admission_rate",
-    name="Taxa de admissao em UTI entre hospitalizados por SRAG",
+    name="Taxa de admissao em UTI entre internados por SRAG",
     definition=(
-        "Proporcao de pacientes hospitalizados por SRAG que foram internados em "
-        "UTI: UTI = 1 / (UTI em 1 ou 2), restrito a HOSPITAL = 1."
+        "Proporcao de pacientes internados por SRAG que foram admitidos em UTI: "
+        "UTI = 1 / (UTI em 1 ou 2), restrito a internados. Um caso e considerado "
+        "internado quando HOSPITAL = 1 **ou** quando ha admissao em UTI declarada "
+        "(UTI = 1)."
     ),
-    numerator="hospitalizados com UTI = 1 (Sim)",
-    denominator="hospitalizados com UTI informado (1-Sim ou 2-Nao)",
+    numerator="internados com UTI = 1 (Sim)",
+    denominator="internados com UTI informado (1-Sim ou 2-Nao)",
     fields=("UTI", "HOSPITAL", "DT_SIN_PRI"),
     period="casos com primeiros sintomas na janela analisada",
     missing_data_handling=(
         "UTI = 9 (Ignorado) e UTI nulo sao excluidos do numerador e do "
-        "denominador, e o volume de ignorados e reportado junto do resultado."
+        "denominador, e o volume de ignorados e reportado junto do resultado. "
+        "HOSPITAL ausente ou igual a 9 (Ignorado) NAO e lido como 'nao "
+        "internado': a base e de SRAG hospitalizada e uma admissao em UTI "
+        "declarada e evidencia direta de internacao. Os registros recuperados "
+        "por essa regra sao publicados em separado nos componentes, "
+        "discriminados entre HOSPITAL ausente, ignorado e negado."
     ),
     limitations=(
         "ATENCAO: este indicador NAO e taxa de ocupacao de leitos de UTI. O campo "
@@ -336,23 +363,33 @@ INCIDENCE_RATE = MetricDefinition(
         "Casos de SRAG com primeiros sintomas na janela analisada, por 100 mil "
         "habitantes: casos / populacao residente estimada (IBGE) x 100.000."
     ),
-    numerator="casos com DT_SIN_PRI na janela analisada",
+    numerator="casos com DT_SIN_PRI na janela analisada, pela UF de residencia (SG_UF)",
     denominator="populacao residente estimada (IBGE) da UF ou do Brasil, no ano mais proximo",
-    fields=("DT_SIN_PRI", "SG_UF_NOT"),
+    fields=("DT_SIN_PRI", "SG_UF"),
     period="ultimos GROWTH_WINDOW_DAYS dias ate a data de corte analitica",
     missing_data_handling=(
         "Sem a referencia populacional carregada, o indicador e declarado nao "
-        "calculavel; nunca se usa um denominador aproximado."
+        "calculavel; nunca se usa um denominador aproximado. Casos sem UF de "
+        "residencia ficam fora do numerador quando ha recorte por UF, e o "
+        "volume e publicado nos componentes."
     ),
     limitations=(
         "Incidencia de casos NOTIFICADOS de SRAG (majoritariamente hospitalizados), "
         "nao de infeccao respiratoria na populacao.",
+        "O recorte geografico e a UF de RESIDENCIA, para casar com o denominador "
+        "residente do IBGE. Os indicadores de carga assistencial (UTI, "
+        "ventilacao, censo) usam a UF de NOTIFICACAO, porque o leito e ocupado "
+        "onde o paciente foi internado. As duas dimensoes nao sao intercambiaveis "
+        "e nunca devem ser cruzadas numa mesma tabela.",
         "A populacao e a estimativa anual do IBGE mais proxima da data de corte; "
         "o ano usado e publicado junto do indicador.",
         "Permite comparar UFs de tamanhos diferentes, o que a contagem absoluta nao permite.",
         _REPORTING_LAG_NOTE,
     ),
-    unit="por 100 mil hab.",
+    # A unidade carrega o periodo: uma taxa acumulada sem periodo declarado e
+    # lida como se fosse anual. O intervalo concreto vai em `period`, no proprio
+    # resultado -- aqui nao se pode interpolar o valor configurado.
+    unit="por 100 mil hab. no periodo",
     source=f"{DATASUS_SOURCE_LABEL} (casos) e IBGE (populacao)",
 )
 

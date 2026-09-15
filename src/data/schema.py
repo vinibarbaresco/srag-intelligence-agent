@@ -25,22 +25,36 @@ DATE_COLUMNS: Final[tuple[str, ...]] = (
     "DT_ENTUTI",  # 54 - data de entrada na UTI
     "DT_SAIDUTI",  # 55 - data de saida da UTI
     "DT_EVOLUCA",  # 83 - data da alta ou do obito
+    "DT_ENCERRA",  # 84 - data de encerramento do caso
     "DT_DIGITA",  # -  - data de digitacao (base do corte por atraso)
 )
+
+#: Semana epidemiologica publicada pela fonte.
+#:
+#: Lida para **reconciliacao**, nao para calculo: a semana usada pelas series e
+#: derivada de `DT_SIN_PRI` (ver `src/data/cleaning/epiweek.py`), e a divergencia
+#: contra este campo e contabilizada no relatorio de qualidade. Nunca ha
+#: coalesce entre as duas -- um campo publicado com outro criterio nao pode
+#: preencher buracos do criterio adotado aqui sem tornar a serie heterogenea.
+EPIWEEK_COLUMNS: Final[tuple[str, ...]] = ("SEM_PRI",)  # 3 - semana epi dos sintomas
 
 CATEGORICAL_COLUMNS: Final[tuple[str, ...]] = (
     "CS_SEXO",  # 10 - sexo
     "TP_IDADE",  # 14 - unidade da idade (1-dia, 2-mes, 3-ano)
     "HOSPITAL",  # 48 - houve internacao
     "UTI",  # 53 - internado em UTI (admissao, NAO ocupacao de leito)
+    "SUPORT_VEN",  # 56 - suporte ventilatorio (1-invasivo, 2-nao invasivo, 3-nao)
+    "NOSOCOMIAL",  # 30 - infeccao adquirida no ambiente hospitalar
     "CLASSI_FIN",  # 80 - classificacao final do caso
+    "CRITERIO",  # 81 - criterio de encerramento do caso
     "EVOLUCAO",  # 82 - evolucao do caso
     "VACINA",  # 40 - vacina contra gripe na ultima campanha
     "VACINA_COV",  # 36 - recebeu vacina COVID-19
 )
 
 GEOGRAPHIC_COLUMNS: Final[tuple[str, ...]] = (
-    "SG_UF_NOT",  # 6 - UF de notificacao (unico recorte geografico exposto)
+    "SG_UF_NOT",  # 6  - UF de notificacao (recorte geografico das metricas)
+    "SG_UF",  # 12 - UF de residencia (exposta na view, sem metrica que a recorte)
 )
 
 NUMERIC_COLUMNS: Final[tuple[str, ...]] = (
@@ -53,7 +67,12 @@ NUMERIC_COLUMNS: Final[tuple[str, ...]] = (
 VACCINE_DATE_COLUMNS: Final[tuple[str, ...]] = ()
 
 ALLOWED_COLUMNS: Final[tuple[str, ...]] = (
-    DATE_COLUMNS + CATEGORICAL_COLUMNS + GEOGRAPHIC_COLUMNS + NUMERIC_COLUMNS + VACCINE_DATE_COLUMNS
+    DATE_COLUMNS
+    + EPIWEEK_COLUMNS
+    + CATEGORICAL_COLUMNS
+    + GEOGRAPHIC_COLUMNS
+    + NUMERIC_COLUMNS
+    + VACCINE_DATE_COLUMNS
 )
 
 #: Colunas avaliadas no dicionario e **deliberadamente nao selecionadas**.
@@ -66,12 +85,18 @@ ALLOWED_COLUMNS: Final[tuple[str, ...]] = (
 #: metrica futura precise de alguma.
 NOT_SELECTED_COLUMNS: Final[dict[str, str]] = {
     "DT_NOTIFIC": "data de notificacao; o eixo temporal e DT_SIN_PRI e o corte e DT_DIGITA",
-    "DT_ENCERRA": "data de encerramento; a mortalidade usa o codigo EVOLUCAO, nao a data",
-    "CRITERIO": "criterio de encerramento (81); nenhum indicador recorta por criterio",
-    "SEM_PRI": "semana epidemiologica; as series agregam por data, nao por semana",
-    "SG_UF": "UF de residencia; o recorte geografico exposto e o de notificacao",
-    "FATOR_RISC": "presenca de fator de risco (35); nenhum indicador estratifica por comorbidade",
-    "SUPORT_VEN": "suporte ventilatorio (56); a severidade e medida por UTI e obito",
+    "SEM_NOT": (
+        "semana epidemiologica da notificacao; a semana usada e a dos primeiros "
+        "sintomas, derivada de DT_SIN_PRI, e SEM_PRI ja e lida para reconcilia-la"
+    ),
+    "FATOR_RISC": (
+        "presenca de fator de risco (35); alem de nenhum indicador estratificar "
+        "por comorbidade, o campo e inutilizavel como binario na safra de "
+        "referencia: foram medidos apenas os valores vazio (96.949) e '1' "
+        "(68.448) em 165.397 registros -- nunca '2' (nao) nem '9' (ignorado). "
+        "Sem o polo negativo nao ha denominador, e 'vazio' nao pode ser lido "
+        "como 'sem fator de risco'"
+    ),
 }
 
 # =============================================================================
@@ -106,9 +131,25 @@ DENIED_COLUMNS: Final[dict[str, str]] = {
     "DOSE_1_COV": "data de dose vacinal (quase-identificador; so o indicador vacinal e usado)",
     "DOSE_2_COV": "data de dose vacinal (quase-identificador; so o indicador vacinal e usado)",
     "DOSE_REF": "data de dose vacinal (quase-identificador; so o indicador vacinal e usado)",
+    "DOSE_2REF": "data de dose vacinal (quase-identificador; so o indicador vacinal e usado)",
+    "DOSE_ADIC": "data de dose vacinal (quase-identificador; so o indicador vacinal e usado)",
+    "DOS_RE_BI": "data de dose vacinal (quase-identificador; so o indicador vacinal e usado)",
     "LOTE_1_COV": "lote do imunizante (rastreavel ao individuo)",
     "LOTE_2_COV": "lote do imunizante (rastreavel ao individuo)",
     "LOTE_REF": "lote do imunizante (rastreavel ao individuo)",
+    "LOTE_REF2": "lote do imunizante (rastreavel ao individuo)",
+    "LOTE_ADIC": "lote do imunizante (rastreavel ao individuo)",
+    "LOT_RE_BI": "lote do imunizante (rastreavel ao individuo)",
+    "FAB_ADIC": "fabricante do imunizante (compoe o historico vacinal individual)",
+    "FAB_RE_BI": "fabricante do imunizante (compoe o historico vacinal individual)",
+    "FAB_COV_1": "fabricante do imunizante (compoe o historico vacinal individual)",
+    "FAB_COV_2": "fabricante do imunizante (compoe o historico vacinal individual)",
+    "FAB_COVRF": "fabricante do imunizante (compoe o historico vacinal individual)",
+    "FAB_COVRF2": "fabricante do imunizante (compoe o historico vacinal individual)",
+    "DT_UT_DOSE": "data de dose vacinal (quase-identificador; so o indicador vacinal e usado)",
+    "DT_DOSEUNI": "data de dose vacinal (quase-identificador; so o indicador vacinal e usado)",
+    "DT_1_DOSE": "data de dose vacinal (quase-identificador; so o indicador vacinal e usado)",
+    "DT_2_DOSE": "data de dose vacinal (quase-identificador; so o indicador vacinal e usado)",
     "PAIS_VGM": "historico de viagem internacional",
     "CO_PS_VGM": "local de viagem internacional",
     "LO_PS_VGM": "local de viagem internacional",
@@ -144,21 +185,82 @@ CODE_LABELS: Final[dict[str, dict[int, str]]] = {
     },
     "CS_SEXO": {},  # campo textual: M / F / I
     "TP_IDADE": {1: "Dia", 2: "Mes", 3: "Ano"},
+    # ATENCAO: SUPORT_VEN **nao** e um campo Sim/Nao/Ignorado. O dicionario
+    # oficial (campo 56) declara 1=Sim invasivo, 2=Sim NAO invasivo, 3=Nao,
+    # 9=Ignorado. Reaproveitar YES_NO_IGNORED aqui leria o codigo 2 como "Nao"
+    # e inverteria o indicador de ventilacao para os 75.120 registros com
+    # SUPORT_VEN=2 da safra de referencia -- que sao justamente os ventilados
+    # de forma nao invasiva. O "sim" deste campo e {1, 2}, nunca {1}.
+    "SUPORT_VEN": {1: "Sim, invasivo", 2: "Sim, nao invasivo", 3: "Nao", 9: "Ignorado"},
+    "NOSOCOMIAL": YES_NO_IGNORED,
+    "CRITERIO": {
+        1: "Laboratorial",
+        2: "Clinico epidemiologico",
+        3: "Clinico",
+        4: "Clinico imagem",
+    },
 }
 
 # Codigos que significam ausencia de informacao. Nunca sao tratados como zero
 # nem como "Nao": sao excluidos dos denominadores e contabilizados a parte.
+#
+# Este e o **padrao**, nao uma regra universal: ver MISSING_CODES_BY_COLUMN.
 MISSING_CODES: Final[frozenset[int]] = frozenset({9})
+
+#: Codigos de ausencia **por coluna**, quando o dicionario diverge do padrao.
+#:
+#: Tratar `{9}` como ausencia em todo campo categorico e uma generalizacao que o
+#: dicionario nao autoriza. `CLASSI_FIN` (1..5) e `CRITERIO` (1..4) simplesmente
+#: nao possuem o codigo 9: um 9 nessas colunas nao e "Ignorado", e um valor fora
+#: do dominio -- e precisa aparecer como tal no relatorio, nao se diluir na
+#: contagem de ignorados. O conjunto vazio declara isso explicitamente, em vez
+#: de deixar a ausencia do codigo implicita no dominio.
+MISSING_CODES_BY_COLUMN: Final[dict[str, frozenset[int]]] = {
+    "CLASSI_FIN": frozenset(),
+    "CRITERIO": frozenset(),
+}
+
+
+def missing_codes_for(column: str) -> frozenset[int]:
+    """Codigos de ausencia validos para `column`.
+
+    Args:
+        column: nome da coluna categorica.
+
+    Returns:
+        Conjunto declarado em :data:`MISSING_CODES_BY_COLUMN` quando a coluna
+        diverge do padrao, ou :data:`MISSING_CODES` caso contrario.
+    """
+    return MISSING_CODES_BY_COLUMN.get(column, MISSING_CODES)
+
 
 # =============================================================================
 # Colunas da tabela analitica final
 # =============================================================================
 
+#: Colunas de semana epidemiologica derivadas de `DT_SIN_PRI`.
+#:
+#: A semana epidemiologica do Ministerio da Saude **comeca no domingo** e nao e
+#: a semana ISO: a SE 1 de um ano e a primeira semana iniciada em domingo com ao
+#: menos 4 dias no ano novo. Derivar (em `src/data/cleaning/epiweek.py`) em vez
+#: de ler `SEM_PRI` mantem uma unica definicao de semana para toda a serie,
+#: inclusive quando o campo publicado esta ausente. `SEM_PRI` continua sendo
+#: lida, mas apenas para reconciliacao: a divergencia e contada, nunca corrigida
+#: nem preenchida por coalesce.
+EPIWEEK_DERIVED_COLUMNS: Final[tuple[str, ...]] = (
+    "semana_epi_ano",  # ano ao qual a semana pertence (pode diferir do ano civil)
+    "semana_epi_num",  # numero da semana no ano epidemiologico (1..53)
+    "semana_epi",  # rotulo ordenavel "AAAA-SS"
+    "ano_sintomas",  # ano civil de DT_SIN_PRI
+    "mes_sintomas",  # rotulo ordenavel "AAAA-MM"
+)
+
+
 #: Colunas derivadas criadas por `preprocess.py` (nao existem no arquivo bruto).
 DERIVED_COLUMNS: Final[tuple[str, ...]] = (
     "faixa_etaria",  # faixa etaria agregada; a idade exata nao e persistida
     "ano_referencia",  # ano do arquivo de origem
-)
+) + EPIWEEK_DERIVED_COLUMNS
 
 #: Flags de coerencia, uma por dimensao do registro.
 #:
@@ -190,6 +292,14 @@ COHERENCE_FLAGS: Final[dict[str, str]] = {
         "mortalidade, que usa o codigo e nao a data, mas afeta a imputacao de "
         "permanencia em UTI."
     ),
+    "flag_data_implausivel": (
+        "alguma coluna de data traz um valor fora do intervalo fisicamente "
+        "possivel -- anterior ao inicio da serie SIVEP-Gripe ou posterior a "
+        "data de execucao da carga. Captura erros de digitacao de ano (1695, "
+        "2202, 5202, 8202 foram medidos na fonte) que nenhuma comparacao entre "
+        "datas detecta, porque a ordem relativa continua correta. Nao exclui o "
+        "registro: marca e conta."
+    ),
 }
 
 #: Colunas booleanas que traduzem os codigos do dicionario em conceitos
@@ -201,9 +311,19 @@ DERIVED_SEMANTIC_COLUMNS: Final[tuple[str, ...]] = (
     "eh_obito_srag",
     "caso_encerrado",
     "foi_hospitalizado",
+    "hospitalizacao_informada",
     "teve_admissao_uti",
     "uti_informado",
     "estadia_uti_utilizavel",
+    "foi_ventilado",
+    "ventilacao_invasiva",
+    "ventilacao_nao_invasiva",
+    "ventilacao_informada",
+    "caso_nosocomial",
+    "etiologia_laboratorial",
+    "etiologia_criterio_informado",
+    "grupo_etiologico",
+    "status_caso",
     "vacinado_covid",
     "vacina_covid_informada",
     "vacinado_influenza",
@@ -233,6 +353,21 @@ ADJUSTMENT_CODES: Final[dict[str, str]] = {
     "data_ilegivel": (
         "valor de data presente no arquivo bruto mas nao interpretavel em "
         "nenhum dos formatos publicados pela fonte; substituido por nulo"
+    ),
+    "codigo_ilegivel": (
+        "valor categorico presente no arquivo bruto mas nao numerico (portanto "
+        "sem correspondencia possivel no dicionario); substituido por nulo. "
+        "Registrado pelo mesmo motivo que `data_ilegivel`: sem isso um campo "
+        "preenchido com lixo ficaria indistinguivel de um campo vazio na origem"
+    ),
+    "idade_unidade_implausivel": (
+        "NU_IDADE_N fora do dominio aceito para a unidade em TP_IDADE "
+        "(1-dia admite 0 a 30; 2-mes admite 0 a 11); a idade derivada foi "
+        "anulada. A unidade NAO e reinterpretada: nao ha como saber se o erro "
+        "esta no numero ou na unidade, e escolher um dos dois seria inventar "
+        "dado. O piso zero para meses diverge do dicionario, que declara 1 a 11: "
+        "ver AGE_UNIT_DOMAIN. Foram medidos 5 registros na safra de referencia "
+        "(-9, -1, 13, 37 e 63 meses)"
     ),
 }
 

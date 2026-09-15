@@ -10,8 +10,20 @@ data/raw/*
 !data/raw/.gitkeep
 data/processed/*
 !data/processed/.gitkeep
+# Excecao: a linha de base do esquema descreve o CONTRATO com a fonte, nao um
+# artefato reproduzivel da carga. A revisao de uma mudanca de esquema comeca
+# pelo diff dela, entao ela **pode** ser versionada -- a excecao abaixo
+# permite isso. O repositorio nao traz uma: ela e derivada dos CSVs
+# brutos, que nao sao versionados (ver src/data/drift.py).
+!data/processed/schema_baseline.json
 data/analytics/*
 !data/analytics/.gitkeep
+
+# Base oficial entregue junto ao enunciado; raw data e somente leitura e
+# volumosa demais para versionar (ver data_sus/README.md).
+data_sus/*
+!data_sus/.gitkeep
+!data_sus/README.md
 
 # --- Artefatos de execucao ---------------------------------------------------
 outputs/*
@@ -23,6 +35,9 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+# Ambientes de verificacao local contra as versoes fixadas em
+# requirements.txt (ex.: .venv-ci), usados para reproduzir a CI.
+.venv-*/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
