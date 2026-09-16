@@ -185,7 +185,7 @@ def build_diagram(output_path: Path) -> Path:
         "1. FONTE OFICIAL",
         [
             "Open DATASUS / SIVEP-Gripe",
-            "CSV anual, 194 colunas, latin-1",
+            "CSV anual, 194 colunas, encoding por safra",
             "URL resolvida dinamicamente",
             "manifest.json com sha256",
         ],

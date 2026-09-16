@@ -22,7 +22,10 @@ Este repositório contém todos os artefatos solicitados para a PoC:
 - documentação técnica, instruções de execução, decisões e limitações neste README;
 - diagrama conceitual em PDF: [`docs/arquitetura.pdf`](docs/arquitetura.pdf);
 - código-fonte do agente, ferramentas, tratamento de dados, testes e documentação complementar
-  em [`docs/`](docs/README.md).
+  em [`docs/`](docs/README.md);
+- as respostas ao questionário de tratamento de dados (o que foi mantido/descartado, como missing
+  foi tratado, numeradores/denominadores, risco de viés e de vazamento de dados) estão em
+  [`docs/pipeline_dados/README.md`, seção 10](docs/pipeline_dados/README.md#10-as-treze-perguntas).
 
 Os CSVs do DATASUS, bancos locais, chaves e relatórios gerados não são versionados por serem
 reproduzíveis, volumosos ou sensíveis. A seção [Como executar](#12-como-executar) explica como
@@ -47,7 +50,8 @@ Nenhum número do relatório passa por um modelo de linguagem.
 
 Profissionais de saúde precisam acompanhar a severidade e a evolução de surtos de SRAG. Os dados
 existem — o SIVEP-Gripe publica todas as notificações — mas em formato hostil: 194 colunas,
-codificação `latin-1`, variáveis categóricas codificadas, campos ignorados, atraso de notificação e
+encoding que muda entre safras (UTF-8 nas recentes, `latin-1` nas antigas), variáveis categóricas
+codificadas, campos ignorados, atraso de notificação e
 dados potencialmente sensíveis. Extrair deles um panorama confiável exige uma cadeia auditável, não
 um modelo de linguagem lendo CSV.
 
@@ -62,7 +66,7 @@ Diagrama completo: **[`docs/arquitetura.pdf`](docs/arquitetura.pdf)**.
         │                           │  ├─ diagnóstico de completude       │
         ▼                           │  ├─ séries temporais (2)            │
   data/processed ◄── preprocess.py  │  ├─ gráficos (2)                    │
-  (Parquet, 31 cols)                │  └─ busca de notícias (1)           │
+  (Parquet, 53 cols)                │  └─ busca de notícias (1)           │
         │                           └──────────────┬──────────────────────┘
         ▼                                          │ envelope com fonte
   data/analytics/srag.duckdb ──────────────────────┤
@@ -140,7 +144,7 @@ a cada execução na página do dataset, que é renderizada no servidor.
 | 2024 | 267.986 | 302 MB | baseline sazonal |
 | 2025 | 336.391 | 382 MB | série corrente |
 | 2026 | 212.278 | 237 MB | série corrente |
-| **Total** | **1.705.626** | **1,9 GB** | **Parquet de ~18 MB (16 colunas lidas → 31 após derivações)** |
+| **Total** | **1.705.626** | **1,9 GB** | **Parquet de ~31 MB (22 colunas lidas → 53 após derivações)** |
 
 2020 e 2021 (1,3 GB e 1,8 GB) não são baixados por padrão: são anos pandêmicos, excluídos do
 baseline por definição, e a série corrente não precisa deles. `SRAG_YEARS` controla o conjunto;
@@ -148,7 +152,12 @@ baseline por definição, e a série corrente não precisa deles. `SRAG_YEARS` c
 
 ## 6. Tratamento dos dados
 
-Documentação completa: [`docs/regras_transformacao.md`](docs/regras_transformacao.md).
+Documentação completa: [`docs/regras_transformacao.md`](docs/regras_transformacao.md) (contrato de
+colunas e regras, gerado do código). Diagnóstico, dicionário analítico coluna a coluna, regras
+epidemiológicas, relatório de qualidade de uma execução real, schema drift testado com safra real
+e as respostas às treze perguntas sobre tratamento de dados:
+[`docs/pipeline_dados/README.md`](docs/pipeline_dados/README.md). Cada decisão da revisão, com
+evidência medida e alternativa considerada: [`docs/pipeline_dados/decisoes.md`](docs/pipeline_dados/decisoes.md).
 
 **O tratamento é um pipeline declarado de regras nomeadas**, não um procedimento. Cada regra é uma
 classe com nome, descrição e teste próprio; a ordem está declarada em `CLEANING_PIPELINE`:
@@ -178,14 +187,16 @@ exercitável num teste sem executar a carga. A tabela de regras em `docs/regras_
 alcançasse o cálculo sem que nada falhasse — e definições em SQL só são testáveis com um banco
 montado. A view analítica faz apenas projeção de tipo.
 
-**Minimização na origem.** Das 194 colunas, **16** são lidas — as que alguma métrica, regra de
-coerência ou série efetivamente consome. As demais estão em duas listas explícitas:
+**Minimização na origem.** Das 194 colunas, **22** são lidas — as que alguma métrica, regra de
+coerência ou série efetivamente consome (o detalhe de cada uma, com a finalidade nomeada, está em
+[`docs/pipeline_dados/README.md`](docs/pipeline_dados/README.md#2-dicionário-analítico)). As
+demais estão em duas listas explícitas:
 
-- **`DENIED_COLUMNS`** (33) — identificáveis ou sensíveis: `NU_NOTIFIC`, `DT_NASC`, `NM_UN_INTE`,
-  município, ocupação, textos livres, lotes de imunizante, raça/cor, idade gestacional, datas de
-  dose vacinal.
-- **`NOT_SELECTED_COLUMNS`** (7) — avaliadas no dicionário e descartadas por não serem usadas:
-  `DT_NOTIFIC`, `DT_ENCERRA`, `CRITERIO`, `SEM_PRI`, `SG_UF`, `FATOR_RISC`, `SUPORT_VEN`.
+- **`DENIED_COLUMNS`** (49) — identificáveis ou sensíveis: `NU_NOTIFIC`, `DT_NASC`, `NM_UN_INTE`,
+  município, ocupação, textos livres, lotes e datas de dose vacinal, raça/cor, idade gestacional.
+- **`NOT_SELECTED_COLUMNS`** (3) — avaliadas no dicionário e descartadas por não serem usadas:
+  `DT_NOTIFIC`, `SEM_NOT`, `FATOR_RISC` (esta última por ser inutilizável como binário: só ocorrem
+  os valores vazio e "1" na base real, nunca "2" nem "9").
 
 Minimizar não é só excluir o que identifica — é não ler o que nenhuma métrica consome. Um teste de
 regressão falha se alguma coluna lida deixar de ser usada, o que força a escolha entre usá-la de
@@ -196,17 +207,18 @@ granularidade geográfica máxima é a UF de notificação.
 Toda regra vira contagem em `data/processed/quality_report.json`, e o relatório traz uma seção de
 qualidade dos dados. Na execução de referência: 1.705.626 linhas lidas, **0 descartadas** (573 sem eixo temporal utilizável ficam fora da view analítica, marcadas, não removidas).
 
-**Coerência por dimensão, não um veredito único.** Quatro flags independentes, porque uma data de
+**Coerência por dimensão, não um veredito único.** Cinco flags independentes, porque uma data de
 internação impossível não deve excluir o registro da contagem de casos, que depende apenas de
-`DT_SIN_PRI` — um booleano único descartaria 4.452 registros por um defeito irrelevante para a
-maioria das métricas. Só a flag do eixo temporal exclui da camada analítica:
+`DT_SIN_PRI` — um booleano único descartaria 131.862 registros (7,73%) por um defeito irrelevante
+para a maioria das métricas. Só a flag do eixo temporal exclui da camada analítica:
 
 | Flag | Registros | % | Exclui da análise |
 |---|---|---|---|
-| `flag_data_invalida` | 89 | 0,02% | **sim** |
-| `flag_internacao_inconsistente` | 11.700 | 2,19% | não |
-| `flag_uti_inconsistente` | 4.194 | 0,79% | não |
-| `flag_evolucao_inconsistente` | 39.174 | 7,33% | não |
+| `flag_data_invalida` | 573 | 0,03% | **sim** |
+| `flag_internacao_inconsistente` | 23.482 | 1,38% | não |
+| `flag_uti_inconsistente` | 15.233 | 0,89% | não |
+| `flag_evolucao_inconsistente` | 91.081 | 5,34% | não |
+| `flag_data_implausivel` | 7.724 | 0,45% | não |
 
 **Rastreamento dos ajustes.** Flags de coerência dizem o que o dado tem de errado; a coluna
 `ajustes_aplicados` diz o que o pipeline **fez** com ele. Sem ela, um campo anulado pela limpeza
@@ -460,6 +472,7 @@ exemplo já gerado está em [`docs/exemplo_relatorio.md`](docs/exemplo_relatorio
 | `python main.py --audit <run_id>` | Trilha de auditoria de uma execução |
 | `python main.py --setup --years 2026` | Prepara apenas um ano |
 | `python main.py --setup --csv arquivo.csv` | Usa um CSV já em disco, sem baixar nada |
+| `python main.py --setup --accept-drift` | Aceita mudança de esquema classificada como ERROR e regrava a linha de base (ver `data/processed/schema_drift.json`) |
 | `python main.py --fail-on-alert` | Código de saída 2 se alguma regra de alerta disparar |
 | `python -m src.api` | API HTTP (`/health`, `/indicadores/{tool}`, `/series/{tool}`, `POST /relatorios`, `/relatorios/{run_id}`, `/auditoria/{run_id}`) |
 | `python -m src.data.reference.population` | Atualiza a referência populacional do IBGE em `data/reference/` |
@@ -567,7 +580,7 @@ não tem.
 ## 14. Testes
 
 ```bash
-python -m pytest -q          # 391 testes, ~50 s
+python -m pytest -q          # 758 testes, ~2min30
 python -m ruff check .
 ```
 
@@ -584,7 +597,7 @@ para `main`:
 |---|---|
 | `ruff check` | Código fora do padrão do projeto |
 | `ruff format --check` | Formatação divergente |
-| `pytest` | Regressão em qualquer dos 391 testes (inclui red team e golden set) |
+| `pytest` | Regressão em qualquer dos 758 testes (inclui red team e golden set) |
 | Documentação regenerada | Que uma definição de métrica, regra de limpeza ou guardrail mude sem que a documentação acompanhe |
 
 A última é a menos óbvia e a mais útil: os documentos em `docs/` são gerados do código, então o CI
@@ -593,13 +606,20 @@ data de geração** — seriam irreprodutíveis, e a verificação falharia todo
 mudado.
 
 Como a suíte é hermética, o CI não precisa de segredo nem do dataset, e não fica sujeito à
-instabilidade do DATASUS ou dos feeds de notícias. Execução completa em cerca de 1 minuto.
+instabilidade do DATASUS ou dos feeds de notícias. Execução completa em cerca de 2min30.
 
 | Arquivo | Cobre |
 |---|---|
 | `test_cleaning_pipeline.py` | Pipeline declarado: ordem das regras, cada regra isolada, semântica derivada dos códigos do dicionário |
 | `test_red_team.py` | Ataques por camada: pedido de dado individual, pedido clínico, SQL via tool/parâmetro, número inventado, injeção via notícia, vazamento de chave, prescrição na saída |
 | `test_preprocessing.py` | Contrato de colunas, parse de datas nos três formatos, código 9 e códigos fora do domínio, idade implausível, marcação sem exclusão, carga ponta a ponta |
+| `test_date_and_age_rules.py` | Bordas de data e idade: fallback `dd/mm/aaaa` (código morto nas safras atuais), presente-porém-ilegível vs. vazio, domínio de `TP_IDADE` |
+| `test_encoding.py` | Detecção de encoding por arquivo: UTF-8 puro, byte inválido, arquivo terminando em sequência truncada |
+| `test_epiweek_edges.py` | Semana epidemiológica do MS (domingo, não ISO): viradas de ano, anos de 53 semanas, reconciliação com `SEM_PRI` sem coalesce |
+| `test_ingestion_guards.py` | Guardas estruturais: coluna da denylist barrada na carga e no banco, coluna derivada ausente, raw imutável, carga ponta a ponta com todas as seções do relatório de qualidade |
+| `test_missing_semantics.py` | A regra que atravessa o projeto: ausência nunca vira negativa — um teste por variável categórica, e a identidade de completude por coluna |
+| `test_metrics_regressions.py` | Um teste por viés epidemiológico corrigido na revisão do pipeline, cada um falhando na implementação anterior |
+| `test_schema_drift.py` | Detecção de mudança de esquema entre safras do mesmo ano: as seis classes de achado, severidade, primeira carga, `--accept-drift` |
 | `test_metrics.py` | Os 4 indicadores com valores exatos, denominador zero, filtro sem resultado, mês parcial |
 | `test_database.py` | Coerência das flags derivadas com o dicionário, conexão somente leitura, binding de parâmetros |
 | `test_tools.py` | Envelope completo, parâmetros inválidos, falha de tool, auditoria e mascaramento |
@@ -634,7 +654,8 @@ main.py                      entrypoint (CLI)
 Dockerfile · Makefile · run_demo.ps1   execução reproduzível
 src/
   config.py                  configuração centralizada (.env)
-  data/        schema.py · download.py · preprocess.py · load_database.py · cleaning/
+  data/        schema.py · download.py · preprocess.py · load_database.py · encoding.py
+               quality.py · drift.py (schema drift) · cleaning/
                reference/  population.py (IBGE) · vaccination.py (SI-PNI) · tables.py
   metrics/     definitions.py · filters.py · epidemiology.py · timeseries.py
   monitoring/  alerts.py (limiares) · history.py (variação entre execuções)
@@ -652,8 +673,9 @@ data/          raw/ · processed/ · analytics/          (não versionado)
 outputs/       reports/ · charts/ · audit/ · history/  (não versionado)
 docs/          arquitetura.pdf · dicionario_metricas.md · regras_transformacao.md
                catalogo_tools.md · exemplo_relatorio.md · gerar_*.py
+               pipeline_dados/  README.md (diagnóstico + 13 perguntas) · decisoes.md (log de decisões)
 .github/       ci.yml (lint, testes, docs) · monitor.yml (execução agendada com alerta)
-tests/         14 arquivos · suíte hermética com fixture sintética · red team · golden set
+tests/         20 arquivos · suíte hermética com fixture sintética · red team · golden set
 ```
 
 ## 16. Limitações

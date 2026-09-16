@@ -304,9 +304,17 @@ Três garantias que vieram da revisão independente (ver D-29):
   Sem isso, uma anomalia recorrente seria reportada exatamente uma vez e depois viraria a
   normalidade.
 
-**Em clone novo e na integração contínua não há linha de base**: ela é derivada dos CSVs brutos, que
-não são versionados. A primeira carga de cada ano apenas a estabelece; a proteção começa na segunda.
-O `.gitignore` permite versioná-la se a equipe quiser antecipar isso.
+**Em clone novo não há linha de base**: ela é derivada dos CSVs brutos, que não são versionados. A
+primeira carga de cada ano apenas a estabelece; a proteção começa na segunda. O `.gitignore`
+permite versioná-la se a equipe quiser antecipar isso.
+
+**No monitoramento agendado** ([`.github/workflows/monitor.yml`](../../.github/workflows/monitor.yml)),
+o runner é efêmero — sem persistir a linha de base entre execuções, toda segunda-feira seria
+tratada como primeira carga, e a comparação de esquema nunca dispararia. O workflow usa
+`actions/cache` para restaurar `schema_baseline.json` da execução anterior antes de rodar
+`--setup` e gravar a versão atualizada depois, com a mesma degradação graciosa: se o cache for
+despejado pela política de 7 dias sem acesso do GitHub, o pior caso é voltar ao comportamento de
+primeira carga, nunca corromper nem interromper a execução.
 
 Os achados são persistidos em `data/processed/schema_drift.json` **sempre** — inclusive quando a
 carga é interrompida, que é justamente quando mais importam, porque uma carga abortada não gera
@@ -357,7 +365,7 @@ python -m src.data.load_database
 | Relatório de qualidade da carga | `data/processed/quality_report.json` |
 | Histórico de todas as cargas | `data/processed/ingestion_history.jsonl` |
 | Mudanças de esquema da carga | `data/processed/schema_drift.json` |
-| Linha de base do esquema (versionada) | `data/processed/schema_baseline.json` |
+| Linha de base do esquema (pode ser versionada; não vem no repositório) | `data/processed/schema_baseline.json` |
 | Banco analítico | `data/analytics/srag.duckdb` |
 
 ### Como interpretar os avisos
@@ -367,7 +375,13 @@ python -m src.data.load_database
   encerramento, como demonstrado em §6.
 - **ERROR** — a carga foi **interrompida** e nada foi gravado. Uma coluna de que um indicador depende
   sumiu, um tipo mudou, ou o arquivo perdeu registros. Investigue o arquivo antes de insistir.
-- Para aceitar uma mudança conhecida e deliberada:
+- Para aceitar uma mudança conhecida e deliberada, pelo entrypoint principal:
+
+```bash
+python main.py --setup --accept-drift
+```
+
+ou, para tratar só a camada de dados sem repetir o resto de `--setup`:
 
 ```bash
 python -m src.data.preprocess --years 2026 --accept-drift

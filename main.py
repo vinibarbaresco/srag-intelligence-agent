@@ -26,15 +26,24 @@ from src.observability.logging_config import configure_logging, get_logger
 logger = get_logger(__name__)
 
 
-def _run_setup(years: list[int] | None = None, csv_paths: list[Path] | None = None) -> int:
+def _run_setup(
+    years: list[int] | None = None,
+    csv_paths: list[Path] | None = None,
+    *,
+    accept_drift: bool = False,
+) -> int:
     """Prepara dados, banco analitico e acervo de noticias.
 
     Args:
         years: anos a baixar do DATASUS; ignorado quando `csv_paths` e usado.
         csv_paths: arquivos CSV ja presentes em disco, registrados em vez de
             baixados. Util para quem recebeu o dataset junto com o enunciado.
+        accept_drift: repassado a `preprocess`. Sem ele, uma mudanca de esquema
+            classificada como ERROR interrompe a preparacao com uma mensagem
+            explicita (ver `SchemaDriftError` abaixo) em vez de um traceback.
     """
     from src.data.download import DownloadError, download_years, register_local_file
+    from src.data.drift import SchemaDriftError
     from src.data.load_database import load_database
     from src.data.preprocess import preprocess
     from src.news.ingest import ingest_news
@@ -61,7 +70,7 @@ def _run_setup(years: list[int] | None = None, csv_paths: list[Path] | None = No
             download_years(target_years)
 
         print("[2/4] Pre-processando e aplicando o contrato de colunas...")
-        preprocess(target_years, trail=trail)
+        preprocess(target_years, trail=trail, accept_drift=accept_drift)
 
         print("[3/4] Carregando o banco analitico DuckDB...")
         load_database()
@@ -69,7 +78,7 @@ def _run_setup(years: list[int] | None = None, csv_paths: list[Path] | None = No
         print("[4/4] Coletando noticias e populando o Vector DB...")
         summary = ingest_news(trail=trail)
         print(f"      {summary['noticias_gravadas']} noticias gravadas.")
-    except (DownloadError, FileNotFoundError, ValueError) as exc:
+    except (DownloadError, FileNotFoundError, ValueError, SchemaDriftError) as exc:
         logger.error("preparacao falhou", extra={"motivo": str(exc)})
         print(f"\nERRO na preparacao: {exc}", file=sys.stderr)
         return 1
@@ -232,6 +241,15 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--accept-drift",
+        action="store_true",
+        help=(
+            "aceita as mudancas de esquema desta carga e regrava a linha de base "
+            "(usado com --setup; ver data/processed/schema_drift.json apos uma "
+            "falha para decidir se e o caso de aceitar)"
+        ),
+    )
+    parser.add_argument(
         "--audit",
         metavar="RUN_ID",
         default=None,
@@ -263,7 +281,7 @@ def main(argv: list[str] | None = None) -> int:
         return _show_audit(args.audit)
 
     if args.setup:
-        status = _run_setup(args.years, args.csv)
+        status = _run_setup(args.years, args.csv, accept_drift=args.accept_drift)
         if status != 0:
             return status
 
