@@ -425,6 +425,18 @@ As dependencias possuem limites de versao principal para evitar atualizacoes
 incompativeis. Para executar tambem as verificacoes de qualidade do codigo, use
 `python -m pip install -r requirements-dev.txt`.
 
+**Antes de rodar a suite, confira a versao do interpretador.** O CI instala
+exatamente o que `requirements.txt` fixa; um Python de sistema fora dessa faixa
+executa os testes contra uma configuracao que o projeto nao suporta, e o defeito
+so aparece no CI. Para reproduzir o ambiente do CI:
+
+```bash
+make venv                                  # cria .venv-ci nas versoes fixadas
+make check PYTHON=.venv-ci/bin/python      # Windows: .venv-ci/Scripts/python.exe
+```
+
+O diretorio e ignorado pelo git e pode ser apagado a qualquer momento.
+
 `--setup` é idempotente: o download reaproveita o cache local.
 
 Sem `make`, no Windows: `.\run_demo.ps1` (mesmos passos; `-Csv arquivo.csv`, `-Uf SP`, `-Llm`).
@@ -452,6 +464,7 @@ exemplo já gerado está em [`docs/exemplo_relatorio.md`](docs/exemplo_relatorio
 | `python -m src.api` | API HTTP (`/health`, `/indicadores/{tool}`, `/series/{tool}`, `POST /relatorios`, `/relatorios/{run_id}`, `/auditoria/{run_id}`) |
 | `python -m src.data.reference.population` | Atualiza a referência populacional do IBGE em `data/reference/` |
 | `make demo` · `make test` · `make check` | Atalhos: demonstração, testes, o mesmo gate do CI |
+| `make venv` | Ambiente isolado nas versões fixadas em `requirements.txt`, para reproduzir o CI |
 
 Etapas isoladas: `python -m src.data.download`, `src.data.preprocess`, `src.data.load_database`,
 `src.news.ingest`. Documentação e diagrama: `python docs/gerar_documentacao.py`,
