@@ -1,0 +1,43 @@
+{
+  "fonte": "CNES / Portal de Dados Abertos do SUS - Hospitais e Leitos (CGHID/MS), capacidade instalada por competencia",
+  "dataset": "https://dadosabertos.saude.gov.br/dataset/hospitais-e-leitos",
+  "url": "https://s3.sa-east-1.amazonaws.com/ckan.saude.gov.br/Leitos_SUS/Leitos_csv_2026.zip",
+  "origem": "https://s3.sa-east-1.amazonaws.com/ckan.saude.gov.br/Leitos_SUS/Leitos_csv_2026.zip",
+  "arquivo_bruto": "Leitos_2026.csv",
+  "sha256_arquivo_bruto": "d3c367d44d814d987b5cc7d1659198658a3259e8d2c2ef3d019988fde246ad2e",
+  "ano_da_publicacao": 2026,
+  "competencias_obtidas": [
+    "2026-01",
+    "2026-02",
+    "2026-03",
+    "2026-04",
+    "2026-05",
+    "2026-06",
+    "2026-07"
+  ],
+  "tipos_de_leito": [
+    "UTI_ADULTO",
+    "UTI_CORONARIANA",
+    "UTI_NEONATAL",
+    "UTI_PEDIATRICA",
+    "UTI_QUEIMADOS"
+  ],
+  "colunas_lidas_do_bruto": [
+    "COMP",
+    "UF",
+    "UTI_ADULTO_EXIST",
+    "UTI_ADULTO_SUS",
+    "UTI_PEDIATRICO_EXIST",
+    "UTI_PEDIATRICO_SUS",
+    "UTI_NEONATAL_EXIST",
+    "UTI_NEONATAL_SUS",
+    "UTI_QUEIMADO_EXIST",
+    "UTI_QUEIMADO_SUS",
+    "UTI_CORONARIANA_EXIST",
+    "UTI_CORONARIANA_SUS"
+  ],
+  "obtido_em": "2026-09-17T13:55:39.152927+00:00",
+  "arquivo": "leitos_uti_uf.csv",
+  "linhas": 854,
+  "sha256": "c7d4b229cd38f7a09c814e44fe9bb120fe962c12d22afea5d8acaaa4e8eca533"
+}

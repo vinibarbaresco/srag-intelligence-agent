@@ -75,6 +75,23 @@ class Settings(BaseSettings):
     # com o mesmo contexto. Nao ha uso legitimo de criatividade aqui.
     openai_temperature: float = Field(default=0.0, ge=0.0, le=1.0)
 
+    # --- Agente: selecao de tools pelo modelo --------------------------------
+    #
+    # O contrato de entrega (indicadores, series e graficos) e deterministico e
+    # nao depende destes parametros -- ver `src/agent/tool_calling.py`. Eles
+    # limitam APENAS a camada de aprofundamento, em que o modelo pode acionar
+    # analises adicionais por function calling.
+    agent_tool_calling_enabled: bool = Field(default=True)
+    # Teto de chamadas adicionais por execucao. Quatro cobrem os pedidos reais
+    # ("compare com o nacional", "olhe 60 dias") e limitam o custo de uma
+    # resposta que proponha dezenas de consultas.
+    agent_max_tool_calls: int = Field(default=4, ge=0, le=20)
+    # Iteracoes do laco de tool calling. Duas bastam para o padrao "pede, ve o
+    # aceite, conclui"; mais do que isso e sinal de laco, nao de raciocinio.
+    agent_max_tool_iterations: int = Field(default=2, ge=1, le=5)
+    # Retentativas de uma chamada que falhou por rede ou limite de taxa.
+    agent_max_tool_retries: int = Field(default=1, ge=0, le=5)
+
     # --- Janela epidemiologica ----------------------------------------------
     reporting_lag_days: int = Field(default=21, ge=0, le=90)
     growth_window_days: int = Field(default=30, ge=1, le=365)
@@ -150,6 +167,20 @@ class Settings(BaseSettings):
     # alternativos servem aos testes e a bases de referencia proprias.
     population_reference_path: Path | None = Field(default=None)
     vaccination_reference_path: Path | None = Field(default=None)
+    icu_capacity_reference_path: Path | None = Field(default=None)
+
+    # Distancia maxima, em meses, entre a competencia da capacidade instalada
+    # (CNES) e a data de corte analitica para que a ocupacao de UTI seja
+    # publicada.
+    #
+    # O CNES publica leitos por competencia mensal e a base de SRAG tem sua
+    # propria defasagem; as duas raramente coincidem no mesmo mes. Casar um
+    # censo de 2026 com uma capacidade de 2019 seria um numero sem significado,
+    # entao ha um limite -- e, alem dele, o indicador fica indisponivel com o
+    # motivo em vez de sair com um denominador velho. Seis meses e a folga que
+    # cobre a defasagem tipica das duas fontes sem atravessar a revisao anual da
+    # rede hospitalar.
+    icu_capacity_max_lag_months: int = Field(default=6, ge=0, le=60)
 
     # --- Alertas -------------------------------------------------------------
     # Limiares avaliados a cada execucao (src/monitoring/alerts.py). Um alerta
@@ -292,6 +323,11 @@ class Settings(BaseSettings):
         return self.vaccination_reference_path or (self.reference_dir / "cobertura_vacinal_uf.csv")
 
     @property
+    def icu_capacity_reference_file(self) -> Path:
+        """Capacidade instalada de leitos de UTI por UF e competencia (CNES)."""
+        return self.icu_capacity_reference_path or (self.reference_dir / "leitos_uti_uf.csv")
+
+    @property
     def database_path(self) -> Path:
         """Banco analitico consultado pelas tools deterministicas."""
         return self.analytics_dir / "srag.duckdb"
@@ -389,6 +425,15 @@ DATASUS_DICTIONARY_URL = (
     "https://s3.sa-east-1.amazonaws.com/ckan.saude.gov.br/SRAG/dicionario-de-dados-2019-a-2025.pdf"
 )
 DATASUS_SOURCE_LABEL = "Open DATASUS / SIVEP-Gripe (SRAG 2019-2026)"
+
+# --- Identificacao da entrega ------------------------------------------------
+#
+# Cada documento entregue carrega esta identificacao e o proprio nome de
+# arquivo, para que continue identificavel fora do repositorio -- impresso,
+# anexado a um e-mail ou aberto isolado. A string mora aqui, e nao repetida em
+# cada gerador, porque documento gerado e documento escrito a mao precisam
+# exibir exatamente a mesma linha.
+DELIVERY_LABEL = "Certificação AI Engineering - Vinícius Barbaresco"
 
 # Formato do arquivo bruto, verificado na fonte em 2026-09.
 RAW_CSV_SEPARATOR = ";"

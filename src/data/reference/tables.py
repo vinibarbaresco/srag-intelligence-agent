@@ -14,6 +14,13 @@ from typing import Any, Final
 import pandas as pd
 
 from src.config import get_settings
+from src.data.reference import icu_capacity as icu_capacity_module
+from src.data.reference import population as population_module
+from src.data.reference import vaccination as vaccination_module
+from src.data.reference.icu_capacity import (
+    ICUCapacityReferenceError,
+    read_icu_capacity_reference,
+)
 from src.data.reference.population import PopulationReferenceError, read_population_reference
 from src.data.reference.vaccination import (
     VaccinationReferenceError,
@@ -25,6 +32,7 @@ logger = get_logger(__name__)
 
 TABLE_POPULATION: Final[str] = "populacao_uf"
 TABLE_VACCINATION: Final[str] = "cobertura_vacinal_uf"
+TABLE_ICU_CAPACITY: Final[str] = "leitos_uti_uf"
 
 _POPULATION_TABLE_SQL = f"""
 CREATE OR REPLACE TABLE {TABLE_POPULATION} (
@@ -42,7 +50,22 @@ CREATE OR REPLACE TABLE {TABLE_VACCINATION} (
     doses_aplicadas BIGINT,
     populacao_alvo  BIGINT,
     fonte           VARCHAR,
-    url             VARCHAR
+    url             VARCHAR,
+    data_extracao   VARCHAR
+)
+"""
+
+
+_ICU_CAPACITY_TABLE_SQL = f"""
+CREATE OR REPLACE TABLE {TABLE_ICU_CAPACITY} (
+    uf                VARCHAR,
+    competencia       VARCHAR,
+    tipo_leito        VARCHAR,
+    leitos_existentes BIGINT,
+    leitos_sus        BIGINT,
+    fonte             VARCHAR,
+    url               VARCHAR,
+    data_extracao     VARCHAR
 )
 """
 
@@ -88,7 +111,7 @@ def load_reference_tables(connection: Any) -> dict[str, int]:
         loaded[TABLE_VACCINATION] = 0
     else:
         connection.executemany(
-            f"INSERT INTO {TABLE_VACCINATION} VALUES (?, ?, ?, ?, ?, ?, ?)",
+            f"INSERT INTO {TABLE_VACCINATION} VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 (
                     str(row.uf),
@@ -98,11 +121,76 @@ def load_reference_tables(connection: Any) -> dict[str, int]:
                     _nullable(row.populacao_alvo, int),
                     _nullable(row.fonte, str),
                     _nullable(row.url, str),
+                    _nullable(row.data_extracao, str),
                 )
                 for row in vaccination.itertuples(index=False)
             ],
         )
         loaded[TABLE_VACCINATION] = int(len(vaccination))
 
+    connection.execute(_ICU_CAPACITY_TABLE_SQL)
+    try:
+        capacity = read_icu_capacity_reference(settings.icu_capacity_reference_file)
+    except ICUCapacityReferenceError as exc:
+        logger.info("referencia de leitos de UTI nao carregada", extra={"motivo": str(exc)})
+        loaded[TABLE_ICU_CAPACITY] = 0
+    else:
+        connection.executemany(
+            f"INSERT INTO {TABLE_ICU_CAPACITY} VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    str(row.uf),
+                    str(row.competencia),
+                    str(row.tipo_leito),
+                    int(row.leitos_existentes),
+                    int(row.leitos_sus),
+                    _nullable(row.fonte, str),
+                    _nullable(row.url, str),
+                    _nullable(row.data_extracao, str),
+                )
+                for row in capacity.itertuples(index=False)
+            ],
+        )
+        loaded[TABLE_ICU_CAPACITY] = int(len(capacity))
+
     logger.info("tabelas de referencia carregadas", extra=loaded)
     return loaded
+
+
+def reference_provenance() -> dict[str, Any]:
+    """Proveniencia declarada de cada referencia externa, para a auditoria.
+
+    Le os arquivos `*.provenance.json` gravados pelos modulos de ingestao. Uma
+    referencia sem proveniencia aparece com `disponivel: False` e o motivo --
+    nunca some do bloco.
+    """
+    settings = get_settings()
+    modules = {
+        TABLE_POPULATION: (population_module, settings.population_reference_file),
+        TABLE_VACCINATION: (vaccination_module, settings.vaccination_reference_file),
+        TABLE_ICU_CAPACITY: (icu_capacity_module, settings.icu_capacity_reference_file),
+    }
+
+    provenance: dict[str, Any] = {}
+    for table, (module, path) in modules.items():
+        record = module.read_provenance(path)
+        if record is None:
+            provenance[table] = {
+                "disponivel": False,
+                "arquivo": str(path),
+                "motivo": (
+                    "referencia nao fornecida ou sem arquivo de proveniencia; "
+                    "os indicadores que dependem dela ficam indisponiveis"
+                ),
+            }
+            continue
+        provenance[table] = {
+            "disponivel": True,
+            "arquivo": record.get("arquivo", path.name),
+            "fonte": record.get("fonte"),
+            "url": record.get("url"),
+            "obtido_em": record.get("obtido_em"),
+            "sha256": record.get("sha256"),
+            "linhas": record.get("linhas"),
+        }
+    return provenance

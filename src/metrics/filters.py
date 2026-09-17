@@ -84,7 +84,7 @@ class AnalyticFilters:
         classification_label = (
             CODE_LABELS["CLASSI_FIN"].get(self.classification)
             if self.classification is not None
-            else "todas as classificacoes finais"
+            else "todas as classificações finais"
         )
         return {
             "uf": self.uf or "BR (nacional)",

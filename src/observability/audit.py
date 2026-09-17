@@ -139,14 +139,25 @@ class AuditTrail:
     ) -> Iterator[dict[str, Any]]:
         """Mede e registra um bloco de execucao.
 
-        O dicionario cedido pelo contexto aceita as chaves `summary`, `status` e
-        `source`, permitindo que o bloco descreva seu proprio resultado::
+        O dicionario cedido pelo contexto aceita as chaves `summary`, `status`,
+        `source` e `error`, permitindo que o bloco descreva seu proprio
+        resultado::
 
             with trail.step(node="collect_metrics") as ctx:
                 ...
                 ctx["summary"] = "4 indicadores calculados"
+
+        `error` existe para o caso em que o bloco **tratou** a falha: uma trava
+        de acervo absorvida por retentativa, um feed fora do ar. O resumo conta
+        o que o sistema fez; `error` guarda o diagnostico integral, que nao pode
+        aparecer no relatorio publico mas nao pode se perder.
         """
-        context: dict[str, Any] = {"summary": "", "status": STATUS_OK, "source": source}
+        context: dict[str, Any] = {
+            "summary": "",
+            "status": STATUS_OK,
+            "source": source,
+            "error": None,
+        }
         started = time.perf_counter()
         try:
             yield context
@@ -171,6 +182,7 @@ class AuditTrail:
                 result_summary=context.get("summary") or "concluido",
                 duration_ms=(time.perf_counter() - started) * 1000,
                 source=context.get("source"),
+                error=context.get("error"),
             )
 
     def _append_to_file(self, event: AuditEvent) -> None:

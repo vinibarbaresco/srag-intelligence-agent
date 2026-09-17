@@ -65,3 +65,10 @@ jobs:
         run: |
           python docs/gerar_documentacao.py
           git diff --exit-code --stat docs/
+
+      - name: Diagrama de arquitetura esta em dia
+        # docs/arquitetura.pdf tambem e derivado do codigo, mas o PyMuPDF varia
+        # bytes entre geracoes (metadados internos) mesmo sem mudanca visivel,
+        # o que faria um diff binario falhar em todo run. Este passo compara o
+        # TEXTO extraido do PDF em vez dos bytes (ver docs/verificar_diagrama_pdf.py).
+        run: python docs/verificar_diagrama_pdf.py

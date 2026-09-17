@@ -5,12 +5,21 @@ Uso tipico::
     python main.py                       # relatorio nacional completo
     python main.py --uf SP               # recorte por unidade federativa
     python main.py --no-llm              # sem credencial de LLM
-    python main.py --setup               # prepara dados e banco antes de rodar
+    python main.py --setup               # preparacao minima (rapida)
+    python main.py --setup --setup-mode completo   # todos os indicadores
     python main.py --audit <run_id>      # imprime a trilha de uma execucao
 
-O comando `--setup` executa a cadeia completa de preparacao (download,
-pre-processamento, carga no DuckDB e ingestao de noticias) e e a forma
-recomendada de rodar o projeto pela primeira vez.
+O comando `--setup` executa a cadeia de preparacao (download, pre-processamento,
+carga no DuckDB e ingestao de noticias) e e a forma recomendada de rodar o
+projeto pela primeira vez. Ele tem dois modos, e a diferenca e de **cobertura de
+indicadores**, nao de conveniencia:
+
+* `--setup-mode minimo` (padrao) carrega so os anos de `SRAG_YEARS`. Rapido, mas
+  o excesso sobre o baseline sazonal sai declarado indisponivel -- ele compara a
+  janela atual com anos que nao estao na base.
+* `--setup-mode completo` carrega tambem `BASELINE_YEARS` e atualiza as
+  referencias externas (populacao do IBGE e leitos de UTI do CNES), de modo que
+  todos os indicadores saiam calculaveis.
 """
 
 from __future__ import annotations
@@ -18,6 +27,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import date
 from pathlib import Path
 
 from src.config import get_settings
@@ -26,15 +36,95 @@ from src.observability.logging_config import configure_logging, get_logger
 logger = get_logger(__name__)
 
 
-def _run_setup(years: list[int] | None = None, csv_paths: list[Path] | None = None) -> int:
+#: Modos de preparacao.
+#:
+#: A diferenca entre os dois nao e de conveniencia, e de **quais indicadores
+#: saem calculaveis**:
+#:
+#: * `minimo` carrega apenas `SRAG_YEARS` (padrao: o ano corrente e o anterior).
+#:   Basta para os indicadores de janela -- crescimento, letalidade, UTI,
+#:   vacinacao, incidencia. O baseline sazonal fica **indisponivel**, porque ele
+#:   compara a janela atual com a mesma epoca de anos anteriores que nao estao
+#:   na base. E o modo rapido, para uma primeira execucao ou uma demonstracao.
+#: * `completo` carrega tambem os anos de `BASELINE_YEARS` e atualiza as
+#:   referencias externas (populacao do IBGE e leitos do CNES), de modo que
+#:   todos os indicadores saiam calculaveis. E o modo correto para uso real, e
+#:   custa o download de varios anos do DATASUS.
+SETUP_MODES: tuple[str, ...] = ("minimo", "completo")
+
+
+def _setup_years(mode: str, years: list[int] | None) -> list[int]:
+    """Anos a preparar, conforme o modo. Anos explicitos sempre prevalecem."""
+    settings = get_settings()
+    if years:
+        return sorted(set(years))
+    if mode == "completo":
+        # O baseline sazonal so existe se os anos de referencia estiverem na
+        # base. Carregar SRAG_YEARS e depois publicar "baseline indisponivel"
+        # seria oferecer um modo completo que nao completa nada.
+        return sorted(set(settings.srag_years) | set(settings.baseline_years))
+    return sorted(set(settings.srag_years))
+
+
+def _update_references() -> None:
+    """Atualiza as referencias externas com fonte automatizavel.
+
+    Populacao (IBGE) e leitos de UTI (CNES) tem API e arquivo publicos, pequenos
+    e versionaveis: cabem no modo completo. A referencia de doses aplicadas
+    (SI-PNI) **nao** entra aqui de proposito -- o extrato mensal tem alguns GB e
+    a agregacao e uma operacao deliberada, descrita em
+    `src/data/reference/vaccination.py`. Uma falha aqui degrada indicadores
+    especificos, nunca a preparacao inteira.
+    """
+    from src.data.reference.icu_capacity import (
+        ICUCapacityReferenceError,
+        fetch_icu_capacity,
+        write_icu_capacity_reference,
+    )
+    from src.data.reference.population import (
+        PopulationReferenceError,
+        fetch_population,
+        write_population_reference,
+    )
+
+    print("      populacao residente (IBGE)...")
+    try:
+        frame, provenance = fetch_population()
+        write_population_reference(frame, provenance)
+    except PopulationReferenceError as exc:
+        print(f"      AVISO: referencia populacional nao atualizada ({exc}).")
+        print("      A incidencia por 100 mil habitantes ficara indisponivel.")
+
+    print("      leitos de UTI (CNES)...")
+    try:
+        frame, provenance = fetch_icu_capacity(date.today().year)
+        write_icu_capacity_reference(frame, provenance)
+    except ICUCapacityReferenceError as exc:
+        print(f"      AVISO: referencia de leitos nao atualizada ({exc}).")
+        print("      A taxa de ocupacao de UTI ficara indisponivel.")
+
+
+def _run_setup(
+    years: list[int] | None = None,
+    csv_paths: list[Path] | None = None,
+    *,
+    accept_drift: bool = False,
+    mode: str = "minimo",
+) -> int:
     """Prepara dados, banco analitico e acervo de noticias.
 
     Args:
         years: anos a baixar do DATASUS; ignorado quando `csv_paths` e usado.
+            Quando informado, prevalece sobre o modo.
         csv_paths: arquivos CSV ja presentes em disco, registrados em vez de
             baixados. Util para quem recebeu o dataset junto com o enunciado.
+        accept_drift: repassado a `preprocess`. Sem ele, uma mudanca de esquema
+            classificada como ERROR interrompe a preparacao com uma mensagem
+            explicita (ver `SchemaDriftError` abaixo) em vez de um traceback.
+        mode: `minimo` ou `completo` (ver :data:`SETUP_MODES`).
     """
     from src.data.download import DownloadError, download_years, register_local_file
+    from src.data.drift import SchemaDriftError
     from src.data.load_database import load_database
     from src.data.preprocess import preprocess
     from src.news.ingest import ingest_news
@@ -47,29 +137,50 @@ def _run_setup(years: list[int] | None = None, csv_paths: list[Path] | None = No
     trail = AuditTrail()
     print(f"Preparacao (run_id): {trail.run_id}\n")
 
+    total_steps = 5 if mode == "completo" else 4
+    print(f"Modo de preparacao: {mode}\n")
+
     try:
         if csv_paths:
-            print(f"[1/4] Registrando {len(csv_paths)} arquivo(s) local(is)...")
+            print(f"[1/{total_steps}] Registrando {len(csv_paths)} arquivo(s) local(is)...")
             target_years = []
             for csv_path in csv_paths:
                 year, path = register_local_file(csv_path)
                 target_years.append(year)
                 print(f"      {year}: {path.name} ({path.stat().st_size / 1e6:.1f} MB)")
         else:
-            target_years = years or settings.srag_years
-            print(f"[1/4] Baixando dados do DATASUS (anos: {target_years})...")
+            target_years = _setup_years(mode, years)
+            print(f"[1/{total_steps}] Baixando dados do DATASUS (anos: {target_years})...")
             download_years(target_years)
 
-        print("[2/4] Pre-processando e aplicando o contrato de colunas...")
-        preprocess(target_years, trail=trail)
+        step = 2
+        if mode == "completo":
+            print(f"[{step}/{total_steps}] Atualizando referencias externas...")
+            _update_references()
+            step += 1
 
-        print("[3/4] Carregando o banco analitico DuckDB...")
+        print(f"[{step}/{total_steps}] Pre-processando e aplicando o contrato de colunas...")
+        preprocess(target_years, trail=trail, accept_drift=accept_drift)
+        step += 1
+
+        print(f"[{step}/{total_steps}] Carregando o banco analitico DuckDB...")
         load_database()
+        step += 1
 
-        print("[4/4] Coletando noticias e populando o Vector DB...")
+        print(f"[{step}/{total_steps}] Coletando noticias e populando o Vector DB...")
         summary = ingest_news(trail=trail)
         print(f"      {summary['noticias_gravadas']} noticias gravadas.")
-    except (DownloadError, FileNotFoundError, ValueError) as exc:
+
+        missing_baseline = sorted(set(settings.baseline_years) - set(target_years))
+        if missing_baseline:
+            print(
+                f"\nAVISO: os anos de baseline {missing_baseline} nao foram "
+                "carregados. O excesso sobre o baseline sazonal sera declarado "
+                "indisponivel no relatorio.\n"
+                "Para calcula-lo, prepare a base no modo completo:\n\n"
+                "    python main.py --setup --setup-mode completo\n"
+            )
+    except (DownloadError, FileNotFoundError, ValueError, SchemaDriftError) as exc:
         logger.error("preparacao falhou", extra={"motivo": str(exc)})
         print(f"\nERRO na preparacao: {exc}", file=sys.stderr)
         return 1
@@ -216,6 +327,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="prepara dados, banco analitico e acervo de noticias antes de executar",
     )
     parser.add_argument(
+        "--setup-mode",
+        choices=SETUP_MODES,
+        default="minimo",
+        help=(
+            "minimo: so os anos de SRAG_YEARS -- rapido, mas o baseline sazonal "
+            "fica indisponivel. completo: carrega tambem os anos de "
+            "BASELINE_YEARS e atualiza as referencias externas (IBGE e CNES), "
+            "deixando todos os indicadores calculaveis (padrao: minimo)"
+        ),
+    )
+    parser.add_argument(
         "--years",
         type=int,
         nargs="+",
@@ -229,6 +351,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "CSV(s) de SRAG ja presentes em disco, usados no lugar do download (usado com --setup)"
+        ),
+    )
+    parser.add_argument(
+        "--accept-drift",
+        action="store_true",
+        help=(
+            "aceita as mudancas de esquema desta carga e regrava a linha de base "
+            "(usado com --setup; ver data/processed/schema_drift.json apos uma "
+            "falha para decidir se e o caso de aceitar)"
         ),
     )
     parser.add_argument(
@@ -263,7 +394,12 @@ def main(argv: list[str] | None = None) -> int:
         return _show_audit(args.audit)
 
     if args.setup:
-        status = _run_setup(args.years, args.csv)
+        status = _run_setup(
+            args.years,
+            args.csv,
+            accept_drift=args.accept_drift,
+            mode=args.setup_mode,
+        )
         if status != 0:
             return status
 

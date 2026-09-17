@@ -39,6 +39,17 @@ SYNTHETIC_POPULATION = {"SP": 10_000_000, "RJ": 5_000_000}
 SYNTHETIC_POPULATION_DEFAULT = 1_000_000
 SYNTHETIC_POPULATION_YEAR = 2026
 
+#: Capacidade sintetica de UTI por UF (CNES simulado), em leitos existentes.
+#: Uniforme de proposito: com 100 leitos de UTI adulto e 20 de pediatrica em
+#: cada UF, o denominador de qualquer recorte e uma conta de cabeca -- 120 numa
+#: UF, 3.240 no nacional -- e um erro de agregacao aparece na hora.
+SYNTHETIC_ICU_BEDS = {"UTI_ADULTO": 100, "UTI_PEDIATRICA": 20, "UTI_NEONATAL": 30}
+SYNTHETIC_ICU_BEDS_PER_UF = SYNTHETIC_ICU_BEDS["UTI_ADULTO"] + SYNTHETIC_ICU_BEDS["UTI_PEDIATRICA"]
+
+#: Competencia da capacidade sintetica: o mes da data de corte analitica, de
+#: modo que a compatibilidade temporal seja satisfeita sem folga artificial.
+SYNTHETIC_ICU_COMPETENCE = EXPECTED_CUTOFF.strftime("%Y-%m")
+
 #: Casos por ano de baseline na mesma janela de calendario da janela atual.
 #: Mediana = 150 = casos da janela atual em SP -> excesso de 0% no recorte SP e
 #: de (151 - 150) / 150 = 0,67% no nacional (o caso de RJ entra no numerador).
@@ -73,6 +84,9 @@ def configured_environment(data_root: Path, monkeypatch_session) -> None:
     monkeypatch_session.setenv(
         "VACCINATION_REFERENCE_PATH", str(data_root / "cobertura_vacinal_uf.csv")
     )
+    capacity_path = data_root / "leitos_uti_uf.csv"
+    _write_synthetic_icu_capacity(capacity_path)
+    monkeypatch_session.setenv("ICU_CAPACITY_REFERENCE_PATH", str(capacity_path))
     # 2022 configurado mas ausente na base sintetica: exercita a declaracao de
     # anos ausentes sem impedir o calculo (minimo de 2 anos presentes).
     monkeypatch_session.setenv("BASELINE_YEARS", "2022,2023,2024")
@@ -87,6 +101,20 @@ def _write_synthetic_population(path: Path) -> None:
     for uf in sorted(UF_CODES):
         population = SYNTHETIC_POPULATION.get(uf, SYNTHETIC_POPULATION_DEFAULT)
         lines.append(f"{uf},{SYNTHETIC_POPULATION_YEAR},{population}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _write_synthetic_icu_capacity(path: Path) -> None:
+    """Capacidade de UTI sintetica, no mesmo contrato da referencia do CNES."""
+    from src.data.schema import UF_CODES
+
+    lines = ["uf,competencia,tipo_leito,leitos_existentes,leitos_sus,fonte,url,data_extracao"]
+    for uf in sorted(UF_CODES):
+        for bed_type, beds in SYNTHETIC_ICU_BEDS.items():
+            lines.append(
+                f"{uf},{SYNTHETIC_ICU_COMPETENCE},{bed_type},{beds},{beds // 2},"
+                "CNES (fixture sintetica de teste),https://exemplo.invalido,2026-08-01"
+            )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 

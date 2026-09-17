@@ -49,15 +49,38 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
 
+      # A linha de base do schema drift (data/processed/schema_baseline.json)
+      # nao e versionada (data/processed/ e gitignored de proposito -- ela e
+      # derivada dos CSVs brutos do DATASUS, que tambem nao sao versionados).
+      # Sem persisti-la entre execucoes, o runner efemero da Actions faz de
+      # toda segunda-feira uma "primeira carga": src/data/drift.py so chama
+      # compare() quando ja existe entrada para o ano, entao a deteccao
+      # comparativa -- coluna sumida, mudanca de tipo, categoria nova, queda
+      # de registros -- nunca dispara neste workflow, so na leitura local.
+      #
+      # `key` com o run_id garante que o post-step sempre grava uma entrada
+      # nova (o cache nunca sobrescreve uma key existente); `restore-keys`
+      # com o prefixo recupera a gravacao mais recente para restaurar. Se o
+      # cache for despejado pela politica de 7 dias sem acesso do GitHub, o
+      # pior caso e degradar para o comportamento de hoje (primeira carga),
+      # nunca corromper nem interromper a execucao.
+      - name: Restaurar linha de base do schema drift
+        uses: actions/cache@v4
+        with:
+          path: data/processed/schema_baseline.json
+          key: schema-baseline-${{ github.run_id }}
+          restore-keys: |
+            schema-baseline-
+
       - name: Preparar dados e gerar relatorio
         id: relatorio
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           NEWS_REFRESH_ON_RUN: "true"
+          ANOS: ${{ github.event.inputs.anos || '2022 2023 2024 2025 2026' }}
+          UF: ${{ github.event.inputs.uf }}
         run: |
           set +e
-          ANOS="${{ github.event.inputs.anos || '2022 2023 2024 2025 2026' }}"
-          UF="${{ github.event.inputs.uf }}"
           ARGS="--setup --years $ANOS --fail-on-alert"
           if [ -n "$UF" ]; then ARGS="$ARGS --uf $UF"; fi
           python main.py $ARGS

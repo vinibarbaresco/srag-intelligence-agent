@@ -16,6 +16,10 @@ param(
     [string]$Csv = "",
     [string]$Uf = "",
     [switch]$Llm,
+    # Modo completo: alem dos anos, atualiza as referencias externas (populacao
+    # do IBGE e leitos de UTI do CNES) da fonte, de modo que a incidencia e a
+    # ocupacao de UTI saiam calculaveis mesmo em clone novo.
+    [switch]$Completo,
     [switch]$SkipInstall
 )
 
@@ -29,6 +33,7 @@ if (-not $SkipInstall) {
 
 $arguments = @("main.py", "--setup")
 if ($Csv) { $arguments += @("--csv", $Csv) } else { $arguments += @("--years") + $Years }
+if ($Completo) { $arguments += @("--setup-mode", "completo") }
 if ($Uf) { $arguments += @("--uf", $Uf) }
 if (-not $Llm) { $arguments += "--no-llm" }
 

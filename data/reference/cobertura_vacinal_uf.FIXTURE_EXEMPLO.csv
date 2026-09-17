@@ -1,0 +1,28 @@
+uf,ano,campanha,doses_aplicadas,populacao_alvo,fonte,url,data_extracao
+# ============================================================================
+# FIXTURE DE TESTE -- NAO E DADO OFICIAL. NAO USE EM RELATORIO DE PRODUCAO.
+# ============================================================================
+#
+# Este arquivo existe para demonstrar o CALCULO da cobertura vacinal
+# populacional (formula, denominador, rotulagem de substituicao IBGE) sem
+# esperar a agregacao dos extratos reais do SI-PNI, que tem alguns GB por mes
+# (ver src/data/reference/vaccination.py e o modelo em
+# cobertura_vacinal_uf.template.csv).
+#
+# Os numeros abaixo sao INVENTADOS -- redondos de proposito, para que ninguem
+# os confunda com uma extracao real. A coluna `fonte` de toda linha diz
+# "FIXTURE DE TESTE", e essa string aparece literalmente no relatorio ao lado
+# do percentual (ver src/agent/report.py:_population_coverage_lines), de modo
+# que o rotulo de teste nao pode se perder entre o arquivo e o texto final.
+#
+# Para usar (nunca como padrao -- so como demonstracao explicita):
+#   cp cobertura_vacinal_uf.FIXTURE_EXEMPLO.csv cobertura_vacinal_uf.csv
+#   python main.py --no-llm
+#   rm cobertura_vacinal_uf.csv   # remova depois; nao deixe substituindo o real
+#
+# Cobre apenas SP e RJ, e so duas campanhas -- de proposito, para nao parecer
+# uma base nacional completa.
+SP,2026,influenza,12000000,15000000,FIXTURE DE TESTE - NAO E DADO OFICIAL (formato SI-PNI),https://exemplo.invalido/fixture,2026-01-01
+SP,2026,covid19,9000000,,FIXTURE DE TESTE - NAO E DADO OFICIAL (formato SI-PNI),https://exemplo.invalido/fixture,2026-01-01
+RJ,2026,influenza,5000000,7000000,FIXTURE DE TESTE - NAO E DADO OFICIAL (formato SI-PNI),https://exemplo.invalido/fixture,2026-01-01
+RJ,2026,covid19,4000000,,FIXTURE DE TESTE - NAO E DADO OFICIAL (formato SI-PNI),https://exemplo.invalido/fixture,2026-01-01

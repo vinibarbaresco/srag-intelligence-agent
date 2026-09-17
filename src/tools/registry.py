@@ -75,8 +75,10 @@ TOOLS: Final[tuple[ToolSpec, ...]] = (
     ToolSpec(
         name="get_mortality_rate",
         description=(
-            "Taxa de mortalidade por SRAG: obitos (EVOLUCAO=2) sobre casos "
-            "encerrados elegiveis (EVOLUCAO em 1,2,3), no periodo analisado."
+            "Letalidade entre casos encerrados de SRAG (case fatality ratio): "
+            "obitos (EVOLUCAO=2) sobre casos encerrados elegiveis (EVOLUCAO em "
+            "1,2,3), no periodo analisado. NAO e mortalidade populacional: o "
+            "denominador sao casos notificados, nao a populacao."
         ),
         input_model=MetricQuery,
         handler=metric_tools.get_mortality_rate,
@@ -85,20 +87,37 @@ TOOLS: Final[tuple[ToolSpec, ...]] = (
     ToolSpec(
         name="get_icu_metrics",
         description=(
-            "Indicadores de UTI: taxa de admissao em UTI entre hospitalizados por "
-            "SRAG e censo diario de pacientes em UTI. A taxa de ocupacao de "
-            "leitos NAO e calculavel com este dataset e retorna nula com o motivo."
+            "Indicadores de UTI derivados so do SIVEP-Gripe: taxa de admissao em "
+            "UTI entre hospitalizados (severidade dos casos) e censo diario de "
+            "pacientes de SRAG em UTI. NENHUM DOS DOIS E OCUPACAO DE LEITOS -- a "
+            "ocupacao exige capacidade instalada e esta em `get_icu_bed_occupancy`."
         ),
         input_model=MetricQuery,
         handler=metric_tools.get_icu_metrics,
         category="indicador",
     ),
     ToolSpec(
+        name="get_icu_bed_occupancy",
+        description=(
+            "Taxa de ocupacao de leitos de UTI por pacientes de SRAG: censo "
+            "diario de pacientes de SRAG em UTI sobre a capacidade instalada de "
+            "leitos de UTI adulto e pediatrica publicada pelo CNES para a UF e "
+            "competencia compativel. E um indicador distinto da taxa de "
+            "admissao em UTI e do censo; sem capacidade compativel retorna nulo "
+            "com o motivo."
+        ),
+        input_model=MetricQuery,
+        handler=metric_tools.get_icu_bed_occupancy,
+        category="indicador",
+    ),
+    ToolSpec(
         name="get_vaccination_metrics",
         description=(
             "Cobertura vacinal declarada (covid-19 e influenza) entre casos "
-            "notificados de SRAG. A taxa de vacinacao da POPULACAO nao e "
-            "calculavel com este dataset e retorna nula com o motivo."
+            "notificados de SRAG -- grupo com vies de selecao, NAO a populacao. "
+            "A taxa de vacinacao da POPULACAO acompanha o resultado em "
+            "`components`, calculada a partir da referencia externa do SI-PNI; "
+            "sem ela, vem nula com o motivo."
         ),
         input_model=MetricQuery,
         handler=metric_tools.get_vaccination_metrics,
@@ -134,6 +153,18 @@ TOOLS: Final[tuple[ToolSpec, ...]] = (
         ),
         input_model=MetricQuery,
         handler=metric_tools.get_notification_completeness,
+        category="diagnostico",
+    ),
+    ToolSpec(
+        name="get_duplicate_sensitivity",
+        description=(
+            "Analise de sensibilidade das linhas identicas: recalcula os "
+            "indicadores da janela com e sem colapso de linhas identicas e "
+            "publica a diferenca em pontos percentuais. A base nao e "
+            "deduplicada; esta tool mede o impacto potencial dessa decisao."
+        ),
+        input_model=MetricQuery,
+        handler=metric_tools.get_duplicate_sensitivity,
         category="diagnostico",
     ),
     ToolSpec(

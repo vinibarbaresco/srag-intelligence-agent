@@ -517,3 +517,127 @@ class TestCargaCompletaProduzOsArtefatos:
         assert "Nenhum registro e excluido" in notas
         assert "deduplicadas" in notas
         assert "dados pessoais" in notas
+
+
+class TestPrincipalTrataSchemaDriftError:
+    """`main.py --setup` nao deve deixar `SchemaDriftError` escapar como traceback.
+
+    Antes desta correcao, `SchemaDriftError` (subclasse de `RuntimeError`, nao
+    de `ValueError`) nao estava na clausula `except` de `_run_setup`, e o
+    parser principal nao tinha `--accept-drift` -- so o modulo isolado
+    (`python -m src.data.preprocess`) tinha o caminho de recuperacao completo.
+    Uma mudanca de esquema classificada como ERROR no comando que o README
+    ensina (`python main.py --setup`) terminava em traceback nao tratado, sem
+    o caminho de destravamento que a mensagem do proprio erro recomenda.
+    """
+
+    @pytest.fixture
+    def _isolar_data_root(self, tmp_path, monkeypatch):
+        """DATA_ROOT proprio para os quatro modulos que `_run_setup` toca.
+
+        Diferente de `carga_isolada` (que so troca `get_settings` dentro de
+        `src.data.preprocess`), aqui `_run_setup` tambem passa por
+        `src.data.download`, `src.data.load_database` e `src.news.ingest` --
+        cada um resolve `get_settings()` no proprio modulo. A unica forma de
+        isolar os quatro ao mesmo tempo e o mecanismo global de `DATA_ROOT` +
+        `reset_settings_cache()`, o mesmo que os demais testes de referencia
+        usam.
+        """
+        from src.config import reset_settings_cache
+
+        monkeypatch.setenv("DATA_ROOT", str(tmp_path))
+        reset_settings_cache()
+        try:
+            yield tmp_path
+        finally:
+            monkeypatch.undo()
+            reset_settings_cache()
+
+    @staticmethod
+    def _escreve_csv_sem_coluna(path: Path, coluna_removida: str, linha_valores: dict) -> Path:
+        """Mesmo formato de `_escreve_csv`, mas com uma coluna inteira ausente
+        do cabecalho -- e assim que `compare()` detecta `missing_columns`.
+        """
+        colunas = [c for c in ALLOWED_COLUMNS if c != coluna_removida]
+        cabecalho = ";".join(f'"{c}"' for c in colunas)
+        linha = ";".join(f'"{linha_valores[c]}"' for c in colunas)
+        path.write_text("\n".join([cabecalho, linha]) + "\n", encoding="utf-8")
+        return path
+
+    def _valores_padrao(self) -> dict:
+        valores = {coluna: "" for coluna in ALLOWED_COLUMNS}
+        valores.update(
+            {
+                "DT_SIN_PRI": "2026-05-08",
+                "DT_DIGITA": "2026-05-20",
+                "SEM_PRI": "19",
+                "SG_UF_NOT": "SP",
+                "SG_UF": "SP",
+                "NU_IDADE_N": "45",
+                "TP_IDADE": "3",
+                "EVOLUCAO": "1",
+                "DT_EVOLUCA": "2026-05-12",
+                "CLASSI_FIN": "5",
+                "CRITERIO": "1",
+                "HOSPITAL": "1",
+                "UTI": "2",
+                "SUPORT_VEN": "3",
+                "NOSOCOMIAL": "2",
+                "VACINA_COV": "1",
+                "VACINA": "2",
+                "CS_SEXO": "F",
+            }
+        )
+        return valores
+
+    def test_drift_error_vira_mensagem_controlada_e_accept_drift_destrava(
+        self, _isolar_data_root, monkeypatch
+    ):
+        import main as entrypoint
+
+        # `ingest_news` e importado localmente dentro de `_run_setup`; para
+        # que o monkeypatch valha, precisa alterar a funcao na origem
+        # (`src.news.ingest`), nao um atributo de `main`.
+        monkeypatch.setattr(
+            "src.news.ingest.ingest_news",
+            lambda trail=None: {
+                "noticias_coletadas": 0,
+                "noticias_gravadas": 0,
+                "feeds_com_falha": [],
+            },
+        )
+
+        tmp_path = _isolar_data_root
+        valores = self._valores_padrao()
+
+        # Primeira carga: estabelece a linha de base, sem comparacao possivel.
+        csv_completo = _escreve_csv(tmp_path / "INFLUD26-completo.csv", [_linha()])
+        status = entrypoint._run_setup(csv_paths=[csv_completo])
+        assert status == 0
+
+        # Segunda safra do MESMO ano, sem DT_SIN_PRI no cabecalho -- coluna da
+        # allowlist ausente e ERROR em compare() (src/data/drift.py).
+        csv_incompleto = self._escreve_csv_sem_coluna(
+            tmp_path / "INFLUD26-incompleto.csv", "DT_SIN_PRI", valores
+        )
+
+        status = entrypoint._run_setup(csv_paths=[csv_incompleto])
+
+        # Nao pode propagar excecao (a asserção acima ja e a prova: se
+        # SchemaDriftError escapasse, o teste teria parado com um traceback
+        # em vez de chegar aqui). O contrato e retorno controlado, codigo 1.
+        assert status == 1
+
+        # Com --accept-drift, a mesma safra incompleta destrava a carga.
+        status = entrypoint._run_setup(csv_paths=[csv_incompleto], accept_drift=True)
+        assert status == 0
+
+    def test_accept_drift_esta_disponivel_no_parser_principal(self):
+        import main as entrypoint
+
+        parser = entrypoint.build_parser()
+        args = parser.parse_args(["--setup", "--accept-drift"])
+        assert args.accept_drift is True
+
+        args = parser.parse_args(["--setup"])
+        assert args.accept_drift is False

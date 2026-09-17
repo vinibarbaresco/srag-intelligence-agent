@@ -158,12 +158,12 @@ CASE_GROWTH_RATE = MetricDefinition(
 
 
 # =============================================================================
-# Indicador 2 -- Taxa de mortalidade
+# Indicador 2 -- Letalidade entre casos encerrados
 # =============================================================================
 
 MORTALITY_RATE = MetricDefinition(
     key="mortality_rate",
-    name="Taxa de mortalidade por SRAG (letalidade entre casos encerrados)",
+    name="Letalidade entre casos encerrados de SRAG",
     definition=(
         "Proporcao de obitos por SRAG entre os casos encerrados elegiveis: "
         "obitos (EVOLUCAO = 2) / casos encerrados (EVOLUCAO em 1, 2 ou 3) x 100."
@@ -239,28 +239,56 @@ ICU_ADMISSION_RATE = MetricDefinition(
 
 ICU_BED_OCCUPANCY_RATE = MetricDefinition(
     key="icu_bed_occupancy_rate",
-    name="Taxa de ocupacao de leitos de UTI",
+    name="Taxa de ocupacao de leitos de UTI por pacientes de SRAG",
     definition=(
-        "Proporcao de leitos de UTI ocupados em relacao a capacidade instalada: "
-        "leitos_ocupados / leitos_totais x 100."
+        "Proporcao da capacidade instalada de UTI ocupada por pacientes de SRAG "
+        "em um dia: pacientes_srag_em_uti_no_dia / leitos_uti_disponiveis_no_dia "
+        "x 100. O numerador vem do censo diario calculado sobre o SIVEP-Gripe; o "
+        "denominador vem da capacidade instalada publicada pelo CNES para a UF e "
+        "a competencia compativel com a janela analisada."
     ),
-    numerator="leitos de UTI ocupados",
-    denominator="leitos de UTI disponiveis (capacidade instalada)",
-    fields=(),
-    period="nao aplicavel",
-    missing_data_handling="nao aplicavel",
+    numerator="pacientes de SRAG presentes em UTI no dia (censo diario, SIVEP-Gripe)",
+    denominator=(
+        "leitos de UTI adulto e pediatrica existentes na UF na competencia do "
+        "CNES compativel com a janela (capacidade instalada)"
+    ),
+    fields=("DT_ENTUTI", "DT_SAIDUTI", "DT_EVOLUCA", "UTI"),
+    period=(
+        "dia de pico do censo maduro dentro da janela analisada; a serie diaria "
+        "completa acompanha o resultado"
+    ),
+    missing_data_handling=(
+        "Sem a referencia de capacidade carregada, sem leitos cadastrados para a "
+        "UF, com competencia do CNES distante da janela alem de "
+        "ICU_CAPACITY_MAX_LAG_MONTHS, ou com denominador zero, o indicador e "
+        "declarado NAO CALCULAVEL com o motivo. Nunca se usa capacidade "
+        "estimada, extrapolada ou de outro periodo sem declarar."
+    ),
     limitations=(
-        "O dataset SRAG do SIVEP-Gripe nao contem capacidade instalada de leitos "
-        "nem contagem de leitos ocupados por unidade de saude.",
-        "Um denominador de capacidade exigiria fonte externa (CNES / leitos "
-        "habilitados), fora do escopo desta PoC.",
+        "MEDE APENAS A PARCELA DE SRAG. O numerador conta pacientes de SRAG "
+        "notificados em UTI; os leitos do denominador tambem atendem pacientes "
+        "sem SRAG (trauma, pos-operatorio, sepse de outras causas). O valor e "
+        "portanto um PISO da ocupacao total de UTI, nao a ocupacao total. Um "
+        "valor baixo NAO significa rede com folga.",
+        "O numerador depende da imputacao de permanencia das estadias sem data "
+        "de saida registrada; o percentual imputado no dia publicado acompanha o "
+        "indicador.",
+        "A capacidade do CNES e o cadastro de leitos, nao leitos operacionais no "
+        "dia: leito cadastrado pode estar bloqueado por falta de equipe. O "
+        "denominador tende a superestimar a capacidade efetiva e, com isso, a "
+        "subestimar a ocupacao.",
+        "Numerador e denominador tem defasagens diferentes e competencias "
+        "distintas; a competencia usada e a distancia dela ate a janela sao "
+        "publicadas com o valor.",
+        "O recorte geografico e a UF de NOTIFICACAO, nao a de residencia: o "
+        "leito e ocupado onde o paciente foi internado.",
+        "Leitos de UTI neonatal, de queimados e coronariana ficam fora do "
+        "denominador: sao unidades fechadas para outras condicoes e nao estao "
+        "disponiveis para o paciente de SRAG. Os quantitativos continuam na "
+        "referencia e podem ser auditados.",
+        _REPORTING_LAG_NOTE,
     ),
-    not_computable_reason=(
-        "Nao e possivel calcular taxa de ocupacao de UTI com os dados disponiveis: "
-        "o SIVEP-Gripe nao registra capacidade instalada nem leitos ocupados. "
-        "Como aproximacao, sao reportados a taxa de admissao em UTI entre "
-        "hospitalizados e o censo diario de pacientes de SRAG em UTI."
-    ),
+    source=f"{DATASUS_SOURCE_LABEL} (pacientes) e CNES / Dados Abertos do SUS (leitos)",
 )
 
 ICU_PATIENT_CENSUS = MetricDefinition(
@@ -317,8 +345,10 @@ VACCINATION_COVERAGE = MetricDefinition(
         "geral -- ha vies de selecao por definicao.",
         "A informacao e declarada no momento da notificacao e depende da "
         "apresentacao da caderneta; a subnotificacao de doses e conhecida.",
-        "A cobertura vacinal populacional exigiria fonte externa (SI-PNI / "
-        "localizaSUS) e denominador demografico (IBGE), fora do escopo da PoC.",
+        "A cobertura vacinal populacional e um indicador SEPARADO "
+        "(`population_vaccination_coverage`), com numerador do SI-PNI e "
+        "denominador demografico. Esta metrica nunca deve ser lida no lugar "
+        "dela, nem usada como aproximacao dela.",
         _ANALYTIC_SCOPE_NOTE,
     ),
 )
