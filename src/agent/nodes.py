@@ -259,7 +259,11 @@ def make_search_news(context: GraphContext):
         with trail.step(node="search_external_news") as audit:
             result = call_tool(
                 "search_srag_news",
-                {"query": NEWS_TOPIC, "top_k": get_settings().news_max_results},
+                {
+                    "query": NEWS_TOPIC,
+                    "top_k": get_settings().news_max_results,
+                    "max_age_days": get_settings().news_max_age_days,
+                },
                 trail=trail,
             )
             if "error" in result:

@@ -109,7 +109,7 @@ Diagrama completo: **[`docs/arquitetura.pdf`](docs/arquitetura.pdf)**.
 ## 4. Tecnologias
 
 Python 3.12 · LangGraph · LangChain/OpenAI · DuckDB · pandas + PyArrow · Pydantic Settings ·
-matplotlib · PyMuPDF · pytest
+matplotlib · Plotly.js (CDN, só no relatório HTML) · PyMuPDF · pytest
 
 ## 5. Dataset
 
@@ -321,9 +321,16 @@ recorte e publica a variação de cada indicador. O veredito (`normal` / `atenca
 no relatório como DADO e, com `--fail-on-alert`, no código de saída do processo (2) — é o sinal que
 a execução agendada usa.
 
-O LLM atua em dois pontos: **planejamento** (escolhe tools, no `validate_request`) e
-**interpretação** (`generate_interpretation`). O plano do modelo é **registrado para auditoria** e comparado ao conjunto obrigatório
-do relatório — o modelo pode acrescentar tools, nunca suprimir uma exigida pela entrega.
+O LLM atua em dois pontos: **planejamento** (`validate_request`) e **interpretação**
+(`generate_interpretation`). No planejamento, o modelo recebe o catálogo de tools e devolve uma
+seleção com justificativa, mas essa seleção **não altera a execução**: o conjunto de tools do
+relatório é fixo (as 12 do catálogo, sempre as mesmas) e é sempre executado por completo,
+independentemente do que o modelo tenha escolhido. O plano é registrado para auditoria e
+comparado a esse conjunto obrigatório — hoje ele nunca tem uma tool "extra" para acrescentar,
+porque nada é opcional; o registro existe para tornar visível, caso um dia exista uma tool
+verdadeiramente opcional, se o plano teria tentado omitir algo exigido pela entrega. A decisão de
+projeto é deliberada: correção e auditabilidade do relatório não podem depender de o modelo ter
+"lembrado" de pedir a tool certa.
 
 Antes de consultar o Vector DB, o nó `search_external_news` tenta atualizar os feeds. Se a rede ou
 algum feed falhar, a execução continua sobre o acervo persistido e registra a degradação. Cada item
@@ -481,7 +488,9 @@ exemplo já gerado está em [`docs/exemplo_relatorio.md`](docs/exemplo_relatorio
 
 Etapas isoladas: `python -m src.data.download`, `src.data.preprocess`, `src.data.load_database`,
 `src.news.ingest`. Documentação e diagrama: `python docs/gerar_documentacao.py`,
-`python docs/gerar_diagrama_pdf.py`.
+`python docs/gerar_diagrama_pdf.py`, `python docs/verificar_diagrama_pdf.py` (confere o PDF
+versionado contra o código pelo texto extraído, não pelos bytes — o CI roda esta última a cada
+push).
 
 ### Variáveis de ambiente
 
@@ -494,6 +503,10 @@ Etapas isoladas: `python -m src.data.download`, `src.data.preprocess`, `src.data
 | `SRAG_YEARS` | `2025,2026` | Anos processados (o `.env.example` sugere `2022,2023,2024,2025,2026` para habilitar o baseline) |
 | `BASELINE_YEARS` | `2022,2023,2024` | Anos do baseline sazonal (2020–2021 nunca entram) |
 | `BASELINE_MIN_YEARS` | `2` | Mínimo de anos presentes na base para publicar o baseline |
+| `DRIFT_MISSING_RATE_DELTA_PP` | `5.0` | Variação de ausência (pontos percentuais) entre safras do mesmo ano que gera aviso de schema drift |
+| `DRIFT_RECORD_DROP_PCT` | `20.0` | Queda de registros entre safras do mesmo ano que interrompe a carga (schema drift) |
+| `DRIFT_RECORD_GROWTH_PCT` | `50.0` | Crescimento de registros entre safras do mesmo ano que gera aviso (não interrompe) |
+| `DRIFT_UNREADABLE_DATES_PCT` | `0.5` | Percentual de datas ilegíveis que interrompe a carga (schema drift) |
 | `ALERT_GROWTH_THRESHOLD_PCT` | `20` | Limiar da regra de crescimento de casos |
 | `ALERT_MORTALITY_THRESHOLD_PCT` | `10` | Limiar da regra de letalidade |
 | `ALERT_BASELINE_EXCESS_THRESHOLD_PCT` | `50` | Limiar da regra de excesso sazonal |
@@ -580,7 +593,7 @@ não tem.
 ## 14. Testes
 
 ```bash
-python -m pytest -q          # 758 testes, ~2min30
+python -m pytest -q          # 760 testes, ~2min30
 python -m ruff check .
 ```
 
@@ -597,8 +610,9 @@ para `main`:
 |---|---|
 | `ruff check` | Código fora do padrão do projeto |
 | `ruff format --check` | Formatação divergente |
-| `pytest` | Regressão em qualquer dos 758 testes (inclui red team e golden set) |
+| `pytest` | Regressão em qualquer dos 760 testes (inclui red team e golden set) |
 | Documentação regenerada | Que uma definição de métrica, regra de limpeza ou guardrail mude sem que a documentação acompanhe |
+| Diagrama regenerado (por texto) | Que uma tool, guardrail, nó do grafo ou coluna mude sem que `docs/arquitetura.pdf` acompanhe |
 
 A última é a menos óbvia e a mais útil: os documentos em `docs/` são gerados do código, então o CI
 os regenera e falha se o resultado divergir do que está commitado. Por isso eles **não carregam
@@ -695,7 +709,10 @@ imputa a permanência de quem não tem data de saída até a data de evolução 
 superestima os dias mais recentes. O guardrail de evidência isenta inteiros de 0 a 31 e anos de 2019
 a 2030, para não bloquear frases legítimas como "os 4 indicadores". O revisor semântico é um
 modelo de linguagem: bloqueia só nas categorias de dano direto e, mesmo assim, um falso positivo
-derruba a interpretação para a via determinística — custo aceito por projeto.
+derruba a interpretação para a via determinística — custo aceito por projeto. Os dois gráficos do
+relatório HTML são interativos via Plotly.js carregado de CDN; sem rede no momento da abertura, o
+relatório detecta a falha e mostra automaticamente a versão estática (PNG) dos mesmos gráficos no
+lugar — a informação nunca desaparece, só perde o hover.
 
 **Do escopo.** A API HTTP não tem autenticação nem limitação de taxa: destina-se a rede interna ou
 a um gateway na frente. A execução agendada baixa a base a cada rodada (sem cache entre execuções).

@@ -220,7 +220,9 @@ class TestDegradacaoDeNoticias:
 
         monkeypatch.setattr(
             "src.agent.nodes.get_settings",
-            lambda: SimpleNamespace(news_refresh_on_run=True, news_max_results=8),
+            lambda: SimpleNamespace(
+                news_refresh_on_run=True, news_max_results=8, news_max_age_days=45
+            ),
         )
         monkeypatch.setattr(
             "src.agent.orchestrator.ingest_news",
@@ -240,7 +242,9 @@ class TestDegradacaoDeNoticias:
     ):
         monkeypatch.setattr(
             "src.agent.nodes.get_settings",
-            lambda: SimpleNamespace(news_refresh_on_run=True, news_max_results=8),
+            lambda: SimpleNamespace(
+                news_refresh_on_run=True, news_max_results=8, news_max_age_days=45
+            ),
         )
 
         def falha_na_atualizacao(*, trail):

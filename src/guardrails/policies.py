@@ -33,92 +33,92 @@ class GuardrailPolicy:
 
 MEDICAL_ADVICE = GuardrailPolicy(
     key="medical_advice",
-    name="Sem diagnostico ou conduta clinica",
+    name="Sem diagnóstico ou conduta clínica",
     description=(
-        "O sistema produz analise epidemiologica agregada. Nao emite diagnostico, "
-        "prescricao, recomendacao terapeutica nem orientacao de conduta clinica "
+        "O sistema produz análise epidemiológica agregada. Não emite diagnóstico, "
+        "prescrição, recomendação terapêutica nem orientação de conduta clínica "
         "individual."
     ),
     enforced_at=(
         "validate_request (entrada) e generate_interpretation, passo "
-        "apply_output_guardrails (saida)"
+        "apply_output_guardrails (saída)"
     ),
 )
 
 SENSITIVE_DATA = GuardrailPolicy(
     key="sensitive_data",
-    name="Protecao de dados pessoais",
+    name="Proteção de dados pessoais",
     description=(
-        "Colunas identificaveis nunca sao lidas do dataset; toda saida passa por "
+        "Colunas identificáveis nunca são lidas do dataset; toda saída passa por "
         "varredura de identificadores (CPF, CNS, e-mail, telefone). O agente "
-        "consulta apenas agregados por periodo, UF e classificacao; nao existe "
+        "consulta apenas agregados por período, UF e classificação; não existe "
         "tool para recuperar registros individuais."
     ),
     enforced_at=(
-        "schema de ingestao, regra de celula pequena nas tools, auditoria, "
-        "generate_interpretation (varredura da saida) e generate_report (cabecalho)"
+        "schema de ingestão, regra de célula pequena nas tools, auditoria, "
+        "generate_interpretation (varredura da saída) e generate_report (cabeçalho)"
     ),
 )
 
 EVIDENCE_BINDING = GuardrailPolicy(
     key="evidence_binding",
-    name="Toda afirmacao quantitativa precisa de evidencia",
+    name="Toda afirmação quantitativa precisa de evidência",
     description=(
-        "Numeros presentes na interpretacao sao confrontados com os valores "
+        "Números presentes na interpretação são confrontados com os valores "
         "efetivamente retornados pelas tools. Valor sem lastro bloqueia a "
-        "publicacao do relatorio."
+        "publicação do relatório."
     ),
     enforced_at="validate_evidence e generate_interpretation, passo apply_output_guardrails",
 )
 
 NO_ARBITRARY_SQL = GuardrailPolicy(
     key="no_arbitrary_sql",
-    name="Sem SQL arbitrario gerado pelo modelo",
+    name="Sem SQL arbitrário gerado pelo modelo",
     description=(
-        "Nao existe tool que execute consulta livre. O modelo escolhe tools e "
-        "preenche parametros tipados, validados contra dominios fechados; o SQL e "
-        "literal no codigo e recebe valores por binding. O banco e aberto em modo "
+        "Não existe tool que execute consulta livre. O modelo escolhe tools e "
+        "preenche parâmetros tipados, validados contra domínios fechados; o SQL é "
+        "literal no código e recebe valores por binding. O banco é aberto em modo "
         "somente leitura."
     ),
-    enforced_at="camada de tools e conexao DuckDB",
+    enforced_at="camada de tools e conexão DuckDB",
 )
 
 NEWS_NEVER_OVERRIDES_DATA = GuardrailPolicy(
     key="news_never_overrides_data",
-    name="Noticias nao sobrescrevem dados oficiais",
+    name="Notícias não sobrescrevem dados oficiais",
     description=(
-        "Noticias circulam em campo proprio do estado e entram no relatorio "
-        "apenas sob o rotulo CONTEXTO EXTERNO. Nenhum indicador e calculado, "
-        "ajustado ou corrigido a partir de conteudo jornalistico."
+        "Notícias circulam em campo próprio do estado e entram no relatório "
+        "apenas sob o rótulo CONTEXTO EXTERNO. Nenhum indicador é calculado, "
+        "ajustado ou corrigido a partir de conteúdo jornalístico."
     ),
-    enforced_at="estado do grafo e renderizacao do relatorio",
+    enforced_at="estado do grafo e renderização do relatório",
 )
 
 UNCERTAINTY = GuardrailPolicy(
     key="uncertainty",
     name="Declarar indisponibilidade em vez de extrapolar",
     description=(
-        "Quando uma metrica nao pode ser calculada com seguranca, o sistema "
-        "declara a indisponibilidade e o motivo. Nunca substitui ausencia por "
-        "zero, media ou estimativa."
+        "Quando uma métrica não pode ser calculada com segurança, o sistema "
+        "declara a indisponibilidade e o motivo. Nunca substitui ausência por "
+        "zero, média ou estimativa."
     ),
-    enforced_at="camada de metricas e generate_report",
+    enforced_at="camada de métricas e generate_report",
 )
 
 SEMANTIC_REVIEW = GuardrailPolicy(
     key="semantic_review",
-    name="Revisao semantica independente da saida",
+    name="Revisão semântica independente da saída",
     description=(
-        "Depois das verificacoes lexicais, o texto do modelo e entregue a um "
-        "revisor independente (outra chamada de modelo, prompt proprio, sem acesso "
-        "ao pedido original) que procura conduta clinica parafraseada e dado "
-        "individual -- achados bloqueantes -- e, em carater consultivo, obediencia "
-        "a instrucoes vindas de noticias e extrapolacao de indicador indisponivel, "
-        "que viram aviso. Indisponibilidade do revisor e declarada no relatorio e a "
+        "Depois das verificações lexicais, o texto do modelo é entregue a um "
+        "revisor independente (outra chamada de modelo, prompt próprio, sem acesso "
+        "ao pedido original) que procura conduta clínica parafraseada e dado "
+        "individual -- achados bloqueantes -- e, em caráter consultivo, obediência "
+        "a instruções vindas de notícias e extrapolação de indicador indisponível, "
+        "que viram aviso. Indisponibilidade do revisor é declarada no relatório e a "
         "camada lexical permanece (fail-open)."
     ),
     enforced_at=(
-        "generate_interpretation, passo apply_output_guardrails, apos as verificacoes "
+        "generate_interpretation, passo apply_output_guardrails, após as verificações "
         "lexicais; somente sobre texto produzido por modelo"
     ),
 )
@@ -211,11 +211,11 @@ PRESCRIPTIVE_OUTPUT_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
 )
 
 DISCLAIMER: Final[str] = (
-    "Este relatorio apresenta analise epidemiologica agregada de dados publicos "
-    "de vigilancia. Nao constitui diagnostico, prescricao, recomendacao "
-    "terapeutica nem orientacao de conduta clinica individual."
+    "Este relatório apresenta análise epidemiológica agregada de dados públicos "
+    "de vigilância. Não constitui diagnóstico, prescrição, recomendação "
+    "terapêutica nem orientação de conduta clínica individual."
 )
 
 UNCERTAINTY_STATEMENT: Final[str] = (
-    "Nao e possivel calcular esta metrica com seguranca com os dados disponiveis."
+    "Não é possível calcular esta métrica com segurança com os dados disponíveis."
 )

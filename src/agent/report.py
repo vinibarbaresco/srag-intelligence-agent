@@ -428,7 +428,7 @@ def _charts_section(state: dict[str, Any]) -> str:
 
 
 def _interpretation_section(state: dict[str, Any]) -> str:
-    text = state.get("interpretation") or "Interpretacao nao disponivel nesta execucao."
+    text = state.get("interpretation") or "Interpretação não disponível nesta execução."
     return "\n".join(
         [
             "## INFERENCIA - Interpretacao do cenario",
@@ -769,46 +769,1102 @@ def _render_refusal(state: dict[str, Any]) -> str:
     )
 
 
-def render_html(markdown_text: str, state: dict[str, Any]) -> str:
-    """Gera uma versao HTML navegavel do relatorio.
+#: Especificacao das quatro tools de KPI exigidas, na ordem de exibicao.
+#: `worse_when` diz que direcao de variacao e desfavoravel -- usado so para
+#: colorir a seta de tendencia (fato numerico), nunca para redigir opiniao.
+_KPI_SPECS: tuple[dict[str, str], ...] = (
+    {
+        "key": "case_growth_rate",
+        "label": "Taxa de aumento de casos",
+        "worse_when": "up",
+        "note": "Variação frente à janela anterior de mesmo tamanho.",
+    },
+    {
+        "key": "mortality_rate",
+        "label": "Taxa de mortalidade",
+        "worse_when": "up",
+        "note": "Letalidade entre casos encerrados (óbito ou cura já definidos).",
+    },
+    {
+        "key": "icu_admission_rate",
+        "label": "Indicador de UTI",
+        "worse_when": "up",
+        "note": "Admissão em UTI entre hospitalizados — não é ocupação de leitos.",
+    },
+    {
+        "key": "vaccination_coverage_among_cases",
+        "label": "Indicador de vacinação",
+        "worse_when": "down",
+        "note": "Cobertura declarada entre casos notificados — não é cobertura da população.",
+    },
+)
 
-    A conversao e intencionalmente minima e sem dependencia externa: cobre os
-    elementos efetivamente usados pelo renderizador Markdown (titulos, tabelas,
-    listas, imagens, links, citacoes e blocos recolhiveis).
+#: Indicadores de contexto: respondem "isto e normal para esta epoca?", que os
+#: quatro exigidos nao respondem sozinhos. Entram numa faixa secundaria, menor,
+#: porque a hierarquia importa -- eles qualificam os KPIs, nao competem com eles.
+_CONTEXT_SPECS: tuple[dict[str, str], ...] = (
+    {
+        "key": "seasonal_excess",
+        "label": "Excesso sobre o padrão sazonal",
+        "worse_when": "up",
+        "note": "Janela atual contra a mediana da mesma época nos anos de referência.",
+    },
+    {
+        "key": "incidence_rate",
+        "label": "Incidência por 100 mil hab.",
+        "worse_when": "up",
+        "note": "Casos notificados sobre a população residente (IBGE), no período.",
+    },
+)
+
+
+def _pt_number(value: float) -> str:
+    """Formata um numero no padrao pt-BR (virgula decimal), sem zeros a mais."""
+    text = f"{value:.2f}".rstrip("0").rstrip(".")
+    if text in ("", "-", "-0"):
+        text = "0"
+    return text.replace(".", ",")
+
+
+def _pt_int(value: Any) -> str:
+    """Formata um inteiro com separador de milhar pt-BR."""
+    if value is None:
+        return "-"
+    return f"{int(value):,}".replace(",", ".")
+
+
+def _load_quality_report() -> dict[str, Any]:
+    """Le `quality_report.json`; devolve `{}` se ausente ou ilegivel."""
+    settings = get_settings()
+    path = settings.quality_report_path
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning(
+            "relatorio de qualidade ilegivel; secao omitida",
+            extra={"path": str(path), "motivo": f"{type(exc).__name__}: {exc}"},
+        )
+        return {}
+
+
+def _analysis_cutoff(state: dict[str, Any]) -> str | None:
+    """Data de corte analitica, lida da serie diaria ou de qualquer indicador."""
+    series = state.get("series") or {}
+    cutoff = ((series.get("daily_cases") or {}).get("period") or {}).get("fim")
+    if cutoff:
+        return cutoff
+    for metric in (state.get("metrics") or {}).values():
+        cutoff = (metric.get("period") or {}).get("fim")
+        if cutoff:
+            return cutoff
+    return None
+
+
+def _trend_arrow(value: float, *, worse_when_up: bool) -> tuple[str, str]:
+    """Seta de tendencia e a classe CSS que a colore -- fato numerico, nao opiniao."""
+    if abs(value) < 1e-9:
+        return "→", "trend-neutral"
+    up = value > 0
+    arrow = "▲" if up else "▼"
+    concerning = up == worse_when_up
+    return arrow, ("trend-bad" if concerning else "trend-good")
+
+
+#: Como ler numerador/denominador de cada indicador, em linguagem de negocio.
+#: Repetir "ultimos 30 dias" no card seria redundante -- o periodo ja esta no
+#: cabecalho; o que falta no card e a base sobre a qual a taxa foi calculada.
+_KPI_BASE_LABELS: dict[str, tuple[str, str]] = {
+    "mortality_rate": ("óbitos", "casos encerrados"),
+    "icu_admission_rate": ("em UTI", "internados com UTI informado"),
+    "vaccination_coverage_among_cases": ("vacinados", "casos com informação vacinal"),
+    "incidence_rate": ("casos", "habitantes"),
+}
+
+
+def _kpi_comparison(spec: dict[str, str], metric: dict[str, Any], state: dict[str, Any]) -> str:
+    """Linha de comparacao do card: variacao entre execucoes, comparacao propria
+    do indicador ou, na falta das duas, a base (numerador/denominador) da taxa.
     """
-    body = _markdown_to_html(markdown_text)
-    title = f"Relatorio SRAG - {state.get('run_id', '')}"
+    history = ((state.get("alerts") or {}).get("historico")) or {}
+    variation = (history.get("variacao") or {}).get(spec["key"]) or {}
+    delta = variation.get("variacao")
+    if history.get("execucao_anterior") and delta is not None and abs(delta) > 1e-9:
+        arrow, css_class = _trend_arrow(delta, worse_when_up=spec["worse_when"] == "up")
+        return (
+            f'<span class="kpi-trend {css_class}">{arrow} {_pt_number(abs(delta))} p.p.</span> '
+            "desde a execução anterior"
+        )
+
+    components = metric.get("components") or {}
+    if spec["key"] == "case_growth_rate":
+        atual, anterior = (
+            components.get("casos_periodo_atual"),
+            components.get("casos_periodo_anterior"),
+        )
+        if atual is not None and anterior is not None:
+            value = metric.get("value") or 0
+            arrow, css_class = _trend_arrow(value, worse_when_up=True)
+            return (
+                f'<span class="kpi-trend {css_class}">{arrow}</span> '
+                f"{_pt_int(atual)} vs {_pt_int(anterior)} casos na janela anterior"
+            )
+
+    if spec["key"] == "seasonal_excess":
+        atual, mediana = (
+            components.get("casos_na_janela_atual"),
+            components.get("mediana_do_baseline"),
+        )
+        if atual is not None and mediana is not None:
+            return f"{_pt_int(atual)} casos vs mediana de {_pt_int(mediana)} no baseline"
+
+    numerator, denominator = metric.get("numerator"), metric.get("denominator")
+    labels = _KPI_BASE_LABELS.get(spec["key"])
+    if labels and numerator is not None and denominator is not None:
+        return f"{_pt_int(numerator)} {labels[0]} em {_pt_int(denominator)} {labels[1]}"
+
+    period = metric.get("period") or {}
+    return html.escape(str(period.get("descricao", "Período analisado")))
+
+
+def _kpi_card_html(spec: dict[str, str], state: dict[str, Any], *, compact: bool = False) -> str:
+    """Card de indicador. `compact` e a variante secundaria (contexto), menor,
+    para que a hierarquia entre os quatro exigidos e os dois de apoio seja
+    visivel sem precisar ler o rotulo.
+    """
+    metric = (state.get("metrics") or {}).get(spec["key"])
+    label = html.escape(spec["label"])
+    note = html.escape(spec["note"])
+    card_class = "kpi-card kpi-compact" if compact else "kpi-card"
+
+    if metric is None:
+        return (
+            f'<div class="{card_class} kpi-empty">'
+            f'<div class="kpi-label">{label}</div>'
+            '<div class="kpi-value kpi-muted">n/d</div>'
+            '<div class="kpi-comparison">Indicador não executado nesta rodada.</div>'
+            f'<div class="kpi-note">{note}</div></div>'
+        )
+
+    value = metric.get("value")
+    if value is None:
+        reason = html.escape(str(metric.get("unavailable_reason") or "Não calculável."))
+        return (
+            f'<div class="{card_class} kpi-empty">'
+            f'<div class="kpi-label">{label}</div>'
+            '<div class="kpi-value kpi-muted">não calculável</div>'
+            f'<div class="kpi-comparison">{reason}</div>'
+            f'<div class="kpi-note">{note}</div></div>'
+        )
+
+    # Unidade longa (ex.: "por 100 mil hab. no periodo") no mesmo corpo do
+    # numero quebrava o valor em duas linhas e matava a leitura de relance:
+    # o numero fica grande, a unidade vira sufixo discreto.
+    unit = metric.get("unit", "")
+    if unit == "%":
+        value_text = f"{_pt_number(value)}%"
+    elif unit:
+        value_text = f'{_pt_number(value)}<span class="kpi-unit">{html.escape(unit)}</span>'
+    else:
+        value_text = _pt_number(value)
+    comparison = _kpi_comparison(spec, metric, state)
+    warning = metric.get("reliability_warning")
+    warning_html = (
+        f'<div class="kpi-warning">⚠ {html.escape(str(warning))}</div>' if warning else ""
+    )
+
+    return (
+        f'<div class="{card_class}">'
+        f'<div class="kpi-label">{label}</div>'
+        f'<div class="kpi-value">{value_text}</div>'
+        f'<div class="kpi-comparison">{comparison}</div>'
+        f'<div class="kpi-note">{note}</div>'
+        f"{warning_html}"
+        "</div>"
+    )
+
+
+#: Vocabulario do veredito de alerta: rotulo legivel e classe CSS por nivel.
+_ALERT_LEVELS: dict[str, tuple[str, str]] = {
+    "normal": ("Situação dentro dos limiares", "status-normal"),
+    "atencao": ("Atenção", "status-warn"),
+    "alerta": ("Alerta", "status-bad"),
+}
+
+
+def _status_strip_html(state: dict[str, Any]) -> str:
+    """Faixa de status: o "e agora?" do relatorio.
+
+    O veredito das regras de alerta e DADO -- limiar configurado aplicado a um
+    indicador ja calculado --, nao interpretacao. Ficava so no anexo tecnico, o
+    que enterrava justamente a informacao que decide se alguem precisa agir.
+    """
+    alerts = state.get("alerts") or {}
+    if not alerts:
+        return ""
+
+    level = str(alerts.get("nivel", "normal")).lower()
+    label, css_class = _ALERT_LEVELS.get(level, (level.upper(), "status-warn"))
+    summary = html.escape(str(alerts.get("resumo", "")))
+
+    triggered = alerts.get("disparados") or []
+    attention = alerts.get("atencao") or []
+    items = [
+        f"<li>{html.escape(str(item.get('mensagem', '')))}</li>"
+        for item in [*triggered, *attention]
+        if item.get("mensagem")
+    ]
+    items_html = f'<ul class="status-list">{"".join(items[:3])}</ul>' if items else ""
+
+    history = alerts.get("historico") or {}
+    if history.get("execucao_anterior"):
+        changed = [
+            f"{key} {item['variacao']:+g}"
+            for key, item in (history.get("variacao") or {}).items()
+            if item.get("variacao")
+        ]
+        history_text = (
+            f"Frente à execução anterior: {html.escape(', '.join(changed))}."
+            if changed
+            else "Sem variação frente à execução anterior do mesmo recorte."
+        )
+    else:
+        history_text = html.escape(
+            str(history.get("mensagem", "Primeira execução registrada para este recorte."))
+        )
+
+    return f"""
+<section class="status-strip {css_class}">
+  <div class="status-head">
+    <span class="status-badge">{html.escape(label)}</span>
+    <p class="status-summary">{summary}</p>
+  </div>
+  {items_html}
+  <p class="status-history">{history_text}</p>
+</section>
+"""
+
+
+def _executive_headline(state: dict[str, Any]) -> str:
+    """Headline conclusivo do resumo executivo -- gerado a partir dos dados, nunca fixo."""
+    metrics = state.get("metrics") or {}
+    growth = metrics.get("case_growth_rate") or {}
+    mortality = metrics.get("mortality_rate") or {}
+    alerts = state.get("alerts") or {}
+    level = str(alerts.get("nivel", "normal")).lower()
+
+    growth_value = growth.get("value")
+    if growth_value is None:
+        growth_phrase = "sem base suficiente para medir a variação de casos"
+    elif growth_value > 8:
+        growth_phrase = f"casos avançam {_pt_number(growth_value)}% em relação à janela anterior"
+    elif growth_value < -8:
+        growth_phrase = (
+            f"casos recuam {_pt_number(abs(growth_value))}% em relação à janela anterior"
+        )
+    else:
+        growth_phrase = "casos seguem estáveis em relação à janela anterior"
+
+    mortality_value = mortality.get("value")
+    mortality_phrase = (
+        "mortalidade não calculável no recorte"
+        if mortality_value is None
+        else f"mortalidade em {_pt_number(mortality_value)}% entre os casos encerrados"
+    )
+
+    headline = f"{growth_phrase[0].upper()}{growth_phrase[1:]}, enquanto {mortality_phrase}"
+    if level != "normal":
+        headline += f" — nível de acompanhamento {level.upper()}"
+    return headline + "."
+
+
+def _executive_bullets(state: dict[str, Any]) -> list[tuple[str, str]]:
+    """2 a 4 insights do resumo executivo, cada um rotulado DADO ou CONTEXTO."""
+    metrics = state.get("metrics") or {}
+    bullets: list[tuple[str, str]] = []
+
+    growth = metrics.get("case_growth_rate") or {}
+    if growth.get("value") is not None:
+        components = growth.get("components") or {}
+        bullets.append(
+            (
+                "DADO",
+                f"Casos: {_pt_number(growth['value'])}% frente à janela anterior "
+                f"({_pt_int(components.get('casos_periodo_atual'))} vs "
+                f"{_pt_int(components.get('casos_periodo_anterior'))} casos).",
+            )
+        )
+
+    mortality = metrics.get("mortality_rate") or {}
+    if mortality.get("value") is not None:
+        bullets.append(
+            (
+                "DADO",
+                f"Mortalidade: {_pt_number(mortality['value'])}% "
+                f"({_pt_int(mortality.get('numerator'))} óbitos em "
+                f"{_pt_int(mortality.get('denominator'))} casos encerrados).",
+            )
+        )
+
+    icu = metrics.get("icu_admission_rate") or {}
+    if icu.get("value") is not None:
+        bullets.append(
+            (
+                "DADO",
+                f"UTI: {_pt_number(icu['value'])}% dos hospitalizados foram admitidos em UTI "
+                "(não equivale a ocupação de leitos).",
+            )
+        )
+
+    vaccination = metrics.get("vaccination_coverage_among_cases") or {}
+    if vaccination.get("value") is not None:
+        bullets.append(
+            (
+                "DADO",
+                f"Vacinação: {_pt_number(vaccination['value'])}% de cobertura declarada entre "
+                "os casos notificados (covid-19).",
+            )
+        )
+
+    articles = ((state.get("external_context") or {}).get("articles")) or []
+    if articles:
+        top = articles[0]
+        bullets.append(
+            (
+                "CONTEXTO",
+                f"{len(articles)} notícia(s) recente(s) monitorada(s); destaque: "
+                f'"{top["titulo"][:90]}" ({top["fonte"]}).',
+            )
+        )
+
+    dado_bullets = [b for b in bullets if b[0] == "DADO"][:3]
+    contexto_bullets = [b for b in bullets if b[0] == "CONTEXTO"][:1]
+    return (dado_bullets + contexto_bullets)[:4]
+
+
+def _daily_chart_section(state: dict[str, Any]) -> str:
+    from src.visualization.interactive_charts import daily_chart_component
+    from src.visualization.series_insights import daily_insights
+
+    series = (state.get("series") or {}).get("daily_cases")
+    chart = (state.get("charts") or {}).get("casos_diarios")
+    if not series or not chart:
+        return ""
+
+    insights = daily_insights(series)
+    bullets_html = "".join(f"<li>{html.escape(b)}</li>" for b in insights.bullets)
+    image_source = _chart_image_source(chart)
+
+    return f"""
+<section class="block">
+  <p class="eyebrow">Evolução recente — últimos {len(series.get("points") or [])} dias</p>
+  <h2 class="block-headline">{html.escape(insights.headline)}</h2>
+  <div class="chart-wrap">
+    {daily_chart_component(series)}
+    <img class="chart-print-only" src="{html.escape(image_source)}"
+         alt="{html.escape(insights.headline)}">
+  </div>
+  <div class="insights-box">
+    <p class="insights-title">Principais leituras</p>
+    <ul>{bullets_html}</ul>
+  </div>
+</section>
+"""
+
+
+def _monthly_chart_section(state: dict[str, Any]) -> str:
+    from src.visualization.interactive_charts import monthly_chart_component
+    from src.visualization.series_insights import monthly_insights
+
+    series = (state.get("series") or {}).get("monthly_cases")
+    chart = (state.get("charts") or {}).get("casos_mensais")
+    if not series or not chart:
+        return ""
+
+    insights = monthly_insights(series)
+    bullets_html = "".join(f"<li>{html.escape(b)}</li>" for b in insights.bullets)
+    image_source = _chart_image_source(chart)
+
+    return f"""
+<section class="block">
+  <p class="eyebrow">Visão estrutural — últimos {len(series.get("points") or [])} meses</p>
+  <h2 class="block-headline">{html.escape(insights.headline)}</h2>
+  <div class="chart-wrap">
+    {monthly_chart_component(series)}
+    <img class="chart-print-only" src="{html.escape(image_source)}"
+         alt="{html.escape(insights.headline)}">
+  </div>
+  <div class="insights-box">
+    <p class="insights-title">Principais leituras</p>
+    <ul>{bullets_html}</ul>
+  </div>
+</section>
+"""
+
+
+def _chart_image_source(chart: dict[str, Any]) -> str:
+    settings = get_settings()
+    path = Path(chart["path"])
+    try:
+        relative = path.resolve().relative_to(settings.outputs_dir.resolve())
+        return (Path("..") / relative).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def _news_cards_html(state: dict[str, Any]) -> str:
+    context = state.get("external_context") or {}
+    articles = (context.get("articles") or [])[:5]
+
+    if not articles:
+        reason = html.escape(str(context.get("unavailable_reason") or "Sem notícias nesta rodada."))
+        return f'<p class="news-empty">{reason}</p>'
+
+    cards = []
+    for article in articles:
+        safe_url = _safe_url(article["url"])
+        title = html.escape(article["titulo"])
+        source = html.escape(article["fonte"])
+        published = html.escape(article.get("data", ""))
+        link = (
+            f'<a class="news-link" href="{html.escape(safe_url)}" '
+            'target="_blank" rel="noopener noreferrer">Ler notícia ↗</a>'
+            if safe_url
+            else '<span class="news-link news-link-disabled">Link indisponível</span>'
+        )
+        cards.append(
+            '<article class="news-card">'
+            f'<p class="news-title">{title}</p>'
+            f'<p class="news-meta">{source} · {published}</p>'
+            f"{link}"
+            "</article>"
+        )
+    return "".join(cards)
+
+
+def _population_component(components: dict[str, Any], campaign: str) -> dict[str, Any]:
+    population = components.get("taxa_de_vacinacao_da_populacao") or {}
+    campaigns = population.get("campanhas") or {}
+    return campaigns.get(campaign) or population
+
+
+def _limitation_callouts_html(state: dict[str, Any]) -> str:
+    metrics = state.get("metrics") or {}
+    icu = metrics.get("icu_admission_rate") or {}
+    vaccination = metrics.get("vaccination_coverage_among_cases") or {}
+
+    icu_reason = ((icu.get("components") or {}).get("taxa_de_ocupacao_de_leitos_de_uti") or {}).get(
+        "unavailable_reason"
+    ) or (
+        "Nao e possivel calcular taxa de ocupacao de UTI com os dados disponiveis: o "
+        "SIVEP-Gripe nao registra capacidade instalada nem leitos ocupados."
+    )
+    vaccination_reason = _population_component(vaccination.get("components") or {}, "covid19").get(
+        "unavailable_reason"
+    ) or (
+        "O SIVEP-Gripe so contem informacao vacinal de pessoas notificadas com SRAG, o que "
+        "nao representa a populacao geral."
+    )
+
+    callouts = [
+        (
+            "Nota metodológica — UTI",
+            "Este indicador representa admissão em UTI entre pacientes de SRAG hospitalizados. "
+            f"{icu_reason}",
+        ),
+        (
+            "Nota metodológica — Vacinação",
+            "Este indicador representa cobertura vacinal declarada entre casos notificados de "
+            f"SRAG, não a cobertura vacinal da população. {vaccination_reason}",
+        ),
+    ]
+
+    blocks = [
+        '<div class="callout">'
+        f'<p class="callout-title">ℹ {html.escape(title)}</p>'
+        f"<p>{html.escape(text)}</p></div>"
+        for title, text in callouts
+    ]
+
+    extra = [
+        *(state.get("warnings") or []),
+        *(f"Falha registrada: {e}" for e in state.get("errors") or []),
+    ]
+    if extra:
+        items = "".join(f"<li>{html.escape(str(item))}</li>" for item in extra)
+        blocks.append(
+            '<div class="callout callout-neutral">'
+            '<p class="callout-title">ℹ Avisos desta execução</p>'
+            f"<ul>{items}</ul></div>"
+        )
+    return "".join(blocks)
+
+
+def _interpretation_html(text: str) -> str:
+    """Converte o texto da interpretacao (que pode trazer `### ` e `- ` do
+    proprio estilo do redator) em HTML leve, reaproveitando `_inline` para
+    negrito/italico -- sem isso, um `### 1. Panorama geral` aparecia como
+    texto cru em vez de subtitulo.
+    """
+    blocks: list[str] = []
+    list_open = False
+    for line in text.split("\n"):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        heading = re.match(r"^#{1,6}\s+(.*)$", stripped)
+        if heading:
+            if list_open:
+                blocks.append("</ul>")
+                list_open = False
+            blocks.append(f"<h4>{_inline(heading.group(1))}</h4>")
+            continue
+        if stripped.startswith("- "):
+            if not list_open:
+                blocks.append("<ul>")
+                list_open = True
+            blocks.append(f"<li>{_inline(stripped[2:])}</li>")
+            continue
+        if list_open:
+            blocks.append("</ul>")
+            list_open = False
+        blocks.append(f"<p>{_inline(stripped)}</p>")
+    if list_open:
+        blocks.append("</ul>")
+    return "".join(blocks)
+
+
+def _methodology_html(state: dict[str, Any]) -> str:
+    quality = _load_quality_report()
+    rows = [
+        ("Fonte dos dados", DATASUS_SOURCE_LABEL),
+        ("Dataset", f'<a href="{DATASUS_DATASET_URL}">{DATASUS_DATASET_URL}</a>'),
+        (
+            "Registros processados na carga",
+            _pt_int(quality.get("rows_read")) if quality else "n/d",
+        ),
+        (
+            "Registros descartados",
+            f"{quality.get('rows_dropped', 'n/d')} (nada é removido silenciosamente)"
+            if quality
+            else "n/d",
+        ),
+        ("Via de interpretação", str(state.get("interpretation_source", "n/d"))),
+    ]
+    rows_html = "".join(
+        f'<tr><td class="meta-key">{html.escape(k)}</td><td>{v}</td></tr>' for k, v in rows
+    )
+    return f"""
+<details class="methodology">
+  <summary>Metodologia e limitações gerais</summary>
+  <table>{rows_html}</table>
+  <p>Definição completa de cada indicador (numerador, denominador, campos, tratamento de
+  ausência e limitações), o contrato de colunas e o relatório de qualidade da carga estão no
+  <a href="#anexo-tecnico">anexo técnico</a>, abaixo.</p>
+</details>
+"""
+
+
+def _html_header(state: dict[str, Any]) -> str:
+    filters = (state.get("validation") or {}).get("filters") or {}
+    generated = datetime.now(tz=UTC).astimezone().strftime("%d/%m/%Y %H:%M %Z")
+    cutoff = _analysis_cutoff(state) or "n/d"
+    quality = _load_quality_report()
+    updated = str(quality.get("generated_at", ""))[:16].replace("T", " ") or "n/d"
+    scope = filters.get("uf") or "BR (nacional)"
+    classification = filters.get("classificacao_final") or "todas as classificações"
+
+    return f"""
+<header class="report-header">
+  <div class="header-top">
+    <div>
+      <p class="eyebrow">SRAG Intelligence Report</p>
+      <h1>Monitoramento de Síndrome Respiratória Aguda Grave</h1>
+    </div>
+    <button class="print-button no-print" onclick="window.print()">Exportar / Imprimir</button>
+  </div>
+  <dl class="header-meta">
+    <div><dt>Recorte</dt><dd>{html.escape(scope)} &middot; {html.escape(classification)}</dd></div>
+    <div><dt>Data de corte analítica</dt><dd>{html.escape(cutoff)}</dd></div>
+    <div><dt>Base atualizada em</dt><dd>{html.escape(updated)}</dd></div>
+    <div><dt>Relatório gerado em</dt><dd>{html.escape(generated)}</dd></div>
+  </dl>
+</header>
+"""
+
+
+def _html_footer(state: dict[str, Any]) -> str:
+    generated = datetime.now(tz=UTC).astimezone().strftime("%Y-%m-%d %H:%M %Z")
+    return f"""
+<footer class="report-footer">
+  <p>Fonte: {html.escape(DATASUS_SOURCE_LABEL)} &middot;
+  <a href="{DATASUS_DATASET_URL}">dataset</a> &middot; gerado em {html.escape(generated)}
+  &middot; run_id {html.escape(str(state.get("run_id", "")))} &middot;
+  SRAG Intelligence Agent — Prova de Conceito (PoC), Indicium HealthCare.</p>
+  <p class="disclaimer">{html.escape(DISCLAIMER)}</p>
+</footer>
+"""
+
+
+def _render_refusal_html(state: dict[str, Any]) -> str:
+    validation = state.get("validation") or {}
+    blocked_by = html.escape(str(validation.get("blocked_by")))
+    reason = html.escape(
+        str(validation.get("reason", "Solicitação recusada na validação de entrada."))
+    )
+    return f"""
+<div class="report-shell">
+  <header class="report-header">
+    <p class="eyebrow">SRAG Intelligence Report</p>
+    <h1>Solicitação não processada</h1>
+  </header>
+  <div class="callout callout-bad">
+    <p class="callout-title">Guardrail acionado: {blocked_by}</p>
+    <p>{reason}</p>
+  </div>
+  {_html_footer(state)}
+</div>
+"""
+
+
+_HTML_STYLE = """
+:root {
+  color-scheme: light;
+  --ink: #1A2331;
+  --muted: #6B7280;
+  --line: #E5E7EB;
+  --bg-soft: #F7F8F9;
+  --accent: #0F6B62;
+  --accent-soft: #E5F1EF;
+  --bad: #C2521B;
+  --bad-soft: #FBEDE4;
+  --context-bg: #FBF7EF;
+  --context-line: #EEE0C8;
+  --radius: 10px;
+}
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  color: var(--ink);
+  background: #ffffff;
+  margin: 0;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+.report-shell { max-width: 1180px; margin: 0 auto; padding: 2.5rem 1.5rem 4rem; }
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: .09em;
+  font-size: .72rem;
+  font-weight: 700;
+  color: var(--accent);
+  margin: 0 0 .3rem;
+}
+.header-top {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem;
+}
+.report-header h1 { font-size: 1.65rem; margin: 0 0 1rem; letter-spacing: -.01em; }
+.header-meta {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(140px, 1fr));
+  gap: .9rem 1.5rem;
+  margin: 0;
+  padding: 1rem 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.header-meta dt {
+  font-size: .7rem;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--muted);
+  margin: 0 0 .15rem;
+}
+.header-meta dd { margin: 0; font-size: .92rem; font-weight: 600; }
+.print-button {
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--ink);
+  border-radius: 999px;
+  padding: .5rem 1.1rem;
+  font-size: .82rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.print-button:hover { border-color: var(--accent); color: var(--accent); }
+
+.block { margin-top: 2.75rem; }
+.block-headline {
+  font-size: 1.28rem; font-weight: 700; margin: 0 0 1rem; letter-spacing: -.005em;
+}
+
+.exec-summary {
+  background: var(--accent-soft);
+  border-radius: var(--radius);
+  padding: 1.6rem 1.8rem;
+  margin-top: 1.75rem;
+}
+.exec-summary .block-headline { color: var(--ink); }
+.exec-list { list-style: none; margin: 1rem 0 0; padding: 0; display: grid; gap: .55rem; }
+.exec-list li { display: flex; gap: .6rem; align-items: baseline; font-size: .95rem; }
+.tag {
+  font-size: .64rem;
+  font-weight: 800;
+  letter-spacing: .06em;
+  padding: .12rem .45rem;
+  border-radius: 4px;
+  flex: 0 0 auto;
+}
+.tag-dado { background: var(--accent); color: white; }
+.tag-contexto { background: #C99A3A; color: white; }
+
+.status-strip {
+  margin-top: 1.25rem;
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--muted);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+  background: var(--bg-soft);
+}
+.status-normal { border-left-color: var(--accent); }
+.status-warn { border-left-color: #C99A3A; }
+.status-bad { border-left-color: var(--bad); }
+.status-head { display: flex; align-items: baseline; gap: .75rem; flex-wrap: wrap; }
+.status-badge {
+  font-size: .68rem;
+  font-weight: 800;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.status-summary { margin: 0; font-size: .9rem; color: var(--ink); }
+.status-list { margin: .6rem 0 0; padding-left: 1.1rem; font-size: .86rem; }
+.status-history { margin: .55rem 0 0; font-size: .78rem; color: var(--muted); }
+
+.context-label {
+  margin: 1.5rem 0 .6rem;
+  font-size: .78rem;
+  color: var(--muted);
+}
+.kpi-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-top: 1.75rem;
+}
+.kpi-grid-context { grid-template-columns: repeat(2, 1fr); margin-top: 0; }
+.kpi-compact { background: var(--bg-soft); padding: .85rem 1rem; }
+.kpi-compact .kpi-value { font-size: 1.3rem; }
+.kpi-compact .kpi-label { font-size: .74rem; }
+.kpi-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1.1rem 1.2rem;
+  background: white;
+}
+.kpi-empty { background: var(--bg-soft); }
+.kpi-label { font-size: .78rem; font-weight: 700; color: var(--muted); margin-bottom: .4rem; }
+.kpi-value { font-size: 1.85rem; font-weight: 800; letter-spacing: -.01em; }
+.kpi-unit {
+  display: block;
+  font-size: .72rem;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0;
+  margin-top: .1rem;
+}
+.kpi-muted { color: var(--muted); font-size: 1.1rem; font-weight: 700; }
+.kpi-comparison {
+  font-size: .8rem; color: var(--muted); margin-top: .35rem; min-height: 1.1em;
+}
+.kpi-note {
+  font-size: .74rem;
+  color: var(--muted);
+  margin-top: .55rem;
+  border-top: 1px dashed var(--line);
+  padding-top: .5rem;
+}
+.kpi-warning { font-size: .74rem; color: var(--bad); margin-top: .4rem; }
+.kpi-trend { font-weight: 800; }
+.trend-bad { color: var(--bad); }
+.trend-good { color: var(--accent); }
+.trend-neutral { color: var(--muted); }
+
+.chart-wrap {
+  margin-top: .5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: .75rem 1rem 1rem;
+}
+.chart-interactive { width: 100%; min-height: 360px; }
+.chart-print-only { display: none; width: 100%; border-radius: 6px; }
+.chart-empty { color: var(--muted); font-size: .9rem; }
+
+.insights-box {
+  margin-top: 1rem;
+  padding: 1rem 1.2rem;
+  background: var(--bg-soft);
+  border-radius: var(--radius);
+}
+.insights-title { font-weight: 700; font-size: .82rem; margin: 0 0 .5rem; color: var(--ink); }
+.insights-box ul { margin: 0; padding-left: 1.1rem; font-size: .88rem; color: var(--ink); }
+.insights-box li { margin-bottom: .3rem; }
+
+.news-intro { color: var(--muted); font-size: .88rem; margin-top: .5rem; }
+.news-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+.news-card {
+  background: var(--context-bg);
+  border: 1px solid var(--context-line);
+  border-radius: var(--radius);
+  padding: 1rem 1.1rem;
+}
+.news-title { font-weight: 700; font-size: .9rem; margin: 0 0 .5rem; }
+.news-meta { font-size: .76rem; color: var(--muted); margin: 0 0 .6rem; }
+.news-link { font-size: .78rem; font-weight: 700; color: var(--accent); text-decoration: none; }
+.news-link-disabled { color: var(--muted); }
+.news-empty { color: var(--muted); font-size: .9rem; }
+
+.interpretation {
+  background: white;
+  border-left: 4px solid var(--accent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  padding: 1.2rem 1.4rem;
+  margin-top: 1.25rem;
+}
+.interpretation p { margin: 0 0 .8rem; }
+.interpretation p:last-child { margin-bottom: 0; }
+.interpretation h4 {
+  font-size: .92rem; color: var(--accent); margin: 1.1rem 0 .4rem;
+}
+.interpretation h4:first-child { margin-top: 0; }
+.interpretation ul { margin: 0 0 .8rem; padding-left: 1.2rem; }
+.interpretation li { margin-bottom: .3rem; }
+.interpretation-note {
+  font-size: .78rem;
+  color: var(--muted);
+  margin-bottom: 1rem !important;
+  font-style: italic;
+}
+
+.callout {
+  border-radius: var(--radius);
+  padding: 1rem 1.2rem;
+  margin-top: 1rem;
+  background: var(--bad-soft);
+  border: 1px solid #F0CBB2;
+}
+.callout-neutral { background: var(--bg-soft); border-color: var(--line); }
+.callout-bad { background: var(--bad-soft); border-color: #F0CBB2; }
+.callout-title { font-weight: 700; font-size: .85rem; margin: 0 0 .35rem; }
+.callout p { font-size: .87rem; margin: 0; }
+.callout ul { margin: .3rem 0 0; padding-left: 1.1rem; font-size: .85rem; }
+
+.methodology {
+  margin-top: 1.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1rem 1.2rem;
+}
+.methodology summary { cursor: pointer; font-weight: 700; font-size: .92rem; }
+.methodology table { width: 100%; border-collapse: collapse; margin-top: .9rem; font-size: .85rem; }
+.methodology table td {
+  padding: .35rem 0; border-bottom: 1px solid var(--line); vertical-align: top;
+}
+.meta-key { color: var(--muted); width: 40%; }
+
+.technical-appendix {
+  margin-top: 2.5rem; border-top: 2px solid var(--line); padding-top: 1.25rem;
+}
+.technical-appendix summary {
+  cursor: pointer; font-weight: 700; font-size: 1.02rem; color: var(--ink);
+}
+.technical-appendix-body { margin-top: 1rem; }
+.technical-appendix-body h1 { display: none; }
+.technical-appendix-body h2 {
+  font-size: 1.05rem;
+  color: var(--ink);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: .3rem;
+  margin-top: 2rem;
+}
+.technical-appendix-body h3 { font-size: .96rem; color: var(--accent); margin-top: 1.5rem; }
+.technical-appendix-body table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: .8rem 0;
+  display: block;
+  overflow-x: auto;
+  font-size: .85rem;
+}
+.technical-appendix-body th, .technical-appendix-body td {
+  border: 1px solid var(--line);
+  padding: .45rem .6rem;
+  text-align: left;
+  vertical-align: top;
+}
+.technical-appendix-body th { background: var(--bg-soft); }
+.technical-appendix-body blockquote {
+  border-left: 3px solid var(--accent);
+  margin: .8rem 0;
+  padding: .4rem .9rem;
+  background: var(--bg-soft);
+}
+.technical-appendix-body img {
+  max-width: 100%; border: 1px solid var(--line); border-radius: 6px;
+}
+.technical-appendix-body code {
+  background: var(--bg-soft); padding: .1rem .3rem; border-radius: 3px; font-size: .88em;
+}
+
+.report-footer {
+  margin-top: 3rem;
+  border-top: 1px solid var(--line);
+  padding-top: 1rem;
+  font-size: .78rem;
+  color: var(--muted);
+}
+.report-footer .disclaimer { margin-top: .4rem; font-style: italic; }
+
+@media (max-width: 860px) {
+  .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+  .header-meta { grid-template-columns: repeat(2, 1fr); }
+}
+@media print {
+  .no-print, .print-button { display: none !important; }
+  .chart-interactive { display: none !important; }
+  .chart-print-only { display: block !important; }
+  .block { page-break-inside: avoid; }
+  .callout, .kpi-card, .news-card { break-inside: avoid; }
+}
+"""
+
+_FALLBACK_SCRIPT = """
+<script>
+window.addEventListener("load", function () {
+  if (typeof Plotly === "undefined") {
+    document.querySelectorAll(".chart-interactive").forEach(function (el) {
+      el.style.display = "none";
+    });
+    document.querySelectorAll(".chart-print-only").forEach(function (el) {
+      el.style.display = "block";
+    });
+  }
+});
+</script>
+"""
+
+
+def render_html(markdown_text: str, state: dict[str, Any]) -> str:
+    """Gera o relatorio executivo em HTML: dashboard + narrativa + anexo tecnico.
+
+    A pagina combina uma camada executiva construida diretamente do estado
+    (headline calculado, KPIs, graficos interativos com leituras programaticas,
+    contexto externo separado, interpretacao e notas metodologicas) com um
+    anexo tecnico completo -- a mesma conversao Markdown->HTML de sempre,
+    recolhido por padrao -- para quem quer o detalhamento indicador a
+    indicador, a trilha de auditoria e o relatorio de qualidade dos dados.
+    """
+    title = f"SRAG Intelligence Report - {state.get('run_id', '')}"
+    validation = state.get("validation") or {}
+
+    if not validation.get("allowed", True):
+        body = _render_refusal_html(state)
+        return _html_document(title, body)
+
+    appendix_body = _markdown_to_html(markdown_text)
+    exec_bullets_html = "".join(
+        f'<li><span class="tag tag-{tag.lower()}">{tag}</span><span>{html.escape(text)}</span></li>'
+        for tag, text in _executive_bullets(state)
+    )
+    interpretation_source = html.escape(str(state.get("interpretation_source", "")))
+    interpretation_text = (
+        state.get("interpretation") or "Interpretação não disponível nesta execução."
+    )
+    interpretation_html = _interpretation_html(interpretation_text)
+    body = f"""
+<div class="report-shell">
+  {_html_header(state)}
+
+  <section class="exec-summary">
+    <p class="eyebrow">Resumo executivo</p>
+    <h2 class="block-headline">{html.escape(_executive_headline(state))}</h2>
+    <ul class="exec-list">
+      {exec_bullets_html}
+    </ul>
+  </section>
+
+  {_status_strip_html(state)}
+
+  <section class="block">
+    <p class="eyebrow">Indicadores principais</p>
+    <div class="kpi-grid">
+      {"".join(_kpi_card_html(spec, state) for spec in _KPI_SPECS)}
+    </div>
+    <p class="context-label">Indicadores de contexto — situam os quatro acima no padrão
+    histórico e no tamanho da população</p>
+    <div class="kpi-grid kpi-grid-context">
+      {"".join(_kpi_card_html(spec, state, compact=True) for spec in _CONTEXT_SPECS)}
+    </div>
+  </section>
+
+  {_daily_chart_section(state)}
+  {_monthly_chart_section(state)}
+
+  <section class="block">
+    <p class="eyebrow">Contexto externo</p>
+    <h2 class="block-headline">Notícias recentes sobre SRAG</h2>
+    <p class="news-intro">Evidência contextual (notícias) — nunca altera, corrige ou substitui os
+    indicadores calculados sobre os dados oficiais do DATASUS (evidência epidemiológica).</p>
+    <div class="news-grid">{_news_cards_html(state)}</div>
+  </section>
+
+  <section class="block">
+    <p class="eyebrow">Interpretação</p>
+    <h2 class="block-headline">Interpretação do cenário</h2>
+    <div class="interpretation">
+      <p class="interpretation-note">Texto produzido por
+      <code>{interpretation_source}</code> exclusivamente a
+      partir dos resultados das tools acima, validado pelo guardrail de evidência.</p>
+      {interpretation_html}
+    </div>
+  </section>
+
+  <section class="block">
+    <p class="eyebrow">Transparência</p>
+    <h2 class="block-headline">Limitações e notas metodológicas</h2>
+    {_limitation_callouts_html(state)}
+    {_methodology_html(state)}
+  </section>
+
+  <details class="technical-appendix" id="anexo-tecnico">
+    <summary>Anexo técnico completo (indicadores detalhados, séries, qualidade dos dados,
+    governança e auditoria)</summary>
+    <div class="technical-appendix-body">{appendix_body}</div>
+  </details>
+
+  {_html_footer(state)}
+</div>
+"""
+    return _html_document(title, body)
+
+
+def _html_document(title: str, body: str) -> str:
     return f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{html.escape(title)}</title>
-<style>
-  :root {{ color-scheme: light; }}
-  body {{ font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
-         max-width: 960px; margin: 0 auto; padding: 2rem 1.25rem;
-         line-height: 1.6; color: #1a1a1a; background: #fbfbfa; }}
-  h1 {{ border-bottom: 3px solid #1f4e79; padding-bottom: .4rem; }}
-  h2 {{ margin-top: 2.5rem; color: #1f4e79; border-bottom: 1px solid #dcdcdc;
-        padding-bottom: .3rem; }}
-  h3 {{ margin-top: 1.8rem; color: #2e75b6; }}
-  table {{ border-collapse: collapse; width: 100%; margin: 1rem 0;
-           display: block; overflow-x: auto; }}
-  th, td {{ border: 1px solid #d9d9d9; padding: .5rem .7rem; text-align: left;
-            font-size: .92rem; vertical-align: top; }}
-  th {{ background: #eef3f8; }}
-  blockquote {{ border-left: 4px solid #2e75b6; margin: 1rem 0; padding: .5rem 1rem;
-                background: #eef3f8; color: #333; }}
-  img {{ max-width: 100%; border: 1px solid #e0e0e0; border-radius: 4px; }}
-  code {{ background: #f0f0ef; padding: .1rem .35rem; border-radius: 3px;
-          font-size: .88em; }}
-  details {{ margin: .6rem 0; }}
-  summary {{ cursor: pointer; color: #1f4e79; font-weight: 600; }}
-</style>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+<style>{_HTML_STYLE}</style>
 </head>
 <body>
 {body}
+{_FALLBACK_SCRIPT}
 </body>
 </html>
 """
