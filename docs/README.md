@@ -1,5 +1,7 @@
 # Documentação
 
+> **Certificação AI Engineering - Vinícius Barbaresco** -- Arquivo entregue: `docs/README.md`
+
 | Artefato | Origem | Conteúdo |
 |---|---|---|
 | [`arquitetura.pdf`](arquitetura.pdf) | gerado por [`gerar_diagrama_pdf.py`](gerar_diagrama_pdf.py) | Diagrama conceitual da solução (entrega obrigatória) |
@@ -19,6 +21,14 @@ com a documentação — ela aparece no diff da próxima geração.
 python docs/gerar_documentacao.py
 python docs/gerar_diagrama_pdf.py
 ```
+
+Todo documento entregue traz, na primeira linha, a identificação
+**Certificação AI Engineering - Vinícius Barbaresco** e o próprio nome de arquivo. Nos artefatos
+gerados isso também vem do código: a identificação é a constante `DELIVERY_LABEL` de
+[`src/config.py`](../src/config.py), usada pelos dois geradores e reproduzida à mão nos demais
+documentos — um único lugar para alterar, sem risco de um artefato sair com identificação diferente.
+A lista completa dos arquivos entregues está no
+[README principal, seção "Entrega para avaliação"](../README.md#entrega-para-avaliação).
 
 A visão geral da arquitetura, as decisões de projeto e as instruções de execução estão no
 [README principal](../README.md).

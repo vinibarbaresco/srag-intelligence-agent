@@ -1,5 +1,7 @@
 # Camada de dados SRAG — diagnóstico, regras e operação
 
+> **Certificação AI Engineering - Vinícius Barbaresco** -- Arquivo entregue: `docs/pipeline_dados/README.md`
+
 Documentação da revisão do pipeline de ingestão, seleção, limpeza, transformação, validação e
 preparação analítica dos dados de SRAG do Open DATASUS.
 

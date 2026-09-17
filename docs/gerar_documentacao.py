@@ -26,6 +26,7 @@ from src.config import (  # noqa: E402
     DATASUS_DATASET_URL,
     DATASUS_DICTIONARY_URL,
     DATASUS_SOURCE_LABEL,
+    DELIVERY_LABEL,
     get_settings,
 )
 from src.data.cleaning import CLEANING_PIPELINE  # noqa: E402
@@ -43,6 +44,18 @@ from src.data.schema import (  # noqa: E402
 from src.guardrails.policies import ALL_POLICIES  # noqa: E402
 from src.metrics.definitions import ALL_DEFINITIONS  # noqa: E402
 from src.tools.registry import TOOLS  # noqa: E402
+
+
+def _delivery_note(filename: str) -> str:
+    """Identificacao da entrega, no topo de cada documento.
+
+    Traz tambem o caminho do proprio arquivo: o avaliador recebe varios
+    documentos separados, e um `.md` aberto isolado (ou impresso) precisa
+    dizer, sem depender do repositorio ao redor, qual dos artefatos entregues
+    ele e.
+    """
+    return f"> **{DELIVERY_LABEL}** -- Arquivo entregue: `{filename}`"
+
 
 _GENERATED_NOTE = (
     "> Documento gerado por `python docs/gerar_documentacao.py` a partir das "
@@ -69,6 +82,8 @@ def build_metrics_doc() -> str:
     """Contrato formal entre dados brutos e indicadores publicados."""
     lines = [
         "# Dicionario de metricas",
+        "",
+        _delivery_note("docs/dicionario_metricas.md"),
         "",
         _GENERATED_NOTE,
         _REPRODUCIBILITY_NOTE,
@@ -124,6 +139,8 @@ def build_transformation_doc() -> str:
     """Contrato de colunas e regras de limpeza aplicadas na ingestao."""
     lines = [
         "# Regras de transformacao dos dados",
+        "",
+        _delivery_note("docs/regras_transformacao.md"),
         "",
         _GENERATED_NOTE,
         _REPRODUCIBILITY_NOTE,
@@ -312,6 +329,8 @@ def build_tools_doc() -> str:
     """Catalogo de tools e politicas de guardrail."""
     lines = [
         "# Catalogo de tools e guardrails",
+        "",
+        _delivery_note("docs/catalogo_tools.md"),
         "",
         _GENERATED_NOTE,
         _REPRODUCIBILITY_NOTE,

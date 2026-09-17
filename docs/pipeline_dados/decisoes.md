@@ -1,5 +1,7 @@
 # Log de decisões — revisão do pipeline de dados SRAG
 
+> **Certificação AI Engineering - Vinícius Barbaresco** -- Arquivo entregue: `docs/pipeline_dados/decisoes.md`
+
 Registro das decisões tomadas pelo Orchestrator na revisão da camada de ingestão,
 seleção, limpeza, transformação, validação e preparação analítica dos dados de SRAG.
 

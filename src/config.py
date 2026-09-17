@@ -390,6 +390,15 @@ DATASUS_DICTIONARY_URL = (
 )
 DATASUS_SOURCE_LABEL = "Open DATASUS / SIVEP-Gripe (SRAG 2019-2026)"
 
+# --- Identificacao da entrega ------------------------------------------------
+#
+# Cada documento entregue carrega esta identificacao e o proprio nome de
+# arquivo, para que continue identificavel fora do repositorio -- impresso,
+# anexado a um e-mail ou aberto isolado. A string mora aqui, e nao repetida em
+# cada gerador, porque documento gerado e documento escrito a mao precisam
+# exibir exatamente a mesma linha.
+DELIVERY_LABEL = "Certificação AI Engineering - Vinícius Barbaresco"
+
 # Formato do arquivo bruto, verificado na fonte em 2026-09.
 RAW_CSV_SEPARATOR = ";"
 

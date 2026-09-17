@@ -2,6 +2,10 @@
 
 # Relatorio epidemiologico de SRAG
 
+> **Certificação AI Engineering - Vinícius Barbaresco**
+
+> Arquivo entregue: `docs/exemplo_relatorio.md`
+
 - **Execucao (run_id):** `8c0fca20-d20e-4d50-a387-e7ad7fb09daa`
 - **Gerado em:** 2026-09-16 21:28 E. South America Standard Time
 - **Solicitacao:** Gere o relatorio de monitoramento de SRAG com os indicadores de aumento de casos, mortalidade, UTI e vacinacao, as series diaria e mensal, e o contexto de noticias recentes.

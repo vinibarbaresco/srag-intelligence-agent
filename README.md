@@ -1,5 +1,7 @@
 # Indicium HealthCare — SRAG Intelligence Agent
 
+> **Certificação AI Engineering - Vinícius Barbaresco** -- Arquivo entregue: `README.md`
+
 [![CI](https://github.com/vinibarbaresco/srag-intelligence-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/vinibarbaresco/srag-intelligence-agent/actions/workflows/ci.yml)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
 [![Ruff](https://img.shields.io/badge/lint-ruff-261230.svg)](https://docs.astral.sh/ruff/)
@@ -17,15 +19,26 @@ python main.py            # atualiza notícias e gera o relatório
 
 ## Entrega para avaliação
 
-Este repositório contém todos os artefatos solicitados para a PoC:
+**Certificação AI Engineering - Vinícius Barbaresco.** Este repositório contém todos os artefatos
+solicitados para a PoC. Cada documento entregue traz, no topo, essa identificação e o próprio nome
+de arquivo — para continuar identificável fora do repositório, impresso ou aberto isolado.
 
-- documentação técnica, instruções de execução, decisões e limitações neste README;
-- diagrama conceitual em PDF: [`docs/arquitetura.pdf`](docs/arquitetura.pdf);
-- código-fonte do agente, ferramentas, tratamento de dados, testes e documentação complementar
-  em [`docs/`](docs/README.md);
-- as respostas ao questionário de tratamento de dados (o que foi mantido/descartado, como missing
-  foi tratado, numeradores/denominadores, risco de viés e de vazamento de dados) estão em
-  [`docs/pipeline_dados/README.md`, seção 10](docs/pipeline_dados/README.md#10-as-treze-perguntas).
+| # | Arquivo entregue | Conteúdo |
+|---|---|---|
+| 1 | [`README.md`](README.md) | Documentação técnica, arquitetura, decisões, limitações e instruções de execução |
+| 2 | [`docs/arquitetura.pdf`](docs/arquitetura.pdf) | Diagrama conceitual da solução — camadas e fluxo de execução (2 páginas) |
+| 3 | [`docs/dicionario_metricas.md`](docs/dicionario_metricas.md) | Contrato métrica ↔ campo ↔ regra ↔ limitação |
+| 4 | [`docs/regras_transformacao.md`](docs/regras_transformacao.md) | Contrato de colunas e regras de limpeza |
+| 5 | [`docs/catalogo_tools.md`](docs/catalogo_tools.md) | Catálogo de tools e políticas de guardrail |
+| 6 | [`docs/exemplo_relatorio.md`](docs/exemplo_relatorio.md) | Relatório completo de uma execução real sobre a base oficial |
+| 7 | [`docs/pipeline_dados/README.md`](docs/pipeline_dados/README.md) | Camada de dados: diagnóstico, regras, qualidade e as treze perguntas obrigatórias |
+| 8 | [`docs/pipeline_dados/decisoes.md`](docs/pipeline_dados/decisoes.md) | Log de decisões da revisão da camada de dados |
+| 9 | [`docs/README.md`](docs/README.md) | Índice da documentação, com a origem de cada artefato |
+
+Mais o código-fonte do agente, das ferramentas, do tratamento de dados e dos testes, no próprio
+repositório. As respostas ao questionário de tratamento de dados (o que foi mantido/descartado, como
+missing foi tratado, numeradores/denominadores, risco de viés e de vazamento de dados) estão em
+[`docs/pipeline_dados/README.md`, seção 10](docs/pipeline_dados/README.md#10-as-treze-perguntas).
 
 Os CSVs do DATASUS, bancos locais, chaves e relatórios gerados não são versionados por serem
 reproduzíveis, volumosos ou sensíveis. A seção [Como executar](#12-como-executar) explica como
@@ -712,7 +725,9 @@ modelo de linguagem: bloqueia só nas categorias de dano direto e, mesmo assim, 
 derruba a interpretação para a via determinística — custo aceito por projeto. Os dois gráficos do
 relatório HTML são interativos via Plotly.js carregado de CDN; sem rede no momento da abertura, o
 relatório detecta a falha e mostra automaticamente a versão estática (PNG) dos mesmos gráficos no
-lugar — a informação nunca desaparece, só perde o hover.
+lugar — a informação nunca desaparece, só perde o hover. A fonte da página (Inter) também vem de
+CDN e cai para a fonte do sistema sem rede; o tema escolhido no alternador claro/escuro fica no
+`localStorage` do navegador de quem lê, e a impressão sai sempre em tema claro.
 
 **Do escopo.** A API HTTP não tem autenticação nem limitação de taxa: destina-se a rede interna ou
 a um gateway na frente. A execução agendada baixa a base a cada rodada (sem cache entre execuções).
