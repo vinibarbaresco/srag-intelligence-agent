@@ -19,7 +19,8 @@ logger = get_logger(__name__)
 
 DEFAULT_REQUEST = (
     "Gere o relatorio de monitoramento de SRAG com os indicadores de aumento de "
-    "casos, mortalidade, UTI e vacinacao, as series diaria e mensal, e o contexto "
+    "casos, letalidade entre casos encerrados, UTI (admissao e ocupacao de leitos) "
+    "e vacinacao, as series diaria e mensal, e o contexto "
     "de noticias recentes."
 )
 

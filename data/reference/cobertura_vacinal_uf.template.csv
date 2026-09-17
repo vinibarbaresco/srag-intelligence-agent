@@ -1,4 +1,18 @@
-uf,ano,campanha,doses_aplicadas,populacao_alvo,fonte,url
-# Preencha a partir da extracao oficial do SI-PNI / LocalizaSUS e salve como
-# cobertura_vacinal_uf.csv (sem estas linhas de comentario).
-# campanha: influenza | covid19. populacao_alvo e opcional.
+uf,ano,campanha,doses_aplicadas,populacao_alvo,fonte,url,data_extracao
+# Modelo do contrato da referencia de cobertura vacinal populacional (SI-PNI).
+#
+# Caminho recomendado -- agregar os extratos oficiais do PNI:
+#   python -m src.data.reference.vaccination --from-pni vacinacao_*_2026_csv.zip --year 2026
+# Os extratos mensais estao em
+#   https://dadosabertos.saude.gov.br/dataset/doses-aplicadas-pelo-programa-de-nacional-de-imunizacoes-pni-2026
+# e tem de 1,8 a 4,3 GB comprimidos por mes; o agregador le em fluxo, usa quatro
+# das 60 colunas e nao persiste nenhum registro individual.
+#
+# Caminho alternativo -- preencher a mao a partir de uma extracao oficial e
+# salvar como cobertura_vacinal_uf.csv (sem estas linhas de comentario).
+#
+# campanha: influenza | covid19 (nunca somadas entre si).
+# populacao_alvo vazia => o denominador passa a ser a populacao residente do
+# IBGE, o que SUBESTIMA a cobertura do publico-alvo; a substituicao e declarada
+# no relatorio.
+# data_extracao e opcional.

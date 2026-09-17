@@ -65,6 +65,7 @@ class TestFluxoCompleto:
             "case_growth_rate",
             "mortality_rate",
             "icu_admission_rate",
+            "icu_bed_occupancy_rate",
             "vaccination_coverage_among_cases",
             "incidence_rate",
             "seasonal_excess",
@@ -131,7 +132,7 @@ class TestPlanejamento:
         state = _run(monkeypatch, FakeInterpreter("Texto.", selected=["get_daily_cases"]))
 
         assert "get_mortality_rate" in state["plan"]["effective_tools"]
-        assert len(state["metrics"]) == 6
+        assert len(state["metrics"]) == 7
 
     def test_plano_e_registrado_com_o_planejador(
         self, synthetic_database, sem_noticias, monkeypatch
@@ -192,7 +193,7 @@ class TestGuardrailsNoFluxo:
         self, synthetic_database, sem_noticias, monkeypatch
     ):
         state = _run(monkeypatch, DeterministicNarrator())
-        assert len(state["guardrail_report"]["politicas_ativas"]) == 7
+        assert len(state["guardrail_report"]["politicas_ativas"]) == 8
 
 
 class TestDegradacaoDeNoticias:
@@ -205,13 +206,37 @@ class TestDegradacaoDeNoticias:
 
     def test_falha_na_busca_vira_aviso_e_nao_excecao(self, synthetic_database, monkeypatch):
         def indisponivel(*_args, **_kwargs):
-            raise RuntimeError("vector db corrompido")
+            raise RuntimeError("vector db corrompido em C:\\dados\\news.duckdb (PID 4711)")
 
         monkeypatch.setattr("src.news.vector_store.search", indisponivel)
         state = _run(monkeypatch, DeterministicNarrator())
 
         assert state["report_paths"]["markdown"]
-        assert any("indisponivel" in aviso.lower() for aviso in state["warnings"])
+        assert any("noticias nao foram atualizadas" in aviso.lower() for aviso in state["warnings"])
+
+    def test_falha_na_busca_nao_vaza_caminho_pid_nem_numero_no_relatorio(
+        self, synthetic_database, monkeypatch
+    ):
+        """O relatorio publico nao repete diagnostico de infraestrutura."""
+        import re
+
+        def indisponivel(*_args, **_kwargs):
+            raise RuntimeError("vector db corrompido em C:\\dados\\news.duckdb (PID 4711)")
+
+        monkeypatch.setattr("src.news.vector_store.search", indisponivel)
+        state = _run(monkeypatch, DeterministicNarrator())
+
+        texto = render_markdown(dict(state))
+        assert "C:\\dados" not in texto
+        assert "PID 4711" not in texto
+        assert "news.duckdb" not in texto
+        # O aviso publicado nao pode carregar numero: ele entra no texto
+        # submetido ao guardrail de evidencia.
+        aviso = next(a for a in state["warnings"] if "noticias nao foram atualizadas" in a.lower())
+        assert not re.search(r"\d", aviso)
+        # E a interpretacao deterministica continua publicada, nao suprimida.
+        assert state["interpretation"]
+        assert "Interpretacao nao publicada" not in state["interpretation"]
 
     def test_atualiza_noticias_antes_da_busca_quando_habilitado(
         self, synthetic_database, sem_noticias, monkeypatch
@@ -288,8 +313,16 @@ class TestRelatorio:
 
     def test_markdown_declara_as_metricas_nao_calculaveis(self, state):
         texto = render_markdown(state)
-        assert "Taxa de ocupacao de leitos de UTI: nao calculavel" in texto
+        # Sem referencia do SI-PNI no ambiente de teste, a cobertura
+        # populacional tem de aparecer declarada -- nunca substituida pela
+        # cobertura entre casos, que e outro indicador.
         assert "Taxa de vacinacao da populacao: nao calculavel" in texto
+
+    def test_markdown_separa_admissao_de_ocupacao_de_uti(self, state):
+        texto = render_markdown(state)
+        assert "3. UTI (admissao e censo)" in texto
+        assert "3b. Ocupacao de leitos de UTI por pacientes de SRAG" in texto
+        assert "Este indicador nao e ocupacao de leitos." in texto
 
     def test_markdown_traz_numerador_denominador_e_fonte(self, state):
         texto = render_markdown(state)
@@ -409,7 +442,7 @@ class TestFalhasDoModeloEDosNos:
             monkeypatch.setattr(metric_tools.epidemiology, "mortality_rate", original)
 
         assert "mortality_rate" not in state["metrics"]
-        assert len(state["metrics"]) == 5
+        assert len(state["metrics"]) == 6
         assert any("mortalidade indisponivel" in erro for erro in state["errors"])
         texto = render_markdown(dict(state))
         assert "nao executado" in texto

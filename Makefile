@@ -2,6 +2,8 @@
 #
 #   make demo          prepara a base (download) e gera o relatorio sem LLM
 #   make demo CSV=...  idem, a partir de um CSV ja em disco (base do enunciado)
+#   make setup-completo  carrega os anos de baseline e atualiza IBGE e CNES
+#   make referencias     atualiza so as referencias externas automatizaveis
 #   make run           relatorio com LLM (exige OPENAI_API_KEY no .env)
 #   make test | lint | docs | api | docker-build | docker-demo
 #   make venv          ambiente isolado nas versoes fixadas (reproduz o CI)
@@ -34,7 +36,7 @@ UF     ?=
 UF_FLAG := $(if $(UF),--uf $(UF),)
 SETUP   := $(if $(CSV),--setup --csv $(CSV),--setup --years $(YEARS))
 
-.PHONY: install venv demo run setup test lint format docs check api docker-build docker-demo clean
+.PHONY: install venv demo run setup setup-completo referencias test lint format docs check api docker-build docker-demo clean
 
 install:
 	$(PYTHON) -m pip install -r requirements-dev.txt
@@ -52,6 +54,18 @@ venv:
 
 setup:
 	$(PYTHON) main.py $(SETUP) --no-llm $(UF_FLAG)
+
+# Preparacao completa: carrega tambem os anos de baseline e atualiza as
+# referencias externas, deixando TODOS os indicadores calculaveis. Custa o
+# download de varios anos do DATASUS.
+setup-completo:
+	$(PYTHON) main.py --setup --setup-mode completo --no-llm $(UF_FLAG)
+
+# Atualiza so as referencias externas com fonte automatizavel. A do SI-PNI fica
+# de fora: o extrato mensal tem alguns GB (ver src/data/reference/vaccination.py).
+referencias:
+	$(PYTHON) -m src.data.reference.population
+	$(PYTHON) -m src.data.reference.icu_capacity
 
 demo: setup
 	@echo "Relatorio gerado em outputs/reports/ (via deterministica)."

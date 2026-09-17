@@ -594,3 +594,224 @@ ausência de categoria nova que simplesmente não foi observada.
 - **Terceiro ramo do `coalesce` em `_ICU_STAY_END_SQL` é código morto (L-3).** Procede tecnicamente
   (`least` ignora `NULL` no DuckDB), mas foi **mantido**: ele documenta a intenção da imputação e
   não depende de que um comportamento específico de `NULL` do motor SQL continue valendo.
+
+---
+
+# Revisão de entrega — fontes externas, resiliência e segurança
+
+As decisões abaixo pertencem a uma rodada posterior, que atacou os quatro pontos em que a entrega
+prometia menos do que o desafio pedia: ocupação de UTI, vacinação populacional, resiliência do
+acervo de notícias e defesa contra prompt injection.
+
+## D-31 — Ocupação de UTI: trazer o denominador em vez de declarar impossível
+
+**Evidência.** O SIVEP-Gripe não registra capacidade instalada; o campo 53 (`UTI`) é admissão. A
+entrega anterior declarava o indicador não calculável — correto, mas incompleto: o denominador
+existe, em fonte pública.
+
+**Alternativas.** (a) manter a declaração de impossibilidade; (b) renomear a taxa de admissão como
+ocupação — descartada de saída, é exatamente a confusão que o projeto combate; (c) integrar o CNES.
+
+**Decisão.** (c). O extrato anual "Hospitais e Leitos" do Portal de Dados Abertos do SUS tem 3,8 MB
+comprimidos, competência mensal, 27 UFs e cinco tipos de UTI. Ele é agregado por
+`src/data/reference/icu_capacity.py` em um CSV versionado com proveniência (URL, data de extração,
+`sha256` do bruto e do agregado). **Seis** das 35 colunas são lidas — telefone, e-mail e logradouro
+do estabelecimento nunca entram em memória.
+
+**Escopo do denominador.** Apenas UTI adulto e pediátrica. Neonatal, queimados e coronariana são
+unidades fechadas para outras condições: incluí-las diluiria a ocupação com capacidade que não está
+disponível ao paciente de SRAG. As três continuam no arquivo de referência — a decisão é do cálculo,
+não da ingestão, e fica auditável.
+
+**Quatro indisponibilidades, com motivos distintos.** Referência ausente; UF sem capacidade
+cadastrada; competência distante da janela além de `ICU_CAPACITY_MAX_LAG_MONTHS`; denominador zero.
+Para o recorte nacional exige-se cobertura das 27 UFs: um denominador parcial sobre numerador
+nacional produz ocupação inflada, que é exatamente o erro que o indicador não pode cometer.
+
+**Janela deslocada, não truncada.** Medido na base real: o teto de permanência em UTI (p95 das
+estadias com saída registrada) é de **31 dias**, e a janela de análise tem 30. Truncar a janela na
+fronteira de maturidade deixaria **zero** dias apuráveis — o indicador nunca sairia. A janela é
+então deslocada para trás preservando o tamanho, e o período distinto vem declarado no resultado.
+Resultado na base real: 7,7% nacional (3.988 pacientes de SRAG sobre 51.774 leitos, competência
+2026-07), 7,98% em SP.
+
+**Limitação que acompanha todo valor publicado.** Pacientes de SRAG não são todos os pacientes que
+ocupam leitos de UTI: o valor é um **piso** da ocupação total. E o CNES cadastra leitos, não leitos
+operacionais no dia — leito cadastrado pode estar bloqueado por falta de equipe.
+
+## D-32 — Vacinação populacional: agregar sem persistir
+
+**Evidência.** `VACINA_COV` só existe para quem adoeceu. A entrega anterior previa um CSV
+preenchido à mão, sem pipeline.
+
+**Obstáculo real.** O extrato oficial do PNI é **por dose aplicada**: 60 colunas, de 1,8 a 4,3 GB
+comprimidos por mês, e contém `co_paciente` — identificador pseudonimizado. Não existe API pública
+agregada por UF e campanha.
+
+**Decisão.** Pipeline de agregação em fluxo (`src/data/reference/vaccination.py`): lê o extrato
+linha a linha, consome **quatro** das 60 colunas (UF, vacina, data, status do documento) e grava
+**apenas** o total por UF, campanha e ano. Nenhuma linha individual toca o disco, o banco ou o
+modelo. Registros com `st_documento` diferente de `final` são descartados — a RNDS mantém a versão
+antiga ao lado da corrigida, e somá-las contaria a mesma dose duas vezes.
+
+**Por que não roda no `--setup`.** Baixar dezenas de GB a cada preparação seria irreal. O artefato
+versionado é o CSV agregado; regerá-lo é operação deliberada, com comando próprio. Sem ele, o
+indicador permanece indisponível com o motivo — e a recusa ensina o comando, em vez de só negar.
+
+**Denominador.** População-alvo da campanha quando publicada; na ausência, população residente do
+IBGE, com a substituição **rotulada** e o sentido do viés declarado (subestima a cobertura do
+público-alvo). Influenza e covid-19 nunca são somadas: público-alvo, esquema de doses e
+sazonalidade são diferentes.
+
+## D-33 — Acervo de notícias: o retry não bastava
+
+**Evidência.** Trava concorrente observada em execução real: a ingestão escreve em
+`news_vectors.duckdb` imediatamente antes de a busca ler o mesmo arquivo.
+
+**Primeira tentativa.** Troca atômica (escreve em temporário, promove com `os.replace`) mais
+retentativa com espera crescente. **Insuficiente, e o teste de concorrência provou:** no Windows
+`os.replace` falha enquanto qualquer processo mantém o destino aberto, e uma busca em laço mantém o
+arquivo aberto quase o tempo todo. O escritor esgotava as tentativas por **inanição**, não por
+contenção passageira.
+
+**Decisão.** Acrescentar um arquivo de trava que serializa leitores e escritores, com contador de
+reentrância por thread (uma trava de arquivo do sistema operacional não distingue threads do mesmo
+processo). A seção crítica é de milissegundos. As três medidas coexistem porque cobrem casos
+diferentes; a cópia do acervo é **lógica** (leitura consistente), nunca binária, porque copiar o
+arquivo enquanto outro processo escreve produziria um instantâneo inconsistente.
+
+**Garantia.** Qualquer falha preserva o acervo anterior intacto. O relatório sai com o contexto que
+já existia, degradado e declarado.
+
+## D-34 — Mensagem de falha: por que isso não era cosmético
+
+**Evidência.** A mensagem crua de uma trava do DuckDB carrega o caminho do arquivo e um PID. Ela ia
+para o relatório e, de lá, para o texto submetido ao guardrail de evidência. Os números dela não
+estão no conjunto de evidências, então o guardrail bloqueava o texto — **e uma falha de notícia
+derrubava até a redação determinística.**
+
+**Decisão.** Separar as duas fatias no envelope da tool: `unavailable_reason` (frase publicável, em
+linguagem de domínio, sem caminho, PID nem número algum) e `technical_detail` (mensagem íntegra,
+para a trilha de auditoria e o log). As causas públicas são **curadas por tipo de exceção**, não
+derivadas da mensagem: o leitor do relatório recebe "o acervo estava em uso por outro processo", e
+não um diagnóstico de banco de dados.
+
+## D-35 — Arquitetura: agente com tool calling real, em uma etapa
+
+**Evidência.** O planejamento anterior era nominal: o modelo "escolhia" tools que seriam executadas
+de qualquer forma. Pior dos dois mundos — custo e variabilidade de uma chamada de modelo, sem
+consequência observável.
+
+**Alternativas.** (A) assumir o workflow determinístico e remover o planejamento; (B) tool calling
+real sobre tools adicionais, preservando o contrato obrigatório.
+
+**Decisão.** (B), com a fronteira no lugar certo. O contrato de entrega — indicadores, séries e
+gráficos — permanece determinístico e fora do alcance do modelo: dois relatórios do mesmo recorte
+precisam ser comparáveis. Depois dele, o modelo vê o que foi calculado e pode acionar análises
+**adicionais** por function calling: outra janela, outra UF, uma busca de notícias mais específica.
+
+**Fronteiras em código, não no prompt.** Allowlist estrita (os geradores de gráfico ficam de fora —
+efeito colateral em disco não pertence a uma decisão amostrada); schemas Pydantic com domínios
+fechados; tetos de chamadas, iterações e retentativas; resultado em campo próprio do estado, que
+nunca substitui um indicador; fallback determinístico em qualquer falha. Desligar a etapa inteira é
+`AGENT_TOOL_CALLING_ENABLED=false`, e o relatório sai idêntico no que importa — essa é a garantia.
+
+## D-36 — Prompt injection: decidir fora do modelo
+
+**Evidência.** "Ignore as instruções anteriores" era aceito na entrada e chegava ao modelo, que só
+então decidia obedecer ou não.
+
+**Decisão.** Classificar antes. Decidir isso no modelo é decidir errado: a proteção passaria a
+depender exatamente do componente que se quer proteger. Três níveis de risco, três respostas; risco
+alto recusa, risco médio segue com aviso registrado.
+
+**Por que risco médio não bloqueia.** Padrões ambíguos aparecem em pedido legítimo. Um guardrail que
+recusa trabalho válido é desligado pela equipe — ficando, na prática, sem guardrail nenhum. O
+conjunto de testes trata as duas direções com o mesmo peso: os vetores de ataque **e** dez prompts
+epidemiológicos que não podem ser bloqueados.
+
+**Detalhe que o teste encontrou.** A varredura precisa do texto **sem os invisíveis mas ainda com a
+instrução intacta**. Rodá-la sobre o texto totalmente sanitizado seria um erro silencioso: o
+saneamento já substituiu a instrução por um marcador, e nenhum padrão encontraria coisa alguma.
+`Ig<ZWSP>nore as instruções` é exatamente o ataque que isso cobre.
+
+## D-37 — Terminologia: letalidade, não mortalidade
+
+**Decisão.** O indicador 2 passou a se chamar **letalidade entre casos encerrados** em toda
+superfície visível — títulos, cartões, prompts, catálogo de tools, README e PDF. A chave interna
+`mortality_rate` foi **preservada**: histórico de execuções, regras de alerta e a API dependem dela,
+e renomear a chave quebraria a comparação com execuções anteriores sem ganho algum. Nome é para
+quem lê; chave é para quem integra.
+
+---
+
+# Fechamento dos pontos de risco levantados na entrega anterior
+
+A entrega anterior encerrou com uma lista de "pontos que ainda podem ameaçar nota ≥ 7". As decisões
+abaixo tratam os itens que admitiam correção direta, sem inventar dado nem enfraquecer guardrail.
+
+## D-38 — Fixture de demonstração da vacinação populacional, nunca o padrão
+
+**Risco identificado.** Sem a agregação do extrato real do SI-PNI (alguns GB por mês, operação
+deliberada), a cobertura vacinal populacional sai `null` em qualquer demonstração — o único
+indicador do desafio sem número na entrega padrão.
+
+**Decisão.** Adicionar `data/reference/cobertura_vacinal_uf.FIXTURE_EXEMPLO.csv`, exatamente como
+o enunciado permite: "dados de exemplo apenas se claramente rotulados como fixture de teste, nunca
+como dado oficial". Três propriedades garantem isso:
+
+1. **Nunca é o caminho padrão.** `VACCINATION_REFERENCE_PATH` continua apontando para
+   `cobertura_vacinal_uf.csv`; usar a fixture exige copiar o arquivo explicitamente, e o próprio
+   README instrui a removê-la depois.
+2. **Números óbviamente inventados.** Redondos, cobrindo só SP e RJ — não parecem, e não devem
+   parecer, uma extração nacional real.
+3. **O rótulo de teste sobrevive até o número publicado.** A coluna `fonte` de toda linha diz
+   `FIXTURE DE TESTE - NAO E DADO OFICIAL`, e o relatório imprime essa string **ao lado do
+   percentual calculado** (`_population_coverage_lines`, em `src/agent/report.py`) — não é preciso
+   abrir o CSV para saber que o número é de teste; o relatório final já denuncia.
+
+Quatro testes (`TestFixtureDeDemonstracao`, em `tests/test_vaccination_reference.py`) travam essas
+três propriedades, incluindo o caminho fim a fim: carregar a fixture e verificar que o resultado
+*calculado* (não só o arquivo) carrega o aviso.
+
+## D-39 — Ocupação de UTI: visível também onde o relatório é lido de relance
+
+**Risco identificado.** O valor da ocupação (7,7% na base real) e as ressalvas que o acompanham
+(piso de SRAG, janela deslocada) estavam corretas mas só na seção detalhada do indicador. Um leitor
+que consultasse apenas o resumo executivo, os cartões de KPI do HTML ou a tabela-resumo veria
+"7,7%" isolado — e a leitura mais provável de um número baixo isolado é "rede com folga", que é
+exatamente o erro que o indicador existe para não cometer.
+
+**Decisão.** Repetir a ressalva nos três pontos de entrada mais prováveis do relatório, e não só
+na seção detalhada:
+
+1. **Cartão de KPI (HTML).** A ocupação entrou em `_CONTEXT_SPECS`, ganhando cartão próprio no topo
+   do relatório, com a nota "PISO da ocupação real [...] Valor baixo NÃO indica rede com folga"
+   sempre visível — a nota de um cartão não depende de o leitor abrir nada.
+2. **Resumo executivo (bullets).** A ocupação virou um quinto bullet de DADO, com a ressalva na
+   mesma frase do número. O teto de bullets (antes 3 DADO / 4 total) subiu para 5 DADO / 6 total —
+   subir o teto, e não substituir um bullet existente, porque nenhum dos quatro indicadores
+   exigidos pelo desafio podia sair do resumo executivo para abrir espaço para o quinto.
+3. **Tabela-resumo (Markdown).** A linha da ocupação ganhou um marcador `[*]` e uma nota de rodapé
+   com a mesma ressalva — a tabela costuma ser o trecho mais citado isoladamente (copiado para um
+   e-mail, por exemplo), e é onde a ressalva menos podia faltar.
+
+Nenhuma dessas mudanças altera o cálculo: é inteiramente sobre onde e quantas vezes a mesma
+limitação, já correta, aparece.
+
+## Pontos mantidos como estão, com a razão registrada
+
+- **`--setup-mode completo` não é o padrão.** Mantido: o modo mínimo já avisa ao final quais
+  indicadores ficam indisponíveis e como resolver, e mudar o padrão implicaria baixar vários anos
+  do DATASUS em toda primeira execução — custo que o usuário deve escolher, não herdar.
+- **A etapa de tool calling não faz nada na requisição padrão.** Comportamento correto, não defeito:
+  a requisição padrão já pede exatamente o que o contrato obrigatório entrega, e "não há nada
+  adicional a fazer" é a resposta certa na maioria dos casos. O relatório já declara isso
+  explicitamente (`"Nenhuma analise adicional foi acionada: a solicitacao ja estava inteiramente
+  atendida..."`). Uma chamada forçada só para "mostrar que funciona" violaria o próprio desenho do
+  contrato obrigatório × aprofundamento opcional.
+- **Uma safra do CNES com layout alterado interrompe a geração da referência.** Já tratado com
+  segurança: `aggregate_cnes_beds` valida as colunas esperadas e levanta erro claro antes de
+  escrever qualquer coisa, e `_update_references()` (em `main.py`) captura essa falha e **preserva
+  o arquivo de referência já existente** — uma safra nova malformada nunca corrompe ou apaga a
+  capacidade que já estava carregada. Verificado com teste dedicado.

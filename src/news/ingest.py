@@ -18,13 +18,21 @@ import argparse
 import sys
 
 from src.config import get_settings
+from src.guardrails.sanitize import public_reason, technical_detail
 from src.news.embeddings import get_embedder
 from src.news.rss_client import DEFAULT_QUERIES, collect_articles
-from src.news.vector_store import stats, upsert_articles
+from src.news.vector_store import AccessReport, VectorStoreBusy, stats, upsert_articles
 from src.observability.audit import STATUS_DEGRADED, AuditTrail
 from src.observability.logging_config import configure_logging, get_logger
 
 logger = get_logger(__name__)
+
+#: Aviso publicavel quando a gravacao nao acontece. Sem numeros, de proposito
+#: (ver `src/guardrails/sanitize.py`).
+INGEST_DEGRADED_NOTICE = (
+    "O acervo de noticias nao pode ser atualizado nesta execucao e o conteudo "
+    "anteriormente armazenado foi preservado e consultado no lugar."
+)
 
 
 def ingest_news(
@@ -50,7 +58,26 @@ def ingest_news(
 
     articles, warnings = collect_articles(DEFAULT_QUERIES, max_age_days=window)
     embedder = get_embedder()
-    stored = upsert_articles(articles, embedder=embedder)
+    access = AccessReport(operacao="ingestao_de_noticias")
+
+    # Uma trava no acervo nao pode derrubar a execucao: a gravacao falha, o
+    # acervo anterior permanece intacto (a escrita acontece fora dele) e o
+    # relatorio sai com o contexto que ja existia. O que nao pode acontecer e a
+    # degradacao passar despercebida -- por isso ela vira aviso publicavel,
+    # detalhe tecnico na auditoria e status `degraded`.
+    stored = 0
+    failure: str | None = None
+    detail: str | None = None
+    try:
+        stored = upsert_articles(articles, embedder=embedder, report=access)
+    except VectorStoreBusy as exc:
+        failure = INGEST_DEGRADED_NOTICE
+        detail = technical_detail(exc)
+        logger.warning("gravacao de noticias falhou por acervo ocupado", extra={"erro": detail})
+    except Exception as exc:  # fonte externa: a entrega nao pode depender dela
+        failure = public_reason(exc, fallback=INGEST_DEGRADED_NOTICE)
+        detail = technical_detail(exc)
+        logger.warning("gravacao de noticias falhou", extra={"erro": detail})
 
     summary = {
         "consultas": list(DEFAULT_QUERIES),
@@ -59,7 +86,10 @@ def ingest_news(
         "noticias_gravadas": stored,
         "feeds_com_falha": warnings,
         "embedding_backend": embedder.backend,
-        "vector_db": stats(),
+        "vector_db": stats(report=access),
+        "acesso_ao_acervo": access.to_dict(),
+        "gravacao_degradada": failure,
+        "technical_detail": detail,
     }
 
     if trail is not None:
@@ -67,9 +97,14 @@ def ingest_news(
             node="ingest_news",
             tool="news_ingestion",
             parameters={"janela_dias": window, "consultas": len(DEFAULT_QUERIES)},
-            status=STATUS_DEGRADED if warnings else "ok",
-            result_summary=(f"{stored} noticias gravadas; {len(warnings)} feeds com falha"),
+            status=STATUS_DEGRADED if (warnings or failure) else "ok",
+            result_summary=(
+                f"{stored} noticias gravadas; {len(warnings)} feeds com falha; "
+                f"acesso ao acervo: {access.resultado} "
+                f"({access.retentativas} retentativa(s))"
+            ),
             source="Google News RSS (fontes na allowlist)",
+            error=detail,
         )
 
     return summary

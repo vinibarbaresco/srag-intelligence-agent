@@ -14,12 +14,18 @@ devolve zero no lugar de "nao calculavel".
 from __future__ import annotations
 
 import statistics
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Final
 
 from src.config import get_settings
 from src.data.load_database import VIEW_ANALYTICS
-from src.data.reference.tables import TABLE_POPULATION, TABLE_VACCINATION
+from src.data.reference.icu_capacity import ICU_BED_TYPES_FOR_SRAG
+from src.data.reference.tables import (
+    TABLE_ICU_CAPACITY,
+    TABLE_POPULATION,
+    TABLE_VACCINATION,
+)
+from src.data.reference.vaccination import CAMPAIGNS
 from src.metrics.definitions import (
     CASE_GROWTH_RATE,
     ICU_ADMISSION_RATE,
@@ -32,7 +38,7 @@ from src.metrics.definitions import (
     MetricDefinition,
     MetricResult,
 )
-from src.metrics.filters import AnalyticFilters, analysis_cutoff
+from src.metrics.filters import AnalyticFilters, analysis_cutoff, reference_date
 
 _PERCENT_DECIMALS = 2
 
@@ -86,6 +92,103 @@ def _analysis_window(connection: Any, window_days: int | None) -> tuple[date, da
 # =============================================================================
 
 
+def data_currency(connection: Any) -> dict[str, Any]:
+    """As cinco datas que situam o relatorio no tempo, mais a da fonte.
+
+    Existem porque elas **nao** coincidem, e confundi-las e o erro de leitura
+    mais provavel do relatorio inteiro: alguem le "relatorio de setembro" e
+    supoe que os dados vao ate setembro. Nao vao. Entre o dia de execucao e o
+    ultimo dia analisavel ha duas defasagens empilhadas -- a da fonte, que
+    publica com atraso, e a do atraso de notificacao, que o sistema desconta de
+    proposito para nao ler digitacao pendente como queda de casos.
+
+    Returns:
+        Bloco com as datas, a defasagem em dias entre elas e o que cada uma
+        significa.
+    """
+    settings = get_settings()
+    today = datetime.now(tz=UTC).date()
+    reference = reference_date(connection)
+    cutoff = reference - timedelta(days=settings.reporting_lag_days)
+
+    row = connection.execute(
+        f"SELECT max(data_sintomas) FROM {VIEW_ANALYTICS} WHERE data_sintomas <= ?",
+        [today],
+    ).fetchone()
+    latest_symptoms = row[0] if row else None
+
+    return {
+        "data_atual_do_sistema": today.isoformat(),
+        "data_mais_recente_de_sintomas_na_base": (
+            latest_symptoms.isoformat() if latest_symptoms else None
+        ),
+        "data_mais_recente_de_digitacao_na_base": reference.isoformat(),
+        "data_de_corte_epidemiologica": cutoff.isoformat(),
+        "atraso_de_notificacao_configurado_dias": settings.reporting_lag_days,
+        "defasagem_ate_a_digitacao_dias": (today - reference).days,
+        "defasagem_ate_o_corte_dias": (today - cutoff).days,
+        "atualizacao_da_fonte": _source_update(),
+        "significado": {
+            "data_atual_do_sistema": (
+                "dia em que o relatorio foi executado. NAO e a data ate a qual ha dado disponivel."
+            ),
+            "data_mais_recente_de_digitacao_na_base": (
+                "ultima ficha digitada presente no arquivo publicado pelo "
+                "DATASUS; e a ancora de todas as janelas, no lugar de hoje"
+            ),
+            "data_de_corte_epidemiologica": (
+                "ultimo dia considerado confiavel: a data de digitacao menos o "
+                "atraso de notificacao configurado. Todo indicador termina aqui"
+            ),
+            "data_mais_recente_de_sintomas_na_base": (
+                "ha fichas com sintomas depois da data de corte; elas existem, "
+                "mas a janela nao as usa porque a digitacao delas ainda esta "
+                "incompleta"
+            ),
+        },
+    }
+
+
+def _source_update() -> dict[str, Any]:
+    """Quando o arquivo bruto foi obtido, segundo o manifesto de proveniencia."""
+    import json
+
+    settings = get_settings()
+    path = settings.raw_manifest_path
+    if not path.exists():
+        return {
+            "disponivel": False,
+            "motivo": (
+                "manifesto de proveniencia nao encontrado; a base pode ter sido "
+                "montada fora do fluxo de ingestao"
+            ),
+        }
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {"disponivel": False, "motivo": "manifesto de proveniencia ilegivel"}
+
+    entries = list(manifest.values()) if isinstance(manifest, dict) else list(manifest)
+    obtained = [
+        str(entry.get("downloaded_at"))
+        for entry in entries
+        if isinstance(entry, dict) and entry.get("downloaded_at")
+    ]
+    if not obtained:
+        return {"disponivel": False, "motivo": "manifesto sem data de obtencao"}
+    return {
+        "disponivel": True,
+        "obtido_da_fonte_em": max(obtained),
+        "anos_no_manifesto": sorted(
+            str(entry.get("year")) for entry in entries if isinstance(entry, dict)
+        ),
+        "observacao": (
+            "data em que o arquivo foi baixado do Open DATASUS, nao a data de "
+            "publicacao da safra pela fonte"
+        ),
+    }
+
+
 def notification_delay_profile(
     connection: Any, filters: AnalyticFilters | None = None
 ) -> dict[str, Any]:
@@ -130,6 +233,7 @@ def notification_delay_profile(
     under_calibrated = p75 is not None and configured < float(p75)
 
     return {
+        "atualidade_da_base": data_currency(connection),
         "atraso_mediano_dias": float(median) if median is not None else None,
         "atraso_p75_dias": float(p75) if p75 is not None else None,
         "atraso_p90_dias": float(p90) if p90 is not None else None,
@@ -293,7 +397,7 @@ def case_growth_rate(
 
 
 # =============================================================================
-# Indicador 2 -- Taxa de mortalidade
+# Indicador 2 -- Letalidade entre casos encerrados
 # =============================================================================
 
 
@@ -434,7 +538,7 @@ def mortality_rate(
         return _unavailable(
             MORTALITY_RATE,
             "Nao ha casos encerrados no periodo analisado; sem denominador "
-            "elegivel, a taxa de mortalidade nao pode ser calculada.",
+            "elegivel, a letalidade entre casos encerrados nao pode ser calculada.",
             period=period,
             filters=filters,
             numerator=deaths,
@@ -465,13 +569,16 @@ def icu_metrics(
     filters: AnalyticFilters | None = None,
     window_days: int | None = None,
 ) -> MetricResult:
-    """Indicadores de UTI, com a limitacao de ocupacao declarada.
+    """Indicadores de UTI derivados **apenas** do SIVEP-Gripe.
 
-    Retorna a taxa de **admissao** em UTI entre hospitalizados -- a unica
-    proporcao calculavel com o SIVEP-Gripe -- e anexa em `components` o estado
-    explicito de "nao calculavel" da taxa de ocupacao de leitos, alem do censo
-    diario de pacientes em UTI no periodo, acompanhado da qualidade da
-    permanencia que o sustenta.
+    Devolve a taxa de **admissao** em UTI entre hospitalizados -- severidade dos
+    casos notificados -- e o censo diario de pacientes de SRAG em UTI,
+    acompanhado da qualidade da permanencia que o sustenta.
+
+    Nenhum dos dois e ocupacao de leitos. A ocupacao e um indicador separado
+    (:func:`icu_bed_occupancy_rate`), porque exige um denominador de capacidade
+    que este dataset nao tem; `components` traz um ponteiro explicito para ele,
+    justamente para que a taxa acima nao seja lida como se fosse ocupacao.
     """
     filters = filters or AnalyticFilters()
     start, cutoff, window = _analysis_window(connection, window_days)
@@ -579,10 +686,18 @@ def icu_metrics(
             connection, filters, window_days=window
         ),
         "censo_diario": census,
+        # A ocupacao de leitos e um indicador SEPARADO, com denominador vindo do
+        # CNES (`icu_bed_occupancy_rate`). O ponteiro fica aqui para que ninguem
+        # leia a taxa de admissao acima como se fosse ocupacao -- foi essa
+        # confusao que o indicador proprio veio desfazer.
         "taxa_de_ocupacao_de_leitos_de_uti": {
-            "value": None,
-            "unavailable_reason": ICU_BED_OCCUPANCY_RATE.not_computable_reason,
-            "limitations": list(ICU_BED_OCCUPANCY_RATE.limitations),
+            "indicador": ICU_BED_OCCUPANCY_RATE.key,
+            "nota": (
+                "Indicador distinto, calculado a parte com a capacidade "
+                "instalada do CNES. A taxa de admissao acima NAO e ocupacao: "
+                "ela mede severidade dos casos notificados, nao pressao sobre "
+                "a capacidade instalada."
+            ),
         },
         "data_corte_analitica": cutoff.isoformat(),
     }
@@ -815,6 +930,271 @@ def icu_patient_census(
 
 
 # =============================================================================
+# Indicador 3b -- Ocupacao de leitos de UTI (capacidade instalada externa)
+# =============================================================================
+
+#: Numero de UFs que a referencia de capacidade precisa cobrir para que o
+#: indicador nacional seja publicado.
+#:
+#: A soma nacional de leitos so e comparavel com o censo nacional de pacientes
+#: se o denominador cobrir o mesmo territorio do numerador. Com capacidade de
+#: apenas parte das UFs a razao sairia inflada -- pacientes do Brasil inteiro
+#: sobre os leitos de algumas UFs --, e essa e exatamente a ocupacao falsamente
+#: alta que o indicador precisa nao produzir.
+_REQUIRED_UF_COVERAGE: Final[int] = 27
+
+
+def _month_distance(competence: str, reference: date) -> int:
+    """Distancia em meses entre uma competencia `AAAA-MM` e uma data."""
+    year, month = (int(part) for part in competence.split("-"))
+    return abs((reference.year - year) * 12 + (reference.month - month))
+
+
+def _icu_capacity(
+    connection: Any, filters: AnalyticFilters, cutoff: date
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Capacidade de UTI compativel com a janela, ou o motivo da indisponibilidade.
+
+    A compatibilidade e verificada em tres dimensoes, nesta ordem, e cada falha
+    tem motivo proprio: existencia da referencia, cobertura geografica e
+    distancia temporal.
+
+    Returns:
+        Par `(capacidade, motivo)`. Exatamente um dos dois e `None`.
+    """
+    settings = get_settings()
+    types = list(ICU_BED_TYPES_FOR_SRAG)
+    placeholders = ", ".join("?" for _ in types)
+
+    uf_clause, uf_parameters = ("uf = ?", [filters.uf]) if filters.uf else ("TRUE", [])
+    rows = connection.execute(
+        f"""
+        SELECT competencia,
+               sum(leitos_existentes)  AS existentes,
+               sum(leitos_sus)         AS sus,
+               count(DISTINCT uf)      AS ufs,
+               any_value(fonte)        AS fonte,
+               any_value(url)          AS url,
+               max(data_extracao)      AS data_extracao
+        FROM {TABLE_ICU_CAPACITY}
+        WHERE tipo_leito IN ({placeholders}) AND {uf_clause}
+        GROUP BY competencia
+        ORDER BY competencia
+        """,
+        [*types, *uf_parameters],
+    ).fetchall()
+
+    scope = filters.uf or "Brasil"
+    if not rows:
+        return None, (
+            "Referencia de capacidade instalada de UTI (CNES) nao carregada"
+            + (f" para a UF {filters.uf}" if filters.uf else "")
+            + ". Execute `python -m src.data.reference.icu_capacity` e recarregue "
+            "o banco analitico. Sem denominador de leitos a ocupacao nao e "
+            "calculavel -- a taxa de admissao em UTI e o censo diario continuam "
+            "publicados e NAO sao ocupacao."
+        )
+
+    required_ufs = 1 if filters.uf else _REQUIRED_UF_COVERAGE
+    covered = [row for row in rows if int(row[3]) >= required_ufs]
+    if not covered:
+        best = max(int(row[3]) for row in rows)
+        return None, (
+            f"Cobertura geografica insuficiente na referencia de capacidade: o "
+            f"recorte {scope} exige {required_ufs} UF(s) e a melhor competencia "
+            f"disponivel tem {best}. Um denominador parcial sobre um numerador "
+            "nacional produziria ocupacao superestimada, entao o indicador "
+            "permanece indisponivel."
+        )
+
+    chosen = min(covered, key=lambda row: _month_distance(str(row[0]), cutoff))
+    competence = str(chosen[0])
+    lag = _month_distance(competence, cutoff)
+    if lag > settings.icu_capacity_max_lag_months:
+        return None, (
+            f"Periodo incompativel: a competencia de capacidade mais proxima "
+            f"({competence}) esta a {lag} meses da data de corte analitica "
+            f"({cutoff.isoformat()}), acima do limite de "
+            f"{settings.icu_capacity_max_lag_months} meses "
+            "(ICU_CAPACITY_MAX_LAG_MONTHS). Casar um censo com uma capacidade "
+            "de outro periodo produziria um numero sem significado."
+        )
+
+    beds = int(chosen[1] or 0)
+    if beds <= 0:
+        return None, (
+            f"A referencia de capacidade registra {beds} leito(s) de UTI para o "
+            f"recorte {scope} na competencia {competence}. Sem leitos no "
+            "denominador a ocupacao nao e definida (divisao por zero), e zero "
+            "leitos com pacientes em UTI indica erro de cadastro na fonte."
+        )
+
+    return {
+        "leitos_existentes": beds,
+        "leitos_sus": int(chosen[2] or 0),
+        "competencia": competence,
+        "defasagem_meses": lag,
+        "ufs_cobertas": int(chosen[3]),
+        "ufs_exigidas": required_ufs,
+        "tipos_de_leito": types,
+        "fonte": chosen[4],
+        "url": chosen[5],
+        "data_extracao": chosen[6],
+        "competencias_disponiveis": sorted(str(row[0]) for row in rows),
+    }, None
+
+
+def icu_bed_occupancy_rate(
+    connection: Any,
+    filters: AnalyticFilters | None = None,
+    window_days: int | None = None,
+) -> MetricResult:
+    """Ocupacao de leitos de UTI por pacientes de SRAG.
+
+    ``ocupacao_uti_pct = pacientes_srag_em_uti_no_dia / leitos_uti_disponiveis_no_dia * 100``
+
+    O numerador e o censo diario calculado sobre o SIVEP-Gripe; o denominador e
+    a capacidade instalada do CNES para a UF e a competencia compativel com a
+    janela. O valor publicado e o do **dia de pico do censo maduro** -- o mesmo
+    dia ja auditado em :func:`icu_metrics` --, e a serie diaria completa
+    acompanha o resultado.
+
+    Este indicador e distinto da taxa de admissao em UTI (severidade dos casos)
+    e do censo (contagem absoluta de pacientes). Os tres convivem e nenhum e
+    renomeado como o outro.
+    """
+    filters = filters or AnalyticFilters()
+    _, cutoff, window = _analysis_window(connection, window_days)
+
+    # --- Janela madura deslocada, e nao apenas truncada ----------------------
+    #
+    # A cauda recente do censo e contaminada por construcao: quanto mais recente
+    # o dia, menos saidas foram digitadas e mais estadias seguem imputadas. So a
+    # parte anterior ao corte menos o teto de permanencia e apuravel.
+    #
+    # Truncar a janela de analise nessa fronteira nao funciona: na base real o
+    # teto medido e de 31 dias e a janela tem 30, de modo que NENHUM dia
+    # sobreviveria e a ocupacao ficaria permanentemente indisponivel -- um
+    # indicador que nunca sai nao e um indicador. A janela e entao **deslocada**
+    # para tras, preservando o mesmo tamanho: `window` dias madilhos encerrados
+    # em `cutoff - teto`. O periodo publicado e esse, e nao o dos demais
+    # indicadores, e a diferenca vem declarada no resultado.
+    cap_days = icu_stay_cap(connection, filters)["dias"]
+    mature_until = cutoff - timedelta(days=cap_days)
+    mature_start = mature_until - timedelta(days=window - 1)
+    period = _period(
+        mature_start,
+        mature_until,
+        f"{window} dias encerrados {cap_days} dias antes da data de corte "
+        "analitica, para que as saidas de UTI ja estejam digitadas",
+    )
+
+    # O censo cobre da janela madura ate o corte: a parte recente nao entra no
+    # valor publicado, mas fica na serie, rotulada, para comparacao.
+    census = icu_patient_census(connection, filters, window_days=window + cap_days)
+    mature = [
+        point
+        for point in census
+        if mature_start <= date.fromisoformat(point["data"]) <= mature_until
+    ]
+
+    capacity, reason = _icu_capacity(connection, filters, cutoff)
+    components: dict[str, Any] = {
+        "formula": ("pacientes_srag_em_uti_no_dia / leitos_uti_disponiveis_no_dia * 100"),
+        "capacidade_instalada": capacity,
+        "janela_madura": {
+            "inicio": mature_start.isoformat(),
+            "fim": mature_until.isoformat(),
+            "deslocamento_dias": cap_days,
+            "motivo_do_deslocamento": (
+                "a cauda recente do censo depende de saidas ainda nao digitadas; "
+                f"o teto de permanencia medido ({cap_days} dias) e o tempo "
+                "necessario para que a estadia ja esteja encerrada no registro"
+            ),
+            "nota": (
+                "este periodo NAO coincide com o dos demais indicadores, que vao "
+                f"ate {cutoff.isoformat()}. Comparar a ocupacao com eles exige "
+                "levar o deslocamento em conta"
+            ),
+        },
+        "criterio_do_dia_publicado": ("dia de pico do censo dentro da janela madura deslocada"),
+        "data_corte_analitica": cutoff.isoformat(),
+    }
+
+    if capacity is None:
+        return _unavailable(
+            ICU_BED_OCCUPANCY_RATE,
+            reason or "Capacidade instalada de UTI indisponivel.",
+            period=period,
+            filters=filters,
+            numerator=None,
+            denominator=None,
+            components=components,
+        )
+
+    beds = capacity["leitos_existentes"]
+    peak = max(mature, key=lambda point: point["pacientes_em_uti"], default=None)
+    if peak is None:
+        return _unavailable(
+            ICU_BED_OCCUPANCY_RATE,
+            "Nao ha nenhum dia com censo apuravel na janela madura "
+            f"({mature_start.isoformat()} a {mature_until.isoformat()}): a base "
+            "nao cobre esse periodo. Sem numerador nao ha ocupacao.",
+            period=period,
+            filters=filters,
+            numerator=None,
+            denominator=beds,
+            components=components,
+        )
+
+    daily = [
+        {
+            "data": point["data"],
+            "pacientes_em_uti": point["pacientes_em_uti"],
+            "ocupacao_pct": _ratio(point["pacientes_em_uti"], beds),
+            "percentual_imputado": point["percentual_imputado"],
+        }
+        for point in mature
+    ]
+    occupancies = [point["ocupacao_pct"] for point in daily]
+
+    components.update(
+        {
+            "data_do_valor_publicado": peak["data"],
+            "pacientes_em_uti_no_dia": peak["pacientes_em_uti"],
+            "leitos_disponiveis_no_dia": beds,
+            "percentual_do_numerador_imputado": peak["percentual_imputado"],
+            "ocupacao_media_na_janela_madura_pct": (
+                round(sum(occupancies) / len(occupancies), _PERCENT_DECIMALS)
+                if occupancies
+                else None
+            ),
+            "ocupacao_minima_na_janela_madura_pct": min(occupancies) if occupancies else None,
+            "dias_apurados": len(daily),
+            "serie_diaria_de_ocupacao": daily,
+            "leitos_sus_no_denominador": capacity["leitos_sus"],
+            "alcance_do_indicador": (
+                "parcela da capacidade de UTI ocupada por pacientes de SRAG "
+                "notificados; e um piso da ocupacao total, que inclui pacientes "
+                "sem SRAG"
+            ),
+        }
+    )
+
+    return MetricResult(
+        metric=ICU_BED_OCCUPANCY_RATE.key,
+        value=_ratio(peak["pacientes_em_uti"], beds),
+        numerator=peak["pacientes_em_uti"],
+        denominator=beds,
+        period=period,
+        filters=filters.to_dict(),
+        definition=ICU_BED_OCCUPANCY_RATE,
+        components=components,
+        records_used=sum(point["pacientes_em_uti"] for point in mature),
+    )
+
+
+# =============================================================================
 # Indicador 4 -- Vacinacao
 # =============================================================================
 
@@ -826,11 +1206,11 @@ def vaccination_metrics(
 ) -> MetricResult:
     """Cobertura vacinal declarada entre casos notificados de SRAG.
 
-    O indicador pedido no desafio -- "taxa de vacinacao da populacao" -- nao e
-    calculavel com este dataset. O retorno traz a melhor aproximacao possivel
-    (cobertura entre casos notificados) e mantem `population_vaccination_coverage`
-    explicitamente nulo, com o motivo, em vez de apresentar a aproximacao sob o
-    nome do indicador original.
+    Mede a cobertura **entre quem adoeceu e foi notificado** -- um grupo com
+    vies de selecao por definicao, e nao a populacao. A cobertura populacional e
+    calculada a parte, a partir da referencia externa do SI-PNI, e viaja em
+    `components` sob nome proprio: a aproximacao nunca e apresentada sob o nome
+    do indicador original, mesmo quando a referencia externa falta.
     """
     filters = filters or AnalyticFilters()
     window = window_days or get_settings().growth_window_days
@@ -928,16 +1308,27 @@ def population_vaccination_coverage(
     referencia nao foi fornecida. A classificacao final nao recorta este bloco:
     cobertura vacinal e atributo da populacao, nao dos casos.
     """
+    base = {
+        "formula": "doses_aplicadas / populacao_alvo * 100",
+        "definition": POPULATION_VACCINATION_COVERAGE.definition,
+        "limitations": list(POPULATION_VACCINATION_COVERAGE.limitations),
+        "source": POPULATION_VACCINATION_COVERAGE.source,
+        # As duas campanhas nunca sao somadas: publico-alvo, esquema de doses e
+        # sazonalidade sao diferentes, e uma cobertura agregada das duas nao
+        # descreveria nenhuma populacao real.
+        "campanhas_distintas": sorted(CAMPAIGNS),
+    }
     unavailable = {
+        **base,
         "value": None,
         "unavailable_reason": (
             "Referencia de doses aplicadas (SI-PNI) nao fornecida em "
             "data/reference/cobertura_vacinal_uf.csv. O SIVEP-Gripe so contem a "
             "informacao vacinal de pessoas notificadas com SRAG, que nao representa "
-            "a populacao; sem a referencia externa o indicador nao e calculavel."
+            "a populacao; sem a referencia externa o indicador nao e calculavel. "
+            "Gere-a com `python -m src.data.reference.vaccination --from-pni "
+            "<extratos> --year <ano>`."
         ),
-        "limitations": list(POPULATION_VACCINATION_COVERAGE.limitations),
-        "definition": POPULATION_VACCINATION_COVERAGE.definition,
     }
 
     row = connection.execute(
@@ -952,7 +1343,10 @@ def population_vaccination_coverage(
         f"""
         SELECT campanha, sum(doses_aplicadas), sum(populacao_alvo),
                count(*) FILTER (WHERE populacao_alvo IS NULL),
-               string_agg(DISTINCT fonte, '; ')
+               string_agg(DISTINCT fonte, '; '),
+               string_agg(DISTINCT url, '; '),
+               max(data_extracao),
+               count(DISTINCT uf)
         FROM {TABLE_VACCINATION}
         WHERE ano = ? AND {uf_clause}
         GROUP BY campanha
@@ -960,22 +1354,36 @@ def population_vaccination_coverage(
         [reference_year, *uf_parameters],
     ).fetchall()
     if not rows:
-        return {**unavailable, "ano_da_referencia": reference_year}
+        return {
+            **unavailable,
+            "ano_da_referencia": reference_year,
+            "unavailable_reason": (
+                f"A referencia de doses aplicadas nao cobre o recorte "
+                f"{filters.uf or 'nacional'} no ano {reference_year}."
+            ),
+        }
 
     population, population_year = _reference_population(connection, filters, reference_year)
     campaigns: dict[str, Any] = {}
-    for campaign, doses, target, without_target, source in rows:
+    for campaign, doses, target, without_target, source, url, extracted, ufs in rows:
         doses = int(doses or 0)
         if target is not None and int(without_target) == 0:
-            denominator, denominator_label = int(target), "populacao-alvo da campanha (SI-PNI)"
+            denominator = int(target)
+            denominator_label = "populacao-alvo da campanha (SI-PNI)"
+            denominator_source = "SI-PNI"
         elif population:
+            # Substituicao do denominador: legitima quando a populacao-alvo nao
+            # e publicada, mas nunca silenciosa -- o rotulo, a justificativa e o
+            # sentido do vies acompanham o numero.
             denominator = population
             denominator_label = f"populacao residente total (IBGE {population_year})"
+            denominator_source = "IBGE"
         else:
             campaigns[campaign] = {
                 "value": None,
                 "unavailable_reason": (
-                    "Sem populacao-alvo na referencia e sem populacao do IBGE carregada."
+                    "Sem populacao-alvo na referencia e sem populacao do IBGE "
+                    "carregada; nao ha denominador possivel para esta campanha."
                 ),
             }
             continue
@@ -984,15 +1392,26 @@ def population_vaccination_coverage(
             "numerator": doses,
             "denominator": denominator,
             "denominador_descricao": denominator_label,
+            "denominador_fonte": denominator_source,
+            "justificativa_do_denominador": (
+                "publico-alvo publicado pela campanha"
+                if denominator_source == "SI-PNI"
+                else (
+                    "populacao-alvo nao publicada para esta campanha; usada a "
+                    "populacao residente do IBGE, o que SUBESTIMA a cobertura do "
+                    "publico-alvo por ampliar o denominador"
+                )
+            ),
+            "ufs_na_referencia": int(ufs),
             "fonte": source,
+            "url": url,
+            "data_extracao": extracted,
         }
 
     return {
+        **base,
         "ano_da_referencia": reference_year,
         "campanhas": campaigns,
-        "definition": POPULATION_VACCINATION_COVERAGE.definition,
-        "limitations": list(POPULATION_VACCINATION_COVERAGE.limitations),
-        "source": POPULATION_VACCINATION_COVERAGE.source,
     }
 
 

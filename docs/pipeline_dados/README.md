@@ -417,8 +417,27 @@ Declaradas, não resolvidas:
 2. **Duplicidade indecidível.** 764 registros (0,462%) são idênticos nas colunas persistidas. Sem
    `NU_NOTIFIC` — negado por minimização — não há como distinguir duplicata de pacientes distintos
    com os mesmos atributos agregados. Contados, nunca removidos. Ver D-15.
-3. **Taxa de ocupação de leitos de UTI é incalculável** com o SIVEP-Gripe, que não registra
-   capacidade instalada. Declarada não calculável, com motivo, em vez de aproximada.
+
+   A revisão posterior acrescentou o que faltava: **a contagem sozinha não diz se isso muda algum
+   indicador**. A tool `get_duplicate_sensitivity`
+   ([`src/metrics/duplicates.py`](../../src/metrics/duplicates.py)) recalcula letalidade, admissão
+   em UTI e cobertura vacinal com e sem colapso das linhas idênticas, publica a diferença em pontos
+   percentuais e a confronta com um limiar de materialidade declarado (0,5 p.p., menor que a
+   variação que o próprio atraso de notificação produz entre execuções). A decisão de **não**
+   deduplicar continua, agora com lastro em vez de só prudência. Pseudonimização irreversível do
+   identificador foi avaliada e **recusada**: o pseudônimo continua sendo dado pessoal, um hash
+   sobre um espaço pequeno é reversível por força bruta, e o ganho seria desproporcional — a fonte
+   tem zero `NU_NOTIFIC` repetido e zero linhas idênticas nas 194 colunas brutas, ou seja, o
+   excedente é artefato da própria minimização.
+3. **Taxa de ocupação de leitos de UTI exige fonte externa.** O SIVEP-Gripe não registra capacidade
+   instalada — ele conta pacientes, não leitos. A revisão posterior trouxe o denominador que
+   faltava: o extrato do CNES por competência e tipo de leito, do conjunto "Hospitais e Leitos" do
+   Portal de Dados Abertos do SUS
+   ([`src/data/reference/icu_capacity.py`](../../src/data/reference/icu_capacity.py)). A mesma
+   regra de minimização se aplica: das 35 colunas do arquivo bruto, **seis** são lidas — competência,
+   UF e os pares de contagem de UTI; telefone, e-mail e logradouro do estabelecimento nunca entram
+   em memória. Sem capacidade compatível em UF e competência, o indicador permanece indisponível
+   com o motivo, e a taxa de admissão **nunca** é apresentada no lugar dela.
 4. **12 colunas do arquivo não constam do dicionário** de 19/09/2022 (`SURTO_SG`, `CO_DETEC`,
    `VG_OMS`, `VG_LIN`, `REINF`, `TABAG`, entre outras). Nenhuma é lida, mas o significado oficial
    delas não pôde ser verificado.
@@ -517,10 +536,11 @@ cinco flags de coerência e a coluna de ajustes. Cada uma tem a lógica document
 
 **8. Quais inconsistências permanecem?**
 Seis, declaradas em §8: divergência entre idade declarada e real que só `DT_NASC` revelaria (56
-registros, 0,034%); duplicidade indecidível sem o identificador da notificação (764, 0,462%);
-ocupação de leitos de UTI incalculável com o SIVEP; 12 colunas do arquivo ausentes do dicionário de
-2022; `CS_SEXO` divergindo do dicionário; e a dependência residual da data de execução onde
-`DT_DIGITA` está ausente.
+registros, 0,034%); duplicidade indecidível sem o identificador da notificação (764, 0,462%) — cuja
+sensibilidade passou a ser medida e publicada a cada execução; ocupação de leitos de UTI não
+derivável do SIVEP sozinho — resolvida com a referência externa do CNES, com as limitações dela
+declaradas; 12 colunas do arquivo ausentes do dicionário de 2022; `CS_SEXO` divergindo do
+dicionário; e a dependência residual da data de execução onde `DT_DIGITA` está ausente.
 
 **9. Como o pipeline reage a uma nova atualização?**
 Demonstrado com dado real em §6: recarregar 2025 com a safra posterior (336.391 contra 165.397

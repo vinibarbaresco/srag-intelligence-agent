@@ -7,15 +7,29 @@ Fluxo linear e explicito, sem loops:
       -> (recusado) END | collect_epidemiological_metrics
       -> collect_time_series
       -> search_external_news
+      -> select_optional_tools      (tool calling: so analises ADICIONAIS)
       -> evaluate_alerts
       -> validate_evidence
       -> generate_interpretation
       -> generate_report
       -> END
 
-A ausencia de ciclos e deliberada: o relatorio tem um conjunto fixo de entregas,
-e um agente que decide sozinho quantas vezes repetir uma etapa e mais dificil de
-auditar sem ganho para este caso de uso.
+O grafo nao tem ciclos, e a decisao merece ser dita com precisao porque e o
+ponto em que a arquitetura foi escolhida (ver `src/agent/tool_calling.py`):
+
+* o **contrato de entrega** -- indicadores, series e graficos -- e uma sequencia
+  fixa. Nao ha ciclo aqui de proposito: dois relatorios do mesmo recorte
+  precisam ser comparaveis, e um agente que decide sozinho quantas vezes repetir
+  uma etapa obrigatoria destroi essa garantia sem nada em troca;
+* o **aprofundamento** acontece em `select_optional_tools`, onde o modelo faz
+  function calling de verdade sobre uma allowlist de tools de leitura. O laco de
+  iteracoes vive dentro do no, limitado por configuracao, em vez de virar aresta
+  do grafo -- assim o teto e explicito e a topologia continua auditavel numa
+  olhada.
+
+Classificacao honesta da solucao: **workflow LangGraph deterministico com uma
+etapa de agente com tool calling real**, e nao um agente autonomo de ponta a
+ponta.
 """
 
 from __future__ import annotations
@@ -32,6 +46,7 @@ from src.agent.nodes import (
     make_evaluate_alerts,
     make_generate_interpretation,
     make_search_news,
+    make_select_optional_tools,
     make_validate_evidence,
     make_validate_request,
 )
@@ -41,6 +56,7 @@ NODE_VALIDATE_REQUEST = "validate_request"
 NODE_COLLECT_METRICS = "collect_epidemiological_metrics"
 NODE_COLLECT_SERIES = "collect_time_series"
 NODE_SEARCH_NEWS = "search_external_news"
+NODE_SELECT_OPTIONAL_TOOLS = "select_optional_tools"
 NODE_EVALUATE_ALERTS = "evaluate_alerts"
 NODE_VALIDATE_EVIDENCE = "validate_evidence"
 NODE_INTERPRETATION = "generate_interpretation"
@@ -52,6 +68,7 @@ NODE_SEQUENCE: tuple[str, ...] = (
     NODE_COLLECT_METRICS,
     NODE_COLLECT_SERIES,
     NODE_SEARCH_NEWS,
+    NODE_SELECT_OPTIONAL_TOOLS,
     NODE_EVALUATE_ALERTS,
     NODE_VALIDATE_EVIDENCE,
     NODE_INTERPRETATION,
@@ -89,6 +106,7 @@ def build_graph(
     graph.add_node(NODE_COLLECT_METRICS, make_collect_metrics(context))
     graph.add_node(NODE_COLLECT_SERIES, make_collect_series(context))
     graph.add_node(NODE_SEARCH_NEWS, make_search_news(context))
+    graph.add_node(NODE_SELECT_OPTIONAL_TOOLS, make_select_optional_tools(context))
     graph.add_node(NODE_EVALUATE_ALERTS, make_evaluate_alerts(context))
     graph.add_node(NODE_VALIDATE_EVIDENCE, make_validate_evidence(context))
     graph.add_node(NODE_INTERPRETATION, make_generate_interpretation(context))
@@ -102,7 +120,8 @@ def build_graph(
     )
     graph.add_edge(NODE_COLLECT_METRICS, NODE_COLLECT_SERIES)
     graph.add_edge(NODE_COLLECT_SERIES, NODE_SEARCH_NEWS)
-    graph.add_edge(NODE_SEARCH_NEWS, NODE_EVALUATE_ALERTS)
+    graph.add_edge(NODE_SEARCH_NEWS, NODE_SELECT_OPTIONAL_TOOLS)
+    graph.add_edge(NODE_SELECT_OPTIONAL_TOOLS, NODE_EVALUATE_ALERTS)
     graph.add_edge(NODE_EVALUATE_ALERTS, NODE_VALIDATE_EVIDENCE)
     graph.add_edge(NODE_VALIDATE_EVIDENCE, NODE_INTERPRETATION)
     graph.add_edge(NODE_INTERPRETATION, NODE_REPORT)

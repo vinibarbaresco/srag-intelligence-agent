@@ -89,10 +89,12 @@ class TestUTI:
         assert result.value == pytest.approx(40.0)
         assert result.components["uti_ignorado"] == 10
 
-    def test_ocupacao_de_leitos_e_declarada_nao_calculavel(self, connection):
+    def test_taxa_de_admissao_aponta_para_a_ocupacao_sem_se_confundir_com_ela(self, connection):
+        """Admissao e ocupacao sao indicadores distintos e o envelope diz isso."""
         occupancy = icu_metrics(connection, SP).components["taxa_de_ocupacao_de_leitos_de_uti"]
-        assert occupancy["value"] is None
-        assert "capacidade instalada" in occupancy["unavailable_reason"]
+        assert occupancy["indicador"] == "icu_bed_occupancy_rate"
+        assert "NAO e ocupacao" in occupancy["nota"]
+        assert "value" not in occupancy
 
     def test_censo_diario_cobre_toda_a_janela(self, connection):
         census = icu_patient_census(connection, SP)

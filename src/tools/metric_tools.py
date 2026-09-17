@@ -17,6 +17,7 @@ from src.config import DATASUS_SOURCE_LABEL
 from src.data.load_database import connect
 from src.guardrails.small_cells import annotate_rate_reliability, enforce_minimum_cell_size
 from src.metrics import epidemiology
+from src.metrics.duplicates import duplicate_sensitivity
 from src.metrics.filters import AnalyticFilters
 from src.observability.audit import audited
 from src.tools.schemas import MetricQuery
@@ -47,7 +48,7 @@ def get_case_growth_rate(**kwargs: Any) -> dict[str, Any]:
 
 @audited("get_mortality_rate", source=DATASUS_SOURCE_LABEL)
 def get_mortality_rate(**kwargs: Any) -> dict[str, Any]:
-    """Taxa de mortalidade (letalidade) entre casos encerrados de SRAG.
+    """Letalidade entre casos encerrados de SRAG (case fatality ratio).
 
     Numerador: obitos por SRAG (EVOLUCAO = 2). Denominador: casos encerrados
     elegiveis (EVOLUCAO em 1, 2 ou 3). Casos com evolucao ignorada ou em aberto
@@ -65,11 +66,10 @@ def get_mortality_rate(**kwargs: Any) -> dict[str, Any]:
 def get_icu_metrics(**kwargs: Any) -> dict[str, Any]:
     """Indicadores de UTI entre casos de SRAG.
 
-    Retorna a taxa de **admissao** em UTI entre hospitalizados -- a unica
-    proporcao calculavel com o SIVEP-Gripe. A taxa de **ocupacao de leitos** vem
-    explicitamente nula em `components`, com o motivo: o dataset nao contem
-    capacidade instalada nem leitos ocupados. O censo diario de pacientes de
-    SRAG em UTI acompanha o resultado como aproximacao de pressao assistencial.
+    Retorna a taxa de **admissao** em UTI entre hospitalizados -- severidade dos
+    casos notificados -- e o censo diario de pacientes de SRAG em UTI. Nenhum
+    dos dois e ocupacao de leitos: a ocupacao exige capacidade instalada e esta
+    em `get_icu_bed_occupancy`. O envelope traz um ponteiro explicito para ela.
     """
     query = MetricQuery(**kwargs)
     with connect() as connection:
@@ -79,14 +79,34 @@ def get_icu_metrics(**kwargs: Any) -> dict[str, Any]:
     return annotate_rate_reliability(enforce_minimum_cell_size(result.to_dict()))
 
 
+@audited("get_icu_bed_occupancy", source=f"{DATASUS_SOURCE_LABEL} + CNES")
+def get_icu_bed_occupancy(**kwargs: Any) -> dict[str, Any]:
+    """Ocupacao de leitos de UTI por pacientes de SRAG.
+
+    Divide o censo diario de pacientes de SRAG em UTI pela capacidade instalada
+    de leitos de UTI adulto e pediatrica publicada pelo CNES para a UF e a
+    competencia compativel com a janela. Sem a referencia de capacidade, com
+    cobertura geografica parcial ou com competencia distante demais da janela, o
+    indicador e declarado nao calculavel -- nunca aproximado pela taxa de
+    admissao, que mede outra coisa.
+    """
+    query = MetricQuery(**kwargs)
+    with connect() as connection:
+        result = epidemiology.icu_bed_occupancy_rate(
+            connection, _filters(query), window_days=query.window_days
+        )
+    return enforce_minimum_cell_size(result.to_dict())
+
+
 @audited("get_vaccination_metrics", source=DATASUS_SOURCE_LABEL)
 def get_vaccination_metrics(**kwargs: Any) -> dict[str, Any]:
     """Cobertura vacinal declarada entre casos notificados de SRAG.
 
-    Cobre covid-19 (VACINA_COV) e influenza (VACINA). A **taxa de vacinacao da
-    populacao** vem explicitamente nula em `components`: o dataset so contem
-    informacao vacinal de pessoas notificadas com SRAG, o que nao representa a
-    populacao geral. A completude da informacao acompanha cada percentual.
+    Cobre covid-19 (VACINA_COV) e influenza (VACINA), com a completude da
+    informacao ao lado de cada percentual. A **taxa de vacinacao da populacao**
+    acompanha o resultado em `components`, calculada a partir da referencia
+    externa do SI-PNI; sem ela, vem nula com o motivo -- nunca substituida pela
+    cobertura entre casos, que mede outro universo.
     """
     query = MetricQuery(**kwargs)
     with connect() as connection:
@@ -126,6 +146,21 @@ def get_seasonal_baseline(**kwargs: Any) -> dict[str, Any]:
             connection, _filters(query), window_days=query.window_days
         )
     return enforce_minimum_cell_size(result.to_dict())
+
+
+@audited("get_duplicate_sensitivity", source=DATASUS_SOURCE_LABEL)
+def get_duplicate_sensitivity(**kwargs: Any) -> dict[str, Any]:
+    """Impacto potencial das linhas identicas sobre os indicadores da janela.
+
+    A base NAO e deduplicada: sem o identificador da notificacao nao ha como
+    distinguir duplicata real de pacientes distintos com os mesmos atributos
+    agregados. Esta tool mede o que mudaria se as linhas identicas fossem
+    colapsadas, para que a decisao de nao deduplicar seja auditavel em vez de
+    apenas declarada.
+    """
+    query = MetricQuery(**kwargs)
+    with connect() as connection:
+        return duplicate_sensitivity(connection, _filters(query), window_days=query.window_days)
 
 
 @audited("get_notification_completeness", source=DATASUS_SOURCE_LABEL)

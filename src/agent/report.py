@@ -34,8 +34,9 @@ logger = get_logger(__name__)
 
 _INDICATOR_TITLES: dict[str, str] = {
     "case_growth_rate": "1. Taxa de aumento de casos",
-    "mortality_rate": "2. Taxa de mortalidade",
+    "mortality_rate": "2. Letalidade entre casos encerrados",
     "icu_admission_rate": "3. UTI (admissao e censo)",
+    "icu_bed_occupancy_rate": "3b. Ocupacao de leitos de UTI por pacientes de SRAG",
     "vaccination_coverage_among_cases": "4. Cobertura vacinal",
     "incidence_rate": "5. Incidencia por 100 mil habitantes (complementar)",
     "seasonal_excess": "6. Excesso sobre o baseline sazonal (complementar)",
@@ -56,7 +57,10 @@ def render_markdown(state: dict[str, Any]) -> str:
         _indicators_section(state),
         _series_section(state),
         _charts_section(state),
+        _currency_section(state),
+        _duplicates_section(state),
         _data_quality_section(state),
+        _optional_tools_section(state),
         _interpretation_section(state),
         _news_section(state),
         _limitations_section(state),
@@ -103,16 +107,31 @@ def _summary_table(state: dict[str, Any]) -> str:
         "| # | Indicador | Valor | Numerador | Denominador | Status |",
         "|---|-----------|-------|-----------|-------------|--------|",
     ]
+    occupancy_note = False
     for index, key in enumerate(_INDICATOR_ORDER, start=1):
         metric = metrics.get(key)
         if metric is None:
             lines.append(f"| {index} | {key} | - | - | - | nao executado |")
             continue
         status = "calculado" if metric.get("value") is not None else "indisponivel"
+        label = metric["metric"]
+        # Marcado aqui, e nao so na secao detalhada abaixo: esta tabela e o
+        # trecho mais provavel de ser lido isoladamente, e um valor baixo de
+        # ocupacao sem o asterisco convida a leitura errada "rede com folga".
+        if key == "icu_bed_occupancy_rate" and metric.get("value") is not None:
+            label += " [*]"
+            occupancy_note = True
         lines.append(
-            f"| {index} | {metric['metric']} | {_format_value(metric)} | "
+            f"| {index} | {label} | {_format_value(metric)} | "
             f"{metric.get('numerator', '-')} | {metric.get('denominator', '-')} | {status} |"
         )
+    if occupancy_note:
+        lines += [
+            "",
+            "`[*]` mede so a parcela ocupada por pacientes de SRAG (piso da ocupacao "
+            "real, nao a ocupacao total) e cobre uma janela deslocada para tras em "
+            "relacao aos demais indicadores -- ver secao 3b para o periodo exato.",
+        ]
     return "\n".join(lines)
 
 
@@ -292,9 +311,11 @@ def _components_block(key: str, components: dict[str, Any]) -> list[str]:
 
         lines += [
             "",
-            f"> **Taxa de ocupacao de leitos de UTI: nao calculavel.** "
-            f"{occupancy.get('unavailable_reason')}",
+            f"> **Este indicador nao e ocupacao de leitos.** {occupancy.get('nota')} "
+            f"A ocupacao e publicada em separado como `{occupancy.get('indicador')}`.",
         ]
+    elif key == "icu_bed_occupancy_rate":
+        lines += _icu_occupancy_lines(components)
     elif key == "vaccination_coverage_among_cases":
         covid = components.get("covid19", {})
         influenza = components.get("influenza", {})
@@ -339,6 +360,55 @@ def _components_block(key: str, components: dict[str, Any]) -> list[str]:
                 ),
             ]
 
+    return lines
+
+
+def _icu_occupancy_lines(components: dict[str, Any]) -> list[str]:
+    """Numerador, denominador e proveniencia da ocupacao de leitos de UTI."""
+    capacity = components.get("capacidade_instalada")
+    lines = [f"- **Formula:** `{components.get('formula')}`"]
+
+    if not capacity:
+        lines += [
+            "",
+            "> **Capacidade instalada nao disponivel para este recorte.** O "
+            "motivo consta acima, em *Indisponibilidade*. A taxa de admissao em "
+            "UTI e o censo diario continuam publicados e **nao** sao ocupacao.",
+        ]
+        return lines
+
+    window = components.get("janela_madura") or {}
+    lines += [
+        f"- **Dia publicado:** {components.get('data_do_valor_publicado')} "
+        f"({components.get('criterio_do_dia_publicado')})",
+        f"- **Janela madura:** {window.get('inicio')} a {window.get('fim')} -- "
+        f"deslocada {window.get('deslocamento_dias')} dias para tras porque "
+        f"{window.get('motivo_do_deslocamento')}",
+        f"- **Numerador (pacientes de SRAG em UTI no dia):** "
+        f"{components.get('pacientes_em_uti_no_dia')} "
+        f"({components.get('percentual_do_numerador_imputado')}% depende de "
+        "imputacao de permanencia)",
+        f"- **Denominador (leitos de UTI existentes):** "
+        f"{components.get('leitos_disponiveis_no_dia')} "
+        f"(dos quais {components.get('leitos_sus_no_denominador')} destinados ao SUS)",
+        f"- **Competencia do CNES usada:** {capacity.get('competencia')} "
+        f"({capacity.get('defasagem_meses')} mes(es) de distancia da data de "
+        f"corte analitica; limite configurado: ICU_CAPACITY_MAX_LAG_MONTHS)",
+        f"- **Cobertura geografica da capacidade:** {capacity.get('ufs_cobertas')} "
+        f"UF(s), exigidas {capacity.get('ufs_exigidas')}",
+        f"- **Tipos de leito no denominador:** {', '.join(capacity.get('tipos_de_leito') or [])}",
+        f"- **Ocupacao media na janela madura:** "
+        f"{components.get('ocupacao_media_na_janela_madura_pct')}% "
+        f"(minimo {components.get('ocupacao_minima_na_janela_madura_pct')}%, "
+        f"{components.get('dias_apurados')} dias apurados)",
+        f"- **Fonte da capacidade:** {capacity.get('fonte')} "
+        f"(extraida em {str(capacity.get('data_extracao'))[:10]})",
+        "",
+        f"> **Alcance:** {components.get('alcance_do_indicador')}. Um valor baixo "
+        "**nao** significa rede com folga.",
+        "",
+        f"> **Periodo distinto.** {window.get('nota')}",
+    ]
     return lines
 
 
@@ -430,6 +500,170 @@ def _charts_section(state: dict[str, Any]) -> str:
             "",
             f"Arquivo: `{path}`",
             "",
+        ]
+    return "\n".join(blocks)
+
+
+def _currency_section(state: dict[str, Any]) -> str:
+    """As datas que situam o relatorio, lado a lado e com a defasagem explicita.
+
+    Sem esta tabela o leitor supoe que "relatorio gerado hoje" significa "dados
+    ate hoje". Nao significa: entre as duas ha a defasagem de publicacao da
+    fonte e o desconto do atraso de notificacao, e as duas sao grandes o
+    bastante para mudar a leitura do cenario.
+    """
+    diagnostics = state.get("diagnostics") or {}
+    completeness = diagnostics.get("get_notification_completeness") or {}
+    currency = completeness.get("atualidade_da_base")
+    if not currency:
+        return ""
+
+    meaning = currency.get("significado") or {}
+    lines = [
+        "## DADO - Atualidade da base e datas de referencia",
+        "",
+        "| Data | Valor | O que e |",
+        "|------|-------|---------|",
+        f"| Data atual do sistema | {currency.get('data_atual_do_sistema')} | "
+        f"{_escape_cell(meaning.get('data_atual_do_sistema', ''))} |",
+        f"| Sintomas mais recentes na base | "
+        f"{currency.get('data_mais_recente_de_sintomas_na_base')} | "
+        f"{_escape_cell(meaning.get('data_mais_recente_de_sintomas_na_base', ''))} |",
+        f"| Digitacao mais recente na base | "
+        f"{currency.get('data_mais_recente_de_digitacao_na_base')} | "
+        f"{_escape_cell(meaning.get('data_mais_recente_de_digitacao_na_base', ''))} |",
+        f"| **Corte epidemiologico** | **{currency.get('data_de_corte_epidemiologica')}** | "
+        f"{_escape_cell(meaning.get('data_de_corte_epidemiologica', ''))} |",
+        "",
+        f"- **Atraso de notificacao configurado:** "
+        f"{currency.get('atraso_de_notificacao_configurado_dias')} dias "
+        "(`REPORTING_LAG_DAYS`)",
+        f"- **Defasagem entre hoje e a ultima digitacao:** "
+        f"{currency.get('defasagem_ate_a_digitacao_dias')} dias",
+        f"- **Defasagem entre hoje e o corte epidemiologico:** "
+        f"{currency.get('defasagem_ate_o_corte_dias')} dias",
+    ]
+
+    source = currency.get("atualizacao_da_fonte") or {}
+    if source.get("disponivel"):
+        lines.append(
+            f"- **Arquivo bruto obtido da fonte em:** "
+            f"{str(source.get('obtido_da_fonte_em'))[:19]} "
+            f"(anos {', '.join(source.get('anos_no_manifesto') or [])}) -- "
+            f"{source.get('observacao')}"
+        )
+    else:
+        lines.append(f"- **Atualizacao da fonte:** nao declarada ({source.get('motivo')})")
+
+    lines += [
+        "",
+        "> A data de execucao **nao** e a data ate a qual ha dado. O DATASUS "
+        "publica com defasagem, e o sistema ainda desconta o atraso de "
+        "notificacao para nao ler digitacao pendente como queda de casos.",
+    ]
+    return "\n".join(lines)
+
+
+def _duplicates_section(state: dict[str, Any]) -> str:
+    """Sensibilidade a linhas identicas: o que mudaria se fossem colapsadas."""
+    diagnostics = state.get("diagnostics") or {}
+    sensitivity = diagnostics.get("get_duplicate_sensitivity")
+    if not sensitivity:
+        return ""
+
+    lines = [
+        "## DADO - Sensibilidade a linhas identicas",
+        "",
+        f"- **Criterio:** {sensitivity.get('criterio')}",
+        f"- **Casos na janela:** {sensitivity.get('casos_na_janela')} "
+        f"(seriam {sensitivity.get('casos_se_deduplicado')} se colapsadas)",
+        f"- **Linhas identicas excedentes:** "
+        f"{sensitivity.get('linhas_identicas_excedentes')} "
+        f"({sensitivity.get('percentual_excedente')}% da janela)",
+        "",
+        "| Indicador | Publicado | Se deduplicado | Diferenca |",
+        "|-----------|-----------|----------------|-----------|",
+    ]
+    for payload in (sensitivity.get("indicadores") or {}).values():
+        lines.append(
+            f"| {payload.get('nome')} | {_dash(payload.get('valor_publicado_pct'))}% | "
+            f"{_dash(payload.get('valor_se_deduplicado_pct'))}% | "
+            f"{_dash(payload.get('diferenca_pp'))} p.p. |"
+        )
+
+    lines += [
+        "",
+        f"**Veredito:** {sensitivity.get('veredito')}",
+        "",
+        f"> **Decisao de tratamento.** {sensitivity.get('decisao_de_tratamento')}",
+        "",
+        f"> **Pseudonimizacao.** {sensitivity.get('pseudonimizacao')}",
+    ]
+    return "\n".join(lines)
+
+
+def _optional_tools_section(state: dict[str, Any]) -> str:
+    """O que o modelo decidiu aprofundar, e o que dele foi recusado.
+
+    A secao existe mesmo quando o modelo nada escolheu: dizer "o contrato
+    bastou" e uma informacao, e sua ausencia deixaria o leitor sem saber se a
+    etapa rodou. E a recusa aparece ao lado do aceite -- uma allowlist que nunca
+    mostra o que barrou nao pode ser avaliada.
+    """
+    optional = state.get("optional_tools") or {}
+    if not optional:
+        return ""
+
+    blocks = [
+        "## DADO - Analises adicionais escolhidas pelo modelo",
+        "",
+        f"- **Modo:** `{optional.get('modo')}` (planejador: `{optional.get('planejador')}`)",
+        f"- **Contrato obrigatorio:** {optional.get('contrato_obrigatorio')}",
+        f"- **Tools que o modelo pode acionar:** {len(optional.get('allowlist') or [])} "
+        "operacoes de leitura, com parametros validados contra dominios fechados",
+        f"- **Iteracoes de tool calling:** {optional.get('iteracoes')}",
+    ]
+    if optional.get("fallback"):
+        blocks.append(
+            "- **Fallback:** a selecao pelo modelo falhou nesta execucao e o "
+            "relatorio saiu com o contrato obrigatorio completo. O detalhe "
+            "tecnico esta na trilha de auditoria."
+        )
+
+    decisions = optional.get("decisoes") or []
+    if not decisions:
+        blocks += [
+            "",
+            "Nenhuma analise adicional foi acionada: a solicitacao ja estava "
+            "inteiramente atendida pelos indicadores do contrato.",
+        ]
+        if optional.get("justificativa_do_modelo"):
+            blocks.append("")
+            blocks.append(f"> {scrub_text(str(optional['justificativa_do_modelo']))}")
+        return "\n".join(blocks)
+
+    blocks += [
+        "",
+        "| Tool | Parametros | Decisao | Motivo | Resultado |",
+        "|------|------------|---------|--------|-----------|",
+    ]
+    for decision in decisions:
+        parameters = decision.get("parametros") or {}
+        rendered = (
+            ", ".join(f"`{key}={value}`" for key, value in sorted(parameters.items())) or "padrao"
+        )
+        blocks.append(
+            f"| `{decision.get('tool')}` | {rendered} | "
+            f"{'**aceita**' if decision.get('aceita') else 'recusada'} | "
+            f"{_escape_cell(str(decision.get('motivo', '')))} | "
+            f"{_escape_cell(str(decision.get('resumo_do_resultado') or '-'))} |"
+        )
+
+    if optional.get("justificativa_do_modelo"):
+        blocks += [
+            "",
+            f"> **Justificativa do modelo:** "
+            f"{scrub_text(str(optional['justificativa_do_modelo']))}",
         ]
     return "\n".join(blocks)
 
@@ -639,15 +873,21 @@ def _limitations_section(state: dict[str, Any]) -> str:
 
     blocks = ["## Limitacoes conhecidas", ""]
     blocks += [
-        "- **Taxa de ocupacao de UTI nao e calculavel** com o SIVEP-Gripe: o "
-        "dataset registra se houve admissao em UTI, nao a capacidade instalada "
-        "nem os leitos ocupados. O relatorio apresenta a taxa de admissao em UTI "
-        "entre hospitalizados e o censo diario de pacientes, ambos nomeados pelo "
-        "que de fato medem.",
-        "- **Taxa de vacinacao da populacao nao e calculavel** com este dataset: "
-        "ha informacao vacinal apenas de pessoas notificadas com SRAG, um grupo "
-        "com vies de selecao. O relatorio apresenta a cobertura declarada entre "
-        "casos notificados.",
+        "- **Tres indicadores distintos de UTI, nunca intercambiaveis**: a *taxa "
+        "de admissao* mede severidade dos casos notificados; o *censo diario* "
+        "conta pacientes; a *taxa de ocupacao* divide o censo pela capacidade "
+        "instalada do CNES. So a terceira e ocupacao, e ela depende de uma "
+        "referencia externa -- sem capacidade compativel em UF e competencia, "
+        "ela e declarada indisponivel, e nunca aproximada pelas outras duas.",
+        "- **A ocupacao publicada e a parcela ocupada por pacientes de SRAG**, "
+        "um piso da ocupacao total: os mesmos leitos atendem pacientes sem SRAG. "
+        "Valor baixo nao significa rede com folga.",
+        "- **Taxa de vacinacao da populacao depende de fonte externa** (SI-PNI "
+        "para as doses, populacao-alvo da campanha ou IBGE para o denominador). "
+        "O SIVEP-Gripe so tem informacao vacinal de pessoas notificadas com "
+        "SRAG, um grupo com vies de selecao, e essa cobertura entre casos e "
+        "publicada como indicador proprio -- nunca no lugar da populacional. Sem "
+        "a referencia, a populacional fica indisponivel.",
         "- **Atraso de notificacao**: a janela recente e incompleta; as analises "
         "descontam os dias mais recentes e ancoram o periodo na maior data de "
         "digitacao da base, nao na data de hoje.",
@@ -668,6 +908,131 @@ def _limitations_section(state: dict[str, Any]) -> str:
     return "\n".join(blocks)
 
 
+def _observability_block(state: dict[str, Any]) -> list[str]:
+    """Tudo que a execucao precisa declarar sobre si mesma, num so lugar.
+
+    Reconstituir uma execucao antiga exige saber contra **qual** base ela rodou,
+    com quais referencias externas, qual modelo e o que degradou. Espalhado por
+    cinco secoes, isso existe mas nao se encontra; reunido aqui, uma execucao
+    passa a ser reproduzivel a partir do relatorio, sem abrir o repositorio.
+    """
+    diagnostics = state.get("diagnostics") or {}
+    currency = (diagnostics.get("get_notification_completeness") or {}).get(
+        "atualidade_da_base"
+    ) or {}
+    quality = _load_quality_report()
+    optional = state.get("optional_tools") or {}
+    external = state.get("external_context") or {}
+    access = external.get("acesso_ao_acervo") or {}
+    store = external.get("vector_db") or {}
+    usage = state.get("llm_usage") or {}
+
+    lines = ["### Observabilidade da execucao", ""]
+
+    lines += ["**Versao dos dados e proveniencia**", ""]
+    if quality:
+        lines += [
+            f"- **Carga de origem (run_id):** `{quality.get('run_id')}`",
+            f"- **Arquivos de origem:** {', '.join(quality.get('source_files') or []) or '-'}",
+        ]
+        for item in quality.get("provenance") or []:
+            lines.append(
+                f"- **{item.get('year')}:** `{item.get('filename')}` "
+                f"(sha256 `{str(item.get('sha256'))[:16]}...`, {item.get('origin')})"
+            )
+    else:
+        lines.append("- Relatorio de qualidade da carga nao encontrado nesta instalacao.")
+    if currency:
+        lines += [
+            f"- **Corte epidemiologico:** {currency.get('data_de_corte_epidemiologica')} "
+            f"(digitacao mais recente {currency.get('data_mais_recente_de_digitacao_na_base')}, "
+            f"atraso configurado {currency.get('atraso_de_notificacao_configurado_dias')} dias)",
+        ]
+
+    lines += ["", "**Referencias externas usadas**", ""]
+    try:
+        from src.data.reference.tables import reference_provenance
+
+        provenance = reference_provenance()
+    except Exception:  # proveniencia e acessoria; nao derruba o relatorio
+        provenance = {}
+    rotulos = {
+        "populacao_uf": "Populacao residente (IBGE)",
+        "cobertura_vacinal_uf": "Doses aplicadas (SI-PNI)",
+        "leitos_uti_uf": "Leitos de UTI (CNES)",
+    }
+    if provenance:
+        lines += [
+            "| Referencia | Disponivel | Obtida em | sha256 | Linhas |",
+            "|------------|------------|-----------|--------|--------|",
+        ]
+        for table, entry in provenance.items():
+            if entry.get("disponivel"):
+                lines.append(
+                    f"| {rotulos.get(table, table)} | sim | "
+                    f"{str(entry.get('obtido_em'))[:19]} | "
+                    f"`{str(entry.get('sha256'))[:16]}...` | {entry.get('linhas')} |"
+                )
+            else:
+                lines.append(f"| {rotulos.get(table, table)} | **nao** | - | - | - |")
+    else:
+        lines.append("- Proveniencia das referencias externas indisponivel nesta execucao.")
+
+    lines += ["", "**Indicadores indisponiveis e causa**", ""]
+    unavailable = [
+        (metric.get("metric"), metric.get("unavailable_reason"))
+        for metric in (state.get("metrics") or {}).values()
+        if metric.get("value") is None
+    ]
+    if unavailable:
+        for key, reason in unavailable:
+            lines.append(f"- `{key}`: {_escape_cell(str(reason))}")
+    else:
+        lines.append("- Nenhum: todos os indicadores do contrato foram calculados.")
+
+    lines += [
+        "",
+        "**Camada de agente e modelo**",
+        "",
+        f"- **Modo de selecao de tools:** `{optional.get('modo', 'nao executado')}` "
+        f"(planejador `{optional.get('planejador', '-')}`, "
+        f"{len(optional.get('tools_aceitas') or [])} aceita(s), "
+        f"{len(optional.get('tools_recusadas') or [])} recusada(s))",
+        f"- **Via de interpretacao:** `{state.get('interpretation_source')}`",
+    ]
+    for label, key in (("Interpretador", "interpretador"), ("Revisor", "revisor_semantico")):
+        item = usage.get(key)
+        if item:
+            lines.append(
+                f"- **{label}:** `{item.get('modelo')}`, {item.get('tokens_total')} tokens, "
+                f"custo estimado US$ {item.get('custo_estimado_usd')}"
+            )
+    if not usage.get("interpretador") and not usage.get("revisor_semantico"):
+        lines.append("- Nenhuma chamada a modelo nesta execucao (via deterministica).")
+
+    lines += [
+        "",
+        "**Contexto externo e resiliencia**",
+        "",
+        f"- **Backend de embedding:** `{store.get('embedding_backend', 'nao aplicavel')}`",
+        f"- **Acervo consultado:** {store.get('noticias_armazenadas', 0)} noticias "
+        f"(ultima ingestao {store.get('ultima_ingestao', 'nao informada')})",
+        f"- **Acesso ao acervo:** {access.get('resultado', 'nao registrado')}, "
+        f"{access.get('tentativas', 0)} tentativa(s), "
+        f"{access.get('retentativas', 0)} retentativa(s)",
+    ]
+    if external.get("unavailable_reason"):
+        lines.append(f"- **Degradacao declarada:** {external['unavailable_reason']}")
+    if optional.get("fallback"):
+        lines.append(
+            "- **Fallback da selecao de tools:** aplicado; o contrato obrigatorio "
+            "saiu completo e o detalhe tecnico esta na trilha de auditoria."
+        )
+
+    lines.append("")
+    return lines
+
+
 def _governance_section(state: dict[str, Any]) -> str:
     guardrails = state.get("guardrail_report") or {}
     evidence = state.get("evidence") or {}
@@ -685,11 +1050,17 @@ def _governance_section(state: dict[str, Any]) -> str:
         f"- **Status dos eventos:** {json.dumps(audit.get('by_status', {}), ensure_ascii=False)}",
         f"- **Arquivo:** `{audit.get('audit_file')}`",
         "",
+        "Consulta por SQL, sobre todas as execucoes: "
+        "`SELECT * FROM audit_events WHERE run_id = '<run_id>' ORDER BY seq;` "
+        "no banco analitico. Ou, no terminal: "
+        f"`python main.py --audit {state.get('run_id')}`.",
+        "",
         "### Planejamento",
         "",
         f"- **Planejador:** `{plan.get('planner')}`",
         f"- **Tools no plano efetivo:** {', '.join(plan.get('effective_tools', []))}",
         "",
+        *_observability_block(state),
         "### Verificacao de evidencia",
         "",
         f"- **Valores lastreados pelas tools:** {evidence.get('valores_lastreados', 0)}",
@@ -771,9 +1142,45 @@ def _render_refusal(state: dict[str, Any]) -> str:
             "",
             validation.get("reason", "Solicitacao recusada na validacao de entrada."),
             "",
+            *_injection_block(validation),
             f"> {DISCLAIMER}",
         ]
     )
+
+
+def _injection_block(validation: dict[str, Any]) -> list[str]:
+    """Achados da analise de prompt injection, quando houver.
+
+    Publicados na recusa porque quem escreveu a solicitacao precisa saber
+    exatamente o que foi lido como tentativa de controle -- caso contrario a
+    recusa vira um "nao" opaco e o usuario tenta de novo no escuro.
+    """
+    injection = validation.get("prompt_injection") or {}
+    findings = injection.get("achados") or []
+    if not findings:
+        return []
+    lines = [
+        "## Analise de prompt injection",
+        "",
+        f"- **Risco classificado:** `{injection.get('risco')}`",
+        "",
+        "| Padrao | Risco | O que ele descreve |",
+        "|--------|-------|--------------------|",
+    ]
+    for finding in findings:
+        lines.append(
+            f"| `{finding.get('key')}` | {finding.get('risco', finding.get('risk'))} | "
+            f"{_escape_cell(str(finding.get('description', '')))} |"
+        )
+    if injection.get("neutralizacoes_no_texto"):
+        lines += [
+            "",
+            "Trechos neutralizados antes da analise: "
+            + ", ".join(f"`{item}`" for item in injection["neutralizacoes_no_texto"])
+            + ".",
+        ]
+    lines.append("")
+    return lines
 
 
 #: Especificacao das quatro tools de KPI exigidas, na ordem de exibicao.
@@ -788,7 +1195,7 @@ _KPI_SPECS: tuple[dict[str, str], ...] = (
     },
     {
         "key": "mortality_rate",
-        "label": "Taxa de mortalidade",
+        "label": "Letalidade (casos encerrados)",
         "worse_when": "up",
         "note": "Letalidade entre casos encerrados (óbito ou cura já definidos).",
     },
@@ -796,7 +1203,10 @@ _KPI_SPECS: tuple[dict[str, str], ...] = (
         "key": "icu_admission_rate",
         "label": "Indicador de UTI",
         "worse_when": "up",
-        "note": "Admissão em UTI entre hospitalizados — não é ocupação de leitos.",
+        "note": (
+            "Admissão em UTI entre hospitalizados — mede severidade, não ocupação. "
+            "A ocupação de leitos é o indicador 3b, com denominador do CNES."
+        ),
     },
     {
         "key": "vaccination_coverage_among_cases",
@@ -810,6 +1220,16 @@ _KPI_SPECS: tuple[dict[str, str], ...] = (
 #: quatro exigidos nao respondem sozinhos. Entram numa faixa secundaria, menor,
 #: porque a hierarquia importa -- eles qualificam os KPIs, nao competem com eles.
 _CONTEXT_SPECS: tuple[dict[str, str], ...] = (
+    {
+        "key": "icu_bed_occupancy_rate",
+        "label": "Ocupação de leitos de UTI",
+        "worse_when": "up",
+        "note": (
+            "PISO da ocupação real: mede só pacientes de SRAG sobre a capacidade do "
+            "CNES, em janela deslocada para trás (não coincide com a dos demais "
+            "indicadores). Valor baixo NÃO indica rede com folga."
+        ),
+    },
     {
         "key": "seasonal_excess",
         "label": "Excesso sobre o padrão sazonal",
@@ -887,6 +1307,7 @@ _KPI_BASE_LABELS: dict[str, tuple[str, str]] = {
     "icu_admission_rate": ("em UTI", "internados com UTI informado"),
     "vaccination_coverage_among_cases": ("vacinados", "casos com informação vacinal"),
     "incidence_rate": ("casos", "habitantes"),
+    "icu_bed_occupancy_rate": ("pacientes de SRAG", "leitos de UTI existentes (CNES)"),
 }
 
 
@@ -1057,7 +1478,7 @@ def _comparator_detail_html(metric: dict[str, Any], note: str) -> str:
 
 
 def _indicator_table_html(state: dict[str, Any]) -> str:
-    """Os seis indicadores lado a lado, ordenavel, com o envelope de cada um.
+    """Os sete indicadores lado a lado, ordenavel, com o envelope de cada um.
 
     Os cartoes acima respondem "como esta cada indicador"; esta tabela responde
     "de que tamanho e a base de cada um" -- que e o que separa um numero solido
@@ -1245,9 +1666,9 @@ def _executive_headline(state: dict[str, Any]) -> str:
 
     mortality_value = mortality.get("value")
     mortality_phrase = (
-        "mortalidade não calculável no recorte"
+        "letalidade não calculável no recorte"
         if mortality_value is None
-        else f"mortalidade em {_pt_number(mortality_value)}% entre os casos encerrados"
+        else f"letalidade em {_pt_number(mortality_value)}% entre os casos encerrados"
     )
 
     headline = f"{growth_phrase[0].upper()}{growth_phrase[1:]}, enquanto {mortality_phrase}"
@@ -1278,7 +1699,7 @@ def _executive_bullets(state: dict[str, Any]) -> list[tuple[str, str]]:
         bullets.append(
             (
                 "DADO",
-                f"Mortalidade: {_pt_number(mortality['value'])}% "
+                f"Letalidade entre casos encerrados: {_pt_number(mortality['value'])}% "
                 f"({_pt_int(mortality.get('numerator'))} óbitos em "
                 f"{_pt_int(mortality.get('denominator'))} casos encerrados).",
             )
@@ -1291,6 +1712,17 @@ def _executive_bullets(state: dict[str, Any]) -> list[tuple[str, str]]:
                 "DADO",
                 f"UTI: {_pt_number(icu['value'])}% dos hospitalizados foram admitidos em UTI "
                 "(não equivale a ocupação de leitos).",
+            )
+        )
+
+    occupancy = metrics.get("icu_bed_occupancy_rate") or {}
+    if occupancy.get("value") is not None:
+        bullets.append(
+            (
+                "DADO",
+                f"Ocupação de UTI: {_pt_number(occupancy['value'])}% da capacidade do CNES "
+                "ocupada por pacientes de SRAG — é um PISO da ocupação real (outros "
+                "quadros também usam esses leitos); valor baixo não indica rede com folga.",
             )
         )
 
@@ -1315,9 +1747,12 @@ def _executive_bullets(state: dict[str, Any]) -> list[tuple[str, str]]:
             )
         )
 
-    dado_bullets = [b for b in bullets if b[0] == "DADO"][:3]
+    # O teto era 3; a ocupacao de UTI entrou como quinto bullet de DADO e nao
+    # pode deslocar nenhum dos quatro indicadores exigidos pelo contrato para
+    # fora do resumo executivo -- por isso o teto subiu junto.
+    dado_bullets = [b for b in bullets if b[0] == "DADO"][:5]
     contexto_bullets = [b for b in bullets if b[0] == "CONTEXTO"][:1]
-    return (dado_bullets + contexto_bullets)[:4]
+    return (dado_bullets + contexto_bullets)[:6]
 
 
 def _daily_chart_section(state: dict[str, Any]) -> str:
@@ -2051,6 +2486,7 @@ section[id], details[id] { scroll-margin-top: calc(var(--topbar-h) + 14px); }
 .cmp-dot-3 { background: #7A5AA6; }
 .cmp-dot-4 { background: #4B7B2E; }
 .cmp-dot-5 { background: #B5822A; }
+.cmp-dot-6 { background: #A33B5E; }
 .cmp-name-text { display: inline-block; font-weight: 600; }
 .cmp-name-text small {
   display: block;

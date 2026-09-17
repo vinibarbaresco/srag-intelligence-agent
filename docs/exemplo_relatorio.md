@@ -1,4 +1,4 @@
-> Exemplo de relatorio gerado por `python main.py --no-llm` sobre a base do Open DATASUS (2022-2026), via deterministica. Caminhos locais substituidos por `<repo>`. Regere com `make demo`; o conteudo muda a cada republicacao da fonte.
+> Exemplo de relatorio gerado por `python main.py --no-llm` sobre a base do Open DATASUS (2019, 2022-2026), via deterministica. Caminhos locais substituidos por `<repo>`. Regere com `make demo`; o conteudo muda a cada republicacao da fonte.
 
 # Relatorio epidemiologico de SRAG
 
@@ -6,9 +6,9 @@
 
 > Arquivo entregue: `docs/exemplo_relatorio.md`
 
-- **Execucao (run_id):** `8c0fca20-d20e-4d50-a387-e7ad7fb09daa`
-- **Gerado em:** 2026-09-16 21:28 E. South America Standard Time
-- **Solicitacao:** Gere o relatorio de monitoramento de SRAG com os indicadores de aumento de casos, mortalidade, UTI e vacinacao, as series diaria e mensal, e o contexto de noticias recentes.
+- **Execucao (run_id):** `534cd25b-5504-4cc1-8a3a-5b6289963e04`
+- **Gerado em:** 2026-09-17 13:40 Hora oficial do Brasil
+- **Solicitacao:** Gere o relatorio de monitoramento de SRAG com os indicadores de aumento de casos, letalidade entre casos encerrados, UTI (admissao e ocupacao de leitos) e vacinacao, as series diaria e mensal, e o contexto de noticias recentes.
 - **Recorte:** BR (nacional) | todas as classificações finais
 - **Fonte dos dados:** Open DATASUS / SIVEP-Gripe (SRAG 2019-2026) ([dataset](https://dadosabertos.saude.gov.br/dataset/srag-2019-a-2026))
 - **Via de interpretacao:** `deterministic-template`
@@ -22,9 +22,12 @@
 | 1 | case_growth_rate | -33.22% | -9619 | 28955 | calculado |
 | 2 | mortality_rate | 5.33% | 715 | 13404 | calculado |
 | 3 | icu_admission_rate | 28.64% | 4912 | 17151 | calculado |
-| 4 | vaccination_coverage_among_cases | 39.93% | 7636 | 19124 | calculado |
-| 5 | incidence_rate | 9.03 por 100 mil hab. no periodo | 19336 | 214211951 | calculado |
-| 6 | seasonal_excess | -12.08% | -2657 | 21993 | calculado |
+| 4 | icu_bed_occupancy_rate [*] | 7.7% | 3988 | 51774 | calculado |
+| 5 | vaccination_coverage_among_cases | 39.93% | 7636 | 19124 | calculado |
+| 6 | incidence_rate | 9.03 por 100 mil hab. no periodo | 19336 | 214211951 | calculado |
+| 7 | seasonal_excess | -12.08% | -2657 | 21993 | calculado |
+
+`[*]` mede so a parcela ocupada por pacientes de SRAG (piso da ocupacao real, nao a ocupacao total) e cobre uma janela deslocada para tras em relacao aos demais indicadores -- ver secao 3b para o periodo exato.
 
 ## DADO - Alertas e acompanhamento
 
@@ -38,7 +41,7 @@
 
 ### Variacao desde a execucao anterior
 
-- **Execucao anterior:** `75509f55-2dab-4b1f-97b3-aa0ac06a9c20` (gerada em 2026-09-17T00:09:13, corte 2026-08-23; corte atual 2026-08-23)
+- **Execucao anterior:** `49cd4f55-65f1-4fe4-8a59-abc25158862a` (gerada em 2026-09-17T16:25:33, corte 2026-08-23; corte atual 2026-08-23)
 
 | Indicador | Anterior | Atual | Variacao |
 |-----------|----------|-------|----------|
@@ -77,7 +80,7 @@
 
 </details>
 
-### 2. Taxa de mortalidade
+### 2. Letalidade entre casos encerrados
 
 **Valor:** 5.33%
 
@@ -130,7 +133,7 @@
 - Estadias imputadas truncadas pelo teto de 31 dias (percentil 95% da permanencia das 261831 estadias com saida registrada): 1471 -- o teto limita tanto a imputacao pela data de evolucao quanto a imputacao em aberto
 - Estadias sem data de saida nem de evolucao sao tratadas como em curso ate o teto de permanencia. Sem o teto, pacientes admitidos meses antes contavam como internados ate a data de corte e inflavam o censo em ordem de grandeza.
 
-> **Taxa de ocupacao de leitos de UTI: nao calculavel.** Nao e possivel calcular taxa de ocupacao de UTI com os dados disponiveis: o SIVEP-Gripe nao registra capacidade instalada nem leitos ocupados. Como aproximacao, sao reportados a taxa de admissao em UTI entre hospitalizados e o censo diario de pacientes de SRAG em UTI.
+> **Este indicador nao e ocupacao de leitos.** Indicador distinto, calculado a parte com a capacidade instalada do CNES. A taxa de admissao acima NAO e ocupacao: ela mede severidade dos casos notificados, nao pressao sobre a capacidade instalada. A ocupacao e publicada em separado como `icu_bed_occupancy_rate`.
 
 <details><summary>Limitacoes declaradas</summary>
 
@@ -138,6 +141,43 @@
 - Mede severidade clinica dos casos notificados, nao pressao sobre a rede hospitalar.
 - A serie recente e incompleta por atraso de notificacao: casos com sintomas nos ultimos dias ainda nao foram digitados. As janelas excluem os dias mais recentes (REPORTING_LAG_DAYS) e usam como referencia a maior data de digitacao da base, nunca a data de hoje.
 - O SIVEP-Gripe registra casos de SRAG notificados, majoritariamente hospitalizados. Nenhum indicador aqui representa a populacao geral.
+
+</details>
+
+### 3b. Ocupacao de leitos de UTI por pacientes de SRAG
+
+**Valor:** 7.7%
+
+- **Definicao:** Proporcao da capacidade instalada de UTI ocupada por pacientes de SRAG em um dia: pacientes_srag_em_uti_no_dia / leitos_uti_disponiveis_no_dia x 100. O numerador vem do censo diario calculado sobre o SIVEP-Gripe; o denominador vem da capacidade instalada publicada pelo CNES para a UF e a competencia compativel com a janela analisada.
+- **Numerador:** 3988
+- **Denominador:** 51774
+- **Registros na base do calculo:** 111298
+- **Periodo:** 2026-06-24 a 2026-07-23 (30 dias encerrados 31 dias antes da data de corte analitica, para que as saidas de UTI ja estejam digitadas)
+- **Fonte:** Open DATASUS / SIVEP-Gripe (SRAG 2019-2026) (pacientes) e CNES / Dados Abertos do SUS (leitos)
+- **Formula:** `pacientes_srag_em_uti_no_dia / leitos_uti_disponiveis_no_dia * 100`
+- **Dia publicado:** 2026-06-24 (dia de pico do censo dentro da janela madura deslocada)
+- **Janela madura:** 2026-06-24 a 2026-07-23 -- deslocada 31 dias para tras porque a cauda recente do censo depende de saidas ainda nao digitadas; o teto de permanencia medido (31 dias) e o tempo necessario para que a estadia ja esteja encerrada no registro
+- **Numerador (pacientes de SRAG em UTI no dia):** 3988 (63.26% depende de imputacao de permanencia)
+- **Denominador (leitos de UTI existentes):** 51774 (dos quais 26149 destinados ao SUS)
+- **Competencia do CNES usada:** 2026-07 (1 mes(es) de distancia da data de corte analitica; limite configurado: ICU_CAPACITY_MAX_LAG_MONTHS)
+- **Cobertura geografica da capacidade:** 27 UF(s), exigidas 27
+- **Tipos de leito no denominador:** UTI_ADULTO, UTI_PEDIATRICA
+- **Ocupacao media na janela madura:** 7.17% (minimo 6.49%, 30 dias apurados)
+- **Fonte da capacidade:** CNES / Portal de Dados Abertos do SUS - Hospitais e Leitos (CGHID/MS), capacidade instalada por competencia (extraida em 2026-09-17)
+
+> **Alcance:** parcela da capacidade de UTI ocupada por pacientes de SRAG notificados; e um piso da ocupacao total, que inclui pacientes sem SRAG. Um valor baixo **nao** significa rede com folga.
+
+> **Periodo distinto.** este periodo NAO coincide com o dos demais indicadores, que vao ate 2026-08-23. Comparar a ocupacao com eles exige levar o deslocamento em conta
+
+<details><summary>Limitacoes declaradas</summary>
+
+- MEDE APENAS A PARCELA DE SRAG. O numerador conta pacientes de SRAG notificados em UTI; os leitos do denominador tambem atendem pacientes sem SRAG (trauma, pos-operatorio, sepse de outras causas). O valor e portanto um PISO da ocupacao total de UTI, nao a ocupacao total. Um valor baixo NAO significa rede com folga.
+- O numerador depende da imputacao de permanencia das estadias sem data de saida registrada; o percentual imputado no dia publicado acompanha o indicador.
+- A capacidade do CNES e o cadastro de leitos, nao leitos operacionais no dia: leito cadastrado pode estar bloqueado por falta de equipe. O denominador tende a superestimar a capacidade efetiva e, com isso, a subestimar a ocupacao.
+- Numerador e denominador tem defasagens diferentes e competencias distintas; a competencia usada e a distancia dela ate a janela sao publicadas com o valor.
+- O recorte geografico e a UF de NOTIFICACAO, nao a de residencia: o leito e ocupado onde o paciente foi internado.
+- Leitos de UTI neonatal, de queimados e coronariana ficam fora do denominador: sao unidades fechadas para outras condicoes e nao estao disponiveis para o paciente de SRAG. Os quantitativos continuam na referencia e podem ser auditados.
+- A serie recente e incompleta por atraso de notificacao: casos com sintomas nos ultimos dias ainda nao foram digitados. As janelas excluem os dias mais recentes (REPORTING_LAG_DAYS) e usam como referencia a maior data de digitacao da base, nunca a data de hoje.
 
 </details>
 
@@ -154,13 +194,13 @@
 - **Covid-19:** 39.93% (7636 de 19124), completude da informacao 98.9%
 - **Influenza:** 35.48% (6492 de 18300), completude da informacao 94.64%
 
-> **Taxa de vacinacao da populacao: nao calculavel.** Referencia de doses aplicadas (SI-PNI) nao fornecida em data/reference/cobertura_vacinal_uf.csv. O SIVEP-Gripe so contem a informacao vacinal de pessoas notificadas com SRAG, que nao representa a populacao; sem a referencia externa o indicador nao e calculavel.
+> **Taxa de vacinacao da populacao: nao calculavel.** Referencia de doses aplicadas (SI-PNI) nao fornecida em data/reference/cobertura_vacinal_uf.csv. O SIVEP-Gripe so contem a informacao vacinal de pessoas notificadas com SRAG, que nao representa a populacao; sem a referencia externa o indicador nao e calculavel. Gere-a com `python -m src.data.reference.vaccination --from-pni <extratos> --year <ano>`.
 
 <details><summary>Limitacoes declaradas</summary>
 
 - ATENCAO: este indicador NAO e taxa de vacinacao da populacao. O denominador sao casos notificados de SRAG (majoritariamente hospitalizados), um grupo com perfil de risco distinto da populacao geral -- ha vies de selecao por definicao.
 - A informacao e declarada no momento da notificacao e depende da apresentacao da caderneta; a subnotificacao de doses e conhecida.
-- A cobertura vacinal populacional exigiria fonte externa (SI-PNI / localizaSUS) e denominador demografico (IBGE), fora do escopo da PoC.
+- A cobertura vacinal populacional e um indicador SEPARADO (`population_vaccination_coverage`), com numerador do SI-PNI e denominador demografico. Esta metrica nunca deve ser lida no lugar dela, nem usada como aproximacao dela.
 - O SIVEP-Gripe registra casos de SRAG notificados, majoritariamente hospitalizados. Nenhum indicador aqui representa a populacao geral.
 
 </details>
@@ -261,6 +301,40 @@ Arquivo: `<repo>\outputs\charts\casos_diarios.png`
 Arquivo: `<repo>\outputs\charts\casos_mensais.png`
 
 
+## DADO - Atualidade da base e datas de referencia
+
+| Data | Valor | O que e |
+|------|-------|---------|
+| Data atual do sistema | 2026-09-17 | dia em que o relatorio foi executado. NAO e a data ate a qual ha dado disponivel. |
+| Sintomas mais recentes na base | 2026-09-13 | ha fichas com sintomas depois da data de corte; elas existem, mas a janela nao as usa porque a digitacao delas ainda esta incompleta |
+| Digitacao mais recente na base | 2026-09-13 | ultima ficha digitada presente no arquivo publicado pelo DATASUS; e a ancora de todas as janelas, no lugar de hoje |
+| **Corte epidemiologico** | **2026-08-23** | ultimo dia considerado confiavel: a data de digitacao menos o atraso de notificacao configurado. Todo indicador termina aqui |
+
+- **Atraso de notificacao configurado:** 21 dias (`REPORTING_LAG_DAYS`)
+- **Defasagem entre hoje e a ultima digitacao:** 4 dias
+- **Defasagem entre hoje e o corte epidemiologico:** 25 dias
+- **Arquivo bruto obtido da fonte em:** 2026-09-14T04:09:57 (anos 2019, 2022, 2023, 2024, 2025, 2026) -- data em que o arquivo foi baixado do Open DATASUS, nao a data de publicacao da safra pela fonte
+
+> A data de execucao **nao** e a data ate a qual ha dado. O DATASUS publica com defasagem, e o sistema ainda desconta o atraso de notificacao para nao ler digitacao pendente como queda de casos.
+
+## DADO - Sensibilidade a linhas identicas
+
+- **Criterio:** linhas identicas em todas as colunas persistidas, exceto `ajustes_aplicados`, que descreve o tratamento e nao o conteudo
+- **Casos na janela:** 19336 (seriam 19300 se colapsadas)
+- **Linhas identicas excedentes:** 36 (0.19% da janela)
+
+| Indicador | Publicado | Se deduplicado | Diferenca |
+|-----------|-----------|----------------|-----------|
+| letalidade entre casos encerrados | 5.33% | 5.34% | 0.01 p.p. |
+| taxa de admissao em UTI entre internados | 28.64% | 28.65% | 0.01 p.p. |
+| cobertura vacinal declarada (covid-19) entre casos | 39.93% | 39.97% | 0.04 p.p. |
+
+**Veredito:** Nenhum indicador se desloca mais que 0.5 ponto percentual quando as linhas identicas sao colapsadas: a duplicidade nao e fonte relevante de erro nesta janela, diante das incertezas ja declaradas.
+
+> **Decisao de tratamento.** A contagem principal NAO e deduplicada. Sem o identificador da notificacao -- negado por minimizacao -- nao ha como distinguir duplicata real de dois pacientes distintos com os mesmos atributos agregados, e os erros nao sao simetricos: deduplicar remove casos reais de forma irreversivel, enquanto nao deduplicar mantem um excedente pequeno e mensuravel, quantificado aqui.
+
+> **Pseudonimizacao.** Pseudonimizacao irreversivel do identificador da notificacao foi avaliada e RECUSADA: o pseudonimo continua sendo dado pessoal (identificador direto e estavel de uma notificacao), reverter um hash sobre um espaco pequeno e viavel, e o ganho seria desproporcional -- a fonte tem zero NU_NOTIFIC repetido e zero linhas identicas nas 194 colunas brutas.
+
 ## Qualidade e tratamento dos dados
 
 - **Carga (run_id):** `5303787c-c8c3-46f7-bcbf-20925d056f98`
@@ -316,6 +390,17 @@ Preservado como esta e excluido de numeradores e denominadores; nunca convertido
 | `VACINA` | 289365 |
 | `VACINA_COV` | 31606 |
 
+## DADO - Analises adicionais escolhidas pelo modelo
+
+- **Modo:** `deterministico` (planejador: `deterministic-template`)
+- **Contrato obrigatorio:** os indicadores exigidos, as duas series e os dois graficos sao executados sempre, fora do alcance do modelo
+- **Tools que o modelo pode acionar:** 12 operacoes de leitura, com parametros validados contra dominios fechados
+- **Iteracoes de tool calling:** 0
+
+Nenhuma analise adicional foi acionada: a solicitacao ja estava inteiramente atendida pelos indicadores do contrato.
+
+> A via de interpretacao em uso nao faz tool calling; apenas o contrato obrigatorio foi executado.
+
 ## INFERENCIA - Interpretacao do cenario
 
 *Texto produzido por `deterministic-template` a partir exclusivamente dos resultados das tools, validado pelo guardrail de evidencia.*
@@ -326,7 +411,8 @@ Isso corresponde a 9.03 casos notificados por 100 mil habitantes (populacao IBGE
 
 ### 2. Severidade e pressao assistencial
 A letalidade entre casos encerrados foi de 5.33%: 715 obitos por SRAG em 13404 casos encerrados. Havia ainda 5437 casos sem encerramento no periodo, o que torna o indicador instavel na janela mais recente.
-Entre os hospitalizados por SRAG, 28.64% foram internados em UTI (4912 de 17151 com a informacao preenchida). O censo diario de pacientes de SRAG em UTI atingiu pico de 0 pacientes no periodo. Este indicador mede admissao em UTI, nao ocupacao de leitos: o dataset nao registra capacidade instalada.
+Entre os hospitalizados por SRAG, 28.64% foram internados em UTI (4912 de 17151 com a informacao preenchida). O censo diario de pacientes de SRAG em UTI atingiu pico de 0 pacientes no periodo. Este indicador mede admissao em UTI -- severidade dos casos notificados --, e nao ocupacao de leitos, que e publicada a parte.
+Pacientes de SRAG ocupavam 7.7% da capacidade instalada de UTI no dia de maior censo da janela apurada (3988 pacientes sobre 51774 leitos de UTI adulto e pediatrica, competencia 2026-07 do CNES); a media da janela foi de 7.17%. O valor e um piso da ocupacao total, porque os mesmos leitos atendem pacientes sem SRAG, e um percentual baixo nao indica rede com folga. A janela vai de 2026-06-24 a 2026-07-23 e nao coincide com a dos demais indicadores.
 
 ### 3. Cobertura vacinal declarada
 Entre os casos notificados com a informacao preenchida, 39.93% declararam vacinacao contra covid-19 (completude de 98.9%) e 35.48% contra influenza (completude de 94.64%). Trata-se de cobertura entre pessoas que adoeceram e foram notificadas, nao da cobertura vacinal da populacao.
@@ -343,24 +429,25 @@ Este relatório apresenta análise epidemiológica agregada de dados públicos d
 | Publicada em | Fonte | Titulo | URL | Recuperada em |
 |--------------|-------|--------|-----|---------------|
 | 2026-08-14 | Prefeitura de São Paulo | Síndrome Respiratória Aguda Grave - SRAG - Prefeitura de São Paulo | [link](https://news.google.com/rss/articles/CBMiigFBVV95cUxPRUxMeU9PR2dFMloyNG1qNVo2eHo4Q0RjVEV1akRmbGgwaXhLdUN2M3RlcHdMcHNzd240MDRkWVJXY1g1RVlWam5xMjQ3dWdPand2UUh4MHRxWlBzZjVNMWVCTE1Hd1dUN2JZUkxpM3hMcUJvblEwc2hMTXJGVUNndGNFSGs4NzRjTGc?oc=5) | 2026-09-14T01:38:15.238701+00:00 |
-| 2026-03-27 | Estadão | Gripe, rinovírus e VSR puxam alta de casos de síndrome respiratória grave - Estadão | [link](https://news.google.com/rss/articles/CBMiygFBVV95cUxQa1VNUDVrZEVRNEFMdWtkVlFGMHg1WTJoSEctYi1hcVZxSWZNVkpBczlqR0htSEJ1TkR6dGYxQjFZYnQ4REtCOHpFcS16eHZ5YTE4Z3pLR1FVT3FFaFhLdldwLXFwR3JZX3p4d05PbnpHVWMyLWc1LWF5MGlZODdwakIxeEhiVjhCZWhLdnN2S0FVbU5aeVpGT1B1QmVrTzExcGRRVkhibXVzVjlHTUVhVGxKM3lsY0VMMnlTZ3NfRG5XMlU1Ykt1S2pR0gHPAUFVX3lxTE01RWFTdzJEenltelVHOU1RZFdTMFV0S0Z5WEdqQ3NEaG9VcDAyRFhmMnhObXREWGNVUGsxak1DRnBwS0w1dTk2eXVLZHJ5OXZmX2xXYWlRVUhvZHFoOVU2RGtWYVNKUUxza0xackpvcUw4cTZmTnZqWVBJekc1SjVEc3JFbVJrTk9XRl9hWmVYTnM0UDFoMW1XN2R3eEs5czJuOVU1SVU0b1lRd01HLURtVjd6cW5tZG9IOTZWQS1nSFRWTHFPUEpSaWkwVU1zWQ?oc=5) | 2026-09-17T00:28:17.741245+00:00 |
+| 2026-03-27 | Estadão | Gripe, rinovírus e VSR puxam alta de casos de síndrome respiratória grave - Estadão | [link](https://news.google.com/rss/articles/CBMiygFBVV95cUxQa1VNUDVrZEVRNEFMdWtkVlFGMHg1WTJoSEctYi1hcVZxSWZNVkpBczlqR0htSEJ1TkR6dGYxQjFZYnQ4REtCOHpFcS16eHZ5YTE4Z3pLR1FVT3FFaFhLdldwLXFwR3JZX3p4d05PbnpHVWMyLWc1LWF5MGlZODdwakIxeEhiVjhCZWhLdnN2S0FVbU5aeVpGT1B1QmVrTzExcGRRVkhibXVzVjlHTUVhVGxKM3lsY0VMMnlTZ3NfRG5XMlU1Ykt1S2pR0gHPAUFVX3lxTE01RWFTdzJEenltelVHOU1RZFdTMFV0S0Z5WEdqQ3NEaG9VcDAyRFhmMnhObXREWGNVUGsxak1DRnBwS0w1dTk2eXVLZHJ5OXZmX2xXYWlRVUhvZHFoOVU2RGtWYVNKUUxza0xackpvcUw4cTZmTnZqWVBJekc1SjVEc3JFbVJrTk9XRl9hWmVYTnM0UDFoMW1XN2R3eEs5czJuOVU1SVU0b1lRd01HLURtVjd6cW5tZG9IOTZWQS1nSFRWTHFPUEpSaWkwVU1zWQ?oc=5) | 2026-09-17T16:40:06.842036+00:00 |
 | 2026-08-14 | prefeitura.sp.gov.br | Síndrome Respiratória Aguda Grave - SRAG - prefeitura.sp.gov.br | [link](https://news.google.com/rss/articles/CBMiigFBVV95cUxPRUxMeU9PR2dFMloyNG1qNVo2eHo4Q0RjVEV1akRmbGgwaXhLdUN2M3RlcHdMcHNzd240MDRkWVJXY1g1RVlWam5xMjQ3dWdPand2UUh4MHRxWlBzZjVNMWVCTE1Hd1dUN2JZUkxpM3hMcUJvblEwc2hMTXJGVUNndGNFSGs4NzRjTGc?oc=5) | 2026-09-16T22:38:49.692064+00:00 |
-| 2026-08-14 | Prefeitura | Síndrome Respiratória Aguda Grave - SRAG - Prefeitura | [link](https://news.google.com/rss/articles/CBMiigFBVV95cUxPRUxMeU9PR2dFMloyNG1qNVo2eHo4Q0RjVEV1akRmbGgwaXhLdUN2M3RlcHdMcHNzd240MDRkWVJXY1g1RVlWam5xMjQ3dWdPand2UUh4MHRxWlBzZjVNMWVCTE1Hd1dUN2JZUkxpM3hMcUJvblEwc2hMTXJGVUNndGNFSGs4NzRjTGc?oc=5) | 2026-09-17T00:28:17.741245+00:00 |
-| 2026-08-03 | CNN Brasil | RS e SC registram aumento de casos de SRAG por vírus respiratórios - CNN Brasil | [link](https://news.google.com/rss/articles/CBMipAFBVV95cUxPTC1tN09NenpNR1NZX3F6Z2VEU3Q4Yzg5RG1VTkF4d0JPQkppZWtvbFgtWXEweTlRVjFMMi1qVERHdWtrZ203Qm9vTTBzdzNBR2tWa0NEdVY0Y0NiT0NxdDlnMnRYYmtuQVdZeV8xMS1yRFVIMWhLOUR5ZHFId0Z6VXR2ZnlEVWxJekkteVNyMktjUmhNZ3JfbjhIRUdzeWlwYWcwRw?oc=5) | 2026-09-17T00:28:17.741245+00:00 |
-| 2026-06-18 | Correio Braziliense | Casos de Síndrome Respiratória Aguda Grave voltam a crescer, diz Fiocruz - Correio Braziliense | [link](https://news.google.com/rss/articles/CBMiwwFBVV95cUxPUmZtSE1JVVVsNUU3NmxhN0JYcWk5c3J0eXJHRW5XaVB6U3h5TXZ5Wmo3TTV0ZGFzZXUxMnJ2a1Z5MW4zR0xhMWVFR1k3QlkyRFdfaWRRRTRmSXhILWMzeTVERHlzSHItOS1QY2E1Tl9qSHozcXgyUW4za1lGSjh6elp2WDB6cXA1NjZGMk5mTHlTX0d3RHFYRnNneWN1ZURDbUpLcVpOMlF0TC1Nbm4xeE8zMF9KT0cwV1gwSGY2SnVBNlnSAcgBQVVfeXFMT0ZNZVo0V19QMWNUeFRjb1lHdDVLWlFyMGhXbXNYWWdocnlpbFh5MUd3dHB5bHBCOFZXR3R3MXUyNTFMbFQ1M2NvQXdPUTZmMGNqaGM5WS16YXB1TVFnNVY2MHIzTW1uRjVUdVZfa05BYXpsUkJBc0FYcGwweXFTY3QxUGZZamYxMndZS091M3k4RmNQNG9kdXRhdWJxd0tvODBNY2RjeGdsTWE0WFdVYXZocHQyQXBxYVBoaTc5UG9BWjlid1RrZDc?oc=5) | 2026-09-17T00:28:17.741245+00:00 |
-| 2026-06-03 | CNN Brasil | Casos de Síndrome Respiratória Aguda Grave crescem em todos os estados - CNN Brasil | [link](https://news.google.com/rss/articles/CBMiqgFBVV95cUxPdk9wQTdBSHQybWpzMUpFQ0tsVHNhRmdQTHFEaEtSZ1lHS2pvU1ZJMzJkVG1OMjJXWXJXTGNseVJ3RmVabUl6YlMxUnU4ZjlyWnR2ZXhJYjBQQzFGaUFXVXRfSTh6Wlp3YjM4LTU1VzlZcnJZTjNnMzZkaml6N0FpT0p0ME53WHlzZ0d1MkhBWlZTQUxYVkZCZmcyMUFKY0Fxa1FBazVnT3FtZw?oc=5) | 2026-09-17T00:28:17.741245+00:00 |
-| 2026-04-30 | Estadão | VSR e gripe puxam crescimento dos casos de síndrome respiratória grave na maior parte do Brasil - Estadão | [link](https://news.google.com/rss/articles/CBMi6AFBVV95cUxOaUtTdmdvZG85SkU0R2VqZ1laUlBibGhqZTc4aElfeDJoSUFWYW5ZU3k0NVRtQ1FuMkNJNnhjaTJ1OEQtQmxEWmZxZC1vTF9uSFRibWdSd1BtanZsdGRDU2g5M09hU3kyVU9KLU9aeXNhVjNVaFZkUV92SllYTjN5d0pRbDVDMnM4R2t5QlktN3N1eXgtVkptMlNINnVRYi1XNUZockQ3aDFDTFVxUV9fdjM0U0VMSWVwS3d2ZGF3bzJVdUxuWlpLZloxN3JJVl9mMEFTZWFDdmJkU3BZU0txemprTk1ERDRQ0gHuAUFVX3lxTFBOUnd3RzFXMGxibkxGUnJKWXdiVVdfTEVoenRjcWhJdWdXcVlsdlIwb25LdDlDR0RuQUdXNndLUVZMa083TU1ueUY3M09PTWE0NW1jNG04QnZTSURCVVkzaldnS1N4SEV1QXR6Y2NQcU90WmFKY1hCVXJobWhVd3V0STZFOWZrSVZaVGlHOWxiQV85cU5XanV2QzRJV2xnZjd6QzJLR3E0WFRnR3J5eGFqSlBuNHAwZ0RxNm93RXd6Q3gzVWI3eEVsZXJpU0NqVHo4aTBiZWN3ZEI5S2MtS0hzV0hEanZBLW1BOGhfM1E?oc=5) | 2026-09-17T00:28:17.741245+00:00 |
-| 2026-05-28 | Agencia Brasil | Casos de síndrome respiratória grave continuam aumentando no país - Agencia Brasil | [link](https://news.google.com/rss/articles/CBMi-gFBVV95cUxNQVR1LUJfem9aVFg5WmVTZGdNSVRkdDNwekJ6YmF1MWh3RjV4dE9Fc2QycDR4cmRNZG9tMm5nLUhob1VCVVZIbVV2aHh1MjUwOUtmM09SQ3ZfQmdBZk1NT0xoNmhTdmlrYUhOOF9WRy1NdlY0ODdZd1dfczBkRlN4WHRyRi1fNjdEQVJGN0JFU0dCd2pYYmpSUHBDQkdLZzQtWXBucTZLREVyUVVQQjZmT0Fvdml6bWhLbDRKR3o0X0U5YXlVMHF5NzZTUkM0TXFZemEteGVqYzVjc25MWXc1alJ1dWVSSFBUNlNzOWFWZjdycGdTV2I3VmdB?oc=5) | 2026-09-17T00:28:17.741245+00:00 |
-| 2026-04-09 | Agencia Brasil | Fiocruz mantém alerta para síndrome respiratória grave - Agencia Brasil | [link](https://news.google.com/rss/articles/CBMirgFBVV95cUxNTXJNVmFkMHBfemwwWkp6ank2MEluSGhiVEdYbEpvZlpORFBEcXhFZmdTOFRyZ3RKUEN3ZDFjLUM5am0yTk9YNmF0ck9FbHFMWWZUdFJBdzMxOEF4NHFGSkk5eGZQYy1qYzlCNGhGeWUwWmFaYWRyRW55UTJJSkg5d29lZFVueHpSLVA0b19kZ3ZjX0xsMVlfa3ZRbFhvb09INUdDM0EtLS1jTTZ5Zmc?oc=5) | 2026-09-17T00:28:17.741245+00:00 |
-| 2025-10-24 | CNN Brasil | Casos de síndrome respiratória grave atingem nível de alerta em São Paulo - CNN Brasil | [link](https://news.google.com/rss/articles/CBMiwAFBVV95cUxQZUNTeURONHU1Sl9zZ1NobEtRN09OOUlUVUZxSDZ0ZGd5b1EwLTVibk0wMDIxaTNDZ1ZGT3gxOW5wUjMzZjdQcDFrWWY1UFRrdUhpNjJoN19IX252SXdIVjZGWmhKVVhwWFlqZUI2MHZ0UkRkWThoUnptZnNpQVVydVRrYlc0S0Z2anFwdmh3RjdqdkJIbmMwVVlzMXFoNy0zNVdEYmNNcGJpX1luX1RoUjVUWmU5S2NNN3dOempJS0I?oc=5) | 2026-09-17T00:28:17.741245+00:00 |
-| 2026-05-04 | G1 | Casos de síndrome respiratória grave avançam e colocam maior parte do país em alerta, diz Fiocruz - G1 | [link](https://news.google.com/rss/articles/CBMi3AFBVV95cUxPTW9FcHFVdkk1YVAwTjNtSVBWaVh6QU1jZU1MZG9oUl9KNmNKSW5wUHBFRW85ajQ5bEFubFVIYVdyMmp6ZldQd1dIMDNldlg2Qm5ha2R5TThleC10NnVZSHZBUVRLSXdQSzVGNDFzSXp2QnVabVdGQ3ZWSG5kVHRjMkNmamg1dGtFc3JSTVJockIteHdIcFZQOG9hZ3Z6VmFmLU5WZHpuWS15OEljNkpoS3JNTTVuVU9qMUJsaUEzTWtONW9YWGl0dXU1MTZFR3pJamNjTnNOWmdyYWYx0gHrAUFVX3lxTE5MMlJKQUZIcFlOQWt2OG96czB2LWxKWldtZjZXNjFnajduQ2E0NlpoaEY2am45OHRWei1OZlNtcmFHUTBNdTZLV2lrTzdnWG13X0RCUXRnMTRJYzI1SVhfa2lzWXh3bm10ekRBWEpiQkxwMTZ6TzdKXzNzQXpVVkIyaUFkZm1ObnJJalhmNkVYUng2Z1ZmNlN1VS11cFpYd3JtOGxCSUtvNnhwVmFTbWZDVGRvRnpObnlneG5xcnM1ajNRTkhsV0Jwa2JldnFvbnJmQWdrN2RDaHYwbTRBcGNiYVhsZG9XOWZweDA?oc=5) | 2026-09-17T00:28:17.741245+00:00 |
+| 2026-08-14 | Prefeitura | Síndrome Respiratória Aguda Grave - SRAG - Prefeitura | [link](https://news.google.com/rss/articles/CBMiigFBVV95cUxPRUxMeU9PR2dFMloyNG1qNVo2eHo4Q0RjVEV1akRmbGgwaXhLdUN2M3RlcHdMcHNzd240MDRkWVJXY1g1RVlWam5xMjQ3dWdPand2UUh4MHRxWlBzZjVNMWVCTE1Hd1dUN2JZUkxpM3hMcUJvblEwc2hMTXJGVUNndGNFSGs4NzRjTGc?oc=5) | 2026-09-17T16:40:06.842036+00:00 |
+| 2026-03-27 | estadao.com.br | Gripe, rinovírus e VSR puxam alta de casos de síndrome respiratória grave - estadao.com.br | [link](https://news.google.com/rss/articles/CBMiygFBVV95cUxQa1VNUDVrZEVRNEFMdWtkVlFGMHg1WTJoSEctYi1hcVZxSWZNVkpBczlqR0htSEJ1TkR6dGYxQjFZYnQ4REtCOHpFcS16eHZ5YTE4Z3pLR1FVT3FFaFhLdldwLXFwR3JZX3p4d05PbnpHVWMyLWc1LWF5MGlZODdwakIxeEhiVjhCZWhLdnN2S0FVbU5aeVpGT1B1QmVrTzExcGRRVkhibXVzVjlHTUVhVGxKM3lsY0VMMnlTZ3NfRG5XMlU1Ykt1S2pR0gHPAUFVX3lxTE01RWFTdzJEenltelVHOU1RZFdTMFV0S0Z5WEdqQ3NEaG9VcDAyRFhmMnhObXREWGNVUGsxak1DRnBwS0w1dTk2eXVLZHJ5OXZmX2xXYWlRVUhvZHFoOVU2RGtWYVNKUUxza0xackpvcUw4cTZmTnZqWVBJekc1SjVEc3JFbVJrTk9XRl9hWmVYTnM0UDFoMW1XN2R3eEs5czJuOVU1SVU0b1lRd01HLURtVjd6cW5tZG9IOTZWQS1nSFRWTHFPUEpSaWkwVU1zWQ?oc=5) | 2026-09-17T05:19:00.340567+00:00 |
+| 2026-08-03 | cnnbrasil.com.br | RS e SC registram aumento de casos de SRAG por vírus respiratórios - cnnbrasil.com.br | [link](https://news.google.com/rss/articles/CBMipAFBVV95cUxPTC1tN09NenpNR1NZX3F6Z2VEU3Q4Yzg5RG1VTkF4d0JPQkppZWtvbFgtWXEweTlRVjFMMi1qVERHdWtrZ203Qm9vTTBzdzNBR2tWa0NEdVY0Y0NiT0NxdDlnMnRYYmtuQVdZeV8xMS1yRFVIMWhLOUR5ZHFId0Z6VXR2ZnlEVWxJekkteVNyMktjUmhNZ3JfbjhIRUdzeWlwYWcwRw?oc=5) | 2026-09-17T12:38:16.101534+00:00 |
+| 2026-08-03 | CNN Brasil | RS e SC registram aumento de casos de SRAG por vírus respiratórios - CNN Brasil | [link](https://news.google.com/rss/articles/CBMipAFBVV95cUxPTC1tN09NenpNR1NZX3F6Z2VEU3Q4Yzg5RG1VTkF4d0JPQkppZWtvbFgtWXEweTlRVjFMMi1qVERHdWtrZ203Qm9vTTBzdzNBR2tWa0NEdVY0Y0NiT0NxdDlnMnRYYmtuQVdZeV8xMS1yRFVIMWhLOUR5ZHFId0Z6VXR2ZnlEVWxJekkteVNyMktjUmhNZ3JfbjhIRUdzeWlwYWcwRw?oc=5) | 2026-09-17T16:40:06.842036+00:00 |
+| 2026-06-18 | Correio Braziliense | Casos de Síndrome Respiratória Aguda Grave voltam a crescer, diz Fiocruz - Correio Braziliense | [link](https://news.google.com/rss/articles/CBMiwwFBVV95cUxPUmZtSE1JVVVsNUU3NmxhN0JYcWk5c3J0eXJHRW5XaVB6U3h5TXZ5Wmo3TTV0ZGFzZXUxMnJ2a1Z5MW4zR0xhMWVFR1k3QlkyRFdfaWRRRTRmSXhILWMzeTVERHlzSHItOS1QY2E1Tl9qSHozcXgyUW4za1lGSjh6elp2WDB6cXA1NjZGMk5mTHlTX0d3RHFYRnNneWN1ZURDbUpLcVpOMlF0TC1Nbm4xeE8zMF9KT0cwV1gwSGY2SnVBNlnSAcgBQVVfeXFMT0ZNZVo0V19QMWNUeFRjb1lHdDVLWlFyMGhXbXNYWWdocnlpbFh5MUd3dHB5bHBCOFZXR3R3MXUyNTFMbFQ1M2NvQXdPUTZmMGNqaGM5WS16YXB1TVFnNVY2MHIzTW1uRjVUdVZfa05BYXpsUkJBc0FYcGwweXFTY3QxUGZZamYxMndZS091M3k4RmNQNG9kdXRhdWJxd0tvODBNY2RjeGdsTWE0WFdVYXZocHQyQXBxYVBoaTc5UG9BWjlid1RrZDc?oc=5) | 2026-09-17T16:40:06.842036+00:00 |
+| 2026-06-03 | cnnbrasil.com.br | Casos de Síndrome Respiratória Aguda Grave crescem em todos os estados - cnnbrasil.com.br | [link](https://news.google.com/rss/articles/CBMiqgFBVV95cUxPdk9wQTdBSHQybWpzMUpFQ0tsVHNhRmdQTHFEaEtSZ1lHS2pvU1ZJMzJkVG1OMjJXWXJXTGNseVJ3RmVabUl6YlMxUnU4ZjlyWnR2ZXhJYjBQQzFGaUFXVXRfSTh6Wlp3YjM4LTU1VzlZcnJZTjNnMzZkaml6N0FpT0p0ME53WHlzZ0d1MkhBWlZTQUxYVkZCZmcyMUFKY0Fxa1FBazVnT3FtZw?oc=5) | 2026-09-17T12:38:16.101534+00:00 |
+| 2026-06-03 | CNN Brasil | Casos de Síndrome Respiratória Aguda Grave crescem em todos os estados - CNN Brasil | [link](https://news.google.com/rss/articles/CBMiqgFBVV95cUxPdk9wQTdBSHQybWpzMUpFQ0tsVHNhRmdQTHFEaEtSZ1lHS2pvU1ZJMzJkVG1OMjJXWXJXTGNseVJ3RmVabUl6YlMxUnU4ZjlyWnR2ZXhJYjBQQzFGaUFXVXRfSTh6Wlp3YjM4LTU1VzlZcnJZTjNnMzZkaml6N0FpT0p0ME53WHlzZ0d1MkhBWlZTQUxYVkZCZmcyMUFKY0Fxa1FBazVnT3FtZw?oc=5) | 2026-09-17T16:40:06.842036+00:00 |
+| 2026-05-28 | agenciabrasil.ebc.com.br | Casos de síndrome respiratória grave continuam aumentando no país - agenciabrasil.ebc.com.br | [link](https://news.google.com/rss/articles/CBMi-gFBVV95cUxNQVR1LUJfem9aVFg5WmVTZGdNSVRkdDNwekJ6YmF1MWh3RjV4dE9Fc2QycDR4cmRNZG9tMm5nLUhob1VCVVZIbVV2aHh1MjUwOUtmM09SQ3ZfQmdBZk1NT0xoNmhTdmlrYUhOOF9WRy1NdlY0ODdZd1dfczBkRlN4WHRyRi1fNjdEQVJGN0JFU0dCd2pYYmpSUHBDQkdLZzQtWXBucTZLREVyUVVQQjZmT0Fvdml6bWhLbDRKR3o0X0U5YXlVMHF5NzZTUkM0TXFZemEteGVqYzVjc25MWXc1alJ1dWVSSFBUNlNzOWFWZjdycGdTV2I3VmdB?oc=5) | 2026-09-17T15:29:17.430169+00:00 |
+| 2026-04-30 | Estadão | VSR e gripe puxam crescimento dos casos de síndrome respiratória grave na maior parte do Brasil - Estadão | [link](https://news.google.com/rss/articles/CBMi6AFBVV95cUxOaUtTdmdvZG85SkU0R2VqZ1laUlBibGhqZTc4aElfeDJoSUFWYW5ZU3k0NVRtQ1FuMkNJNnhjaTJ1OEQtQmxEWmZxZC1vTF9uSFRibWdSd1BtanZsdGRDU2g5M09hU3kyVU9KLU9aeXNhVjNVaFZkUV92SllYTjN5d0pRbDVDMnM4R2t5QlktN3N1eXgtVkptMlNINnVRYi1XNUZockQ3aDFDTFVxUV9fdjM0U0VMSWVwS3d2ZGF3bzJVdUxuWlpLZloxN3JJVl9mMEFTZWFDdmJkU3BZU0txemprTk1ERDRQ0gHuAUFVX3lxTFBOUnd3RzFXMGxibkxGUnJKWXdiVVdfTEVoenRjcWhJdWdXcVlsdlIwb25LdDlDR0RuQUdXNndLUVZMa083TU1ueUY3M09PTWE0NW1jNG04QnZTSURCVVkzaldnS1N4SEV1QXR6Y2NQcU90WmFKY1hCVXJobWhVd3V0STZFOWZrSVZaVGlHOWxiQV85cU5XanV2QzRJV2xnZjd6QzJLR3E0WFRnR3J5eGFqSlBuNHAwZ0RxNm93RXd6Q3gzVWI3eEVsZXJpU0NqVHo4aTBiZWN3ZEI5S2MtS0hzV0hEanZBLW1BOGhfM1E?oc=5) | 2026-09-17T16:40:06.842036+00:00 |
 
-*Acervo consultado: 219 noticias no Vector DB (backend de embedding: `openai:text-embedding-3-small`); ultima ingestao em 2026-09-17T00:28:17.741245.*
+*Acervo consultado: 279 noticias no Vector DB (backend de embedding: `openai:text-embedding-3-small`); ultima ingestao em 2026-09-17T16:40:06.842036.*
 
 ## Limitacoes conhecidas
 
-- **Taxa de ocupacao de UTI nao e calculavel** com o SIVEP-Gripe: o dataset registra se houve admissao em UTI, nao a capacidade instalada nem os leitos ocupados. O relatorio apresenta a taxa de admissao em UTI entre hospitalizados e o censo diario de pacientes, ambos nomeados pelo que de fato medem.
-- **Taxa de vacinacao da populacao nao e calculavel** com este dataset: ha informacao vacinal apenas de pessoas notificadas com SRAG, um grupo com vies de selecao. O relatorio apresenta a cobertura declarada entre casos notificados.
+- **Tres indicadores distintos de UTI, nunca intercambiaveis**: a *taxa de admissao* mede severidade dos casos notificados; o *censo diario* conta pacientes; a *taxa de ocupacao* divide o censo pela capacidade instalada do CNES. So a terceira e ocupacao, e ela depende de uma referencia externa -- sem capacidade compativel em UF e competencia, ela e declarada indisponivel, e nunca aproximada pelas outras duas.
+- **A ocupacao publicada e a parcela ocupada por pacientes de SRAG**, um piso da ocupacao total: os mesmos leitos atendem pacientes sem SRAG. Valor baixo nao significa rede com folga.
+- **Taxa de vacinacao da populacao depende de fonte externa** (SI-PNI para as doses, populacao-alvo da campanha ou IBGE para o denominador). O SIVEP-Gripe so tem informacao vacinal de pessoas notificadas com SRAG, um grupo com vies de selecao, e essa cobertura entre casos e publicada como indicador proprio -- nunca no lugar da populacional. Sem a referencia, a populacional fica indisponivel.
 - **Atraso de notificacao**: a janela recente e incompleta; as analises descontam os dias mais recentes e ancoram o periodo na maior data de digitacao da base, nao na data de hoje.
 - **Escopo**: o SIVEP-Gripe cobre casos de SRAG notificados, majoritariamente hospitalizados; nenhum indicador representa a populacao geral.
 
@@ -368,21 +455,61 @@ Este relatório apresenta análise epidemiológica agregada de dados públicos d
 
 ### Trilha de auditoria
 
-- **run_id:** `8c0fca20-d20e-4d50-a387-e7ad7fb09daa`
-- **Eventos registrados:** 22
-- **Duracao total:** 14321.89 ms
-- **Status dos eventos:** {"ok": 22}
-- **Arquivo:** `<repo>\outputs\audit\8c0fca20-d20e-4d50-a387-e7ad7fb09daa.jsonl`
+- **run_id:** `534cd25b-5504-4cc1-8a3a-5b6289963e04`
+- **Eventos registrados:** 25
+- **Duracao total:** 10612.32 ms
+- **Status dos eventos:** {"ok": 25}
+- **Arquivo:** `<repo>\outputs\audit\534cd25b-5504-4cc1-8a3a-5b6289963e04.jsonl`
+
+Consulta por SQL, sobre todas as execucoes: `SELECT * FROM audit_events WHERE run_id = '<run_id>' ORDER BY seq;` no banco analitico. Ou, no terminal: `python main.py --audit 534cd25b-5504-4cc1-8a3a-5b6289963e04`.
 
 ### Planejamento
 
 - **Planejador:** `deterministic-template`
-- **Tools no plano efetivo:** get_case_growth_rate, get_daily_cases, get_icu_metrics, get_incidence_rate, get_monthly_cases, get_mortality_rate, get_notification_completeness, get_seasonal_baseline, get_vaccination_metrics, render_daily_cases_chart, render_monthly_cases_chart, search_srag_news
+- **Tools no plano efetivo:** get_case_growth_rate, get_daily_cases, get_duplicate_sensitivity, get_icu_bed_occupancy, get_icu_metrics, get_incidence_rate, get_monthly_cases, get_mortality_rate, get_notification_completeness, get_seasonal_baseline, get_vaccination_metrics, render_daily_cases_chart, render_monthly_cases_chart, search_srag_news
+
+### Observabilidade da execucao
+
+**Versao dos dados e proveniencia**
+
+- **Carga de origem (run_id):** `5303787c-c8c3-46f7-bcbf-20925d056f98`
+- **Arquivos de origem:** INFLUD19-23-03-2026.csv, INFLUD22-23-03-2026.csv, INFLUD23-23-03-2026.csv, INFLUD24-23-03-2026.csv, INFLUD25-14-09-2026.csv, INFLUD26-14-09-2026.csv
+- **2019:** `INFLUD19-23-03-2026.csv` (sha256 `f6de547c1234e2de...`, download do Open DATASUS)
+- **2022:** `INFLUD22-23-03-2026.csv` (sha256 `57250ce92b916b4f...`, download do Open DATASUS)
+- **2023:** `INFLUD23-23-03-2026.csv` (sha256 `639b748fb2838336...`, download do Open DATASUS)
+- **2024:** `INFLUD24-23-03-2026.csv` (sha256 `b516f6eae61203da...`, download do Open DATASUS)
+- **2025:** `INFLUD25-14-09-2026.csv` (sha256 `a507a213d043d5aa...`, download do Open DATASUS)
+- **2026:** `INFLUD26-14-09-2026.csv` (sha256 `333afa53758437ed...`, download do Open DATASUS)
+- **Corte epidemiologico:** 2026-08-23 (digitacao mais recente 2026-09-13, atraso configurado 21 dias)
+
+**Referencias externas usadas**
+
+| Referencia | Disponivel | Obtida em | sha256 | Linhas |
+|------------|------------|-----------|--------|--------|
+| Populacao residente (IBGE) | sim | 2026-09-14T04:15:04 | `8ab1e5d02523cfc8...` | 81 |
+| Doses aplicadas (SI-PNI) | **nao** | - | - | - |
+| Leitos de UTI (CNES) | sim | 2026-09-17T13:55:39 | `c7d4b229cd38f7a0...` | 854 |
+
+**Indicadores indisponiveis e causa**
+
+- Nenhum: todos os indicadores do contrato foram calculados.
+
+**Camada de agente e modelo**
+
+- **Modo de selecao de tools:** `deterministico` (planejador `deterministic-template`, 0 aceita(s), 0 recusada(s))
+- **Via de interpretacao:** `deterministic-template`
+- Nenhuma chamada a modelo nesta execucao (via deterministica).
+
+**Contexto externo e resiliencia**
+
+- **Backend de embedding:** `openai:text-embedding-3-small`
+- **Acervo consultado:** 279 noticias (ultima ingestao 2026-09-17T16:40:06.842036)
+- **Acesso ao acervo:** ok, 6 tentativa(s), 0 retentativa(s)
 
 ### Verificacao de evidencia
 
-- **Valores lastreados pelas tools:** 272
-- **Indicadores calculados:** 6
+- **Valores lastreados pelas tools:** 407
+- **Indicadores calculados:** 7
 - **Indicadores indisponiveis:** 0
 
 ### Guardrails ativos
@@ -396,6 +523,7 @@ Este relatório apresenta análise epidemiológica agregada de dados públicos d
 | Notícias não sobrescrevem dados oficiais | estado do grafo e renderização do relatório | Notícias circulam em campo próprio do estado e entram no relatório apenas sob o rótulo CONTEXTO EXTERNO. Nenhum indicador é calculado, ajustado ou corrigido a partir de conteúdo jornalístico. |
 | Declarar indisponibilidade em vez de extrapolar | camada de métricas e generate_report | Quando uma métrica não pode ser calculada com segurança, o sistema declara a indisponibilidade e o motivo. Nunca substitui ausência por zero, média ou estimativa. |
 | Revisão semântica independente da saída | generate_interpretation, passo apply_output_guardrails, após as verificações lexicais; somente sobre texto produzido por modelo | Depois das verificações lexicais, o texto do modelo é entregue a um revisor independente (outra chamada de modelo, prompt próprio, sem acesso ao pedido original) que procura conduta clínica parafraseada e dado individual -- achados bloqueantes -- e, em caráter consultivo, obediência a instruções vindas de notícias e extrapolação de indicador indisponível, que viram aviso. Indisponibilidade do revisor é declarada no relatório e a camada lexical permanece (fail-open). |
+| Instrução do sistema não é reescrita pela solicitação | validate_request (classificação e recusa), select_optional_tools (allowlist e schemas) e generate_interpretation (sanitização do contexto externo) | A solicitação é classificada em risco de prompt injection antes de qualquer consulta. Risco alto -- sobrescrever instruções, assumir outro papel, extrair o prompt ou credenciais, executar SQL ou código, arbitrar o valor de um indicador, suprimir limitações -- é recusado, e o motivo vai para a trilha de auditoria. Risco médio segue com aviso registrado. Conteúdo externo (títulos, fontes, URLs e mensagens de erro) é sanitizado antes de entrar no contexto do modelo, e a solicitação do usuário circula rotulada como dado, nunca como instrução. |
 
 **Resultado da validacao de saida:** aprovada
 **Revisao semantica independente:** nao aplicavel: texto produzido pela via deterministica, sem modelo.

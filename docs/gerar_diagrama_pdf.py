@@ -614,7 +614,7 @@ def _build_page_one(document: fitz.Document) -> None:
         "Guarda a tabela derivada e a view analítica; conexão somente leitura para qualquer tool.",
         [
             f"srag_cases: {len(ALLOWED_COLUMNS) - 2 + len(ALL_DERIVED_COLUMNS)} colunas",
-            "+ referências IBGE / SI-PNI",
+            "+ referências IBGE / CNES / SI-PNI",
         ],
         stroke=LAYER_DATA,
         fill=FILL_DATA,
@@ -811,14 +811,21 @@ def _build_page_one(document: fitz.Document) -> None:
 
 _STEP_DESCRIPTIONS: dict[str, str] = {
     "validate_request": "Guardrails de entrada verificam se o pedido é legítimo (sem conduta "
-    "clínica, sem dado individual). Uma recusa encerra o fluxo aqui, antes de tocar o banco.",
+    "clínica, sem dado individual) e o classificam em risco de prompt injection. Uma recusa "
+    "encerra o fluxo aqui, antes de tocar o banco.",
     "collect_epidemiological_metrics": "As tools de indicador consultam o banco analítico e "
-    "devolvem os seis indicadores (quatro exigidos + dois complementares), cada um com "
-    "numerador, denominador, fonte e limitações.",
+    "devolvem os sete indicadores (quatro exigidos, a ocupação de UTI e dois complementares), "
+    "cada um com numerador, denominador, fonte e limitações. Ocupação de UTI e cobertura vacinal "
+    "populacional cruzam o dado com as referências externas (CNES e SI-PNI).",
     "collect_time_series": "As tools de série e de gráfico geram a série diária (30 dias) e "
     "mensal (12 meses) e renderizam os dois gráficos obrigatórios a partir dos mesmos pontos.",
     "search_external_news": "A tool de notícias atualiza o acervo (rede) e busca, por "
-    "similaridade semântica, o contexto mais relevante para o recorte pedido.",
+    "similaridade semântica, o contexto mais relevante para o recorte pedido. A escrita usa "
+    "troca atômica e trava de arquivo: leitura e ingestão simultâneas não se derrubam, e uma "
+    "falha preserva o acervo anterior.",
+    "select_optional_tools": "Única etapa em que o modelo decide: por function calling, ele pode "
+    "acionar análises ADICIONAIS sobre uma allowlist de tools de leitura, com schemas Pydantic e "
+    "teto de chamadas. O contrato obrigatório já está cumprido e fora do alcance dele.",
     "evaluate_alerts": "Regras determinísticas comparam os indicadores aos limiares "
     "configurados e ao histórico de execuções anteriores do mesmo recorte.",
     "validate_evidence": "Todo número que aparecerá na interpretação é conferido contra os "

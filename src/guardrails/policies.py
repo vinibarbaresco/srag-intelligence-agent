@@ -123,6 +123,26 @@ SEMANTIC_REVIEW = GuardrailPolicy(
     ),
 )
 
+PROMPT_INJECTION = GuardrailPolicy(
+    key="prompt_injection",
+    name="Instrução do sistema não é reescrita pela solicitação",
+    description=(
+        "A solicitação é classificada em risco de prompt injection antes de "
+        "qualquer consulta. Risco alto -- sobrescrever instruções, assumir outro "
+        "papel, extrair o prompt ou credenciais, executar SQL ou código, arbitrar "
+        "o valor de um indicador, suprimir limitações -- é recusado, e o motivo "
+        "vai para a trilha de auditoria. Risco médio segue com aviso registrado. "
+        "Conteúdo externo (títulos, fontes, URLs e mensagens de erro) é "
+        "sanitizado antes de entrar no contexto do modelo, e a solicitação do "
+        "usuário circula rotulada como dado, nunca como instrução."
+    ),
+    enforced_at=(
+        "validate_request (classificação e recusa), select_optional_tools "
+        "(allowlist e schemas) e generate_interpretation (sanitização do "
+        "contexto externo)"
+    ),
+)
+
 ALL_POLICIES: Final[tuple[GuardrailPolicy, ...]] = (
     MEDICAL_ADVICE,
     SENSITIVE_DATA,
@@ -131,6 +151,7 @@ ALL_POLICIES: Final[tuple[GuardrailPolicy, ...]] = (
     NEWS_NEVER_OVERRIDES_DATA,
     UNCERTAINTY,
     SEMANTIC_REVIEW,
+    PROMPT_INJECTION,
 )
 
 

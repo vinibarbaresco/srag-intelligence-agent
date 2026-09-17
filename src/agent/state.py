@@ -35,6 +35,16 @@ class SRAGState(TypedDict, total=False):
     # --- CONTEXTO EXTERNO: noticias, isoladas dos calculos -------------------
     external_context: dict[str, Any]
 
+    # --- DADO: analises adicionais escolhidas pelo modelo --------------------
+    #
+    # Campo proprio, separado de `metrics`, por uma razao estrutural: os
+    # indicadores do contrato sao sempre os mesmos e sempre estao la; estes
+    # variam com a solicitacao e com a decisao do modelo. Misturar os dois
+    # tornaria impossivel afirmar, olhando o estado, que o contrato foi
+    # cumprido -- e permitiria que uma escolha do modelo substituisse um
+    # indicador obrigatorio.
+    optional_tools: dict[str, Any]
+
     # --- DADO: alertas deterministicos e comparacao com a execucao anterior ---
     alerts: dict[str, Any]
 
@@ -77,6 +87,7 @@ def initial_state(
         series={},
         charts={},
         external_context={},
+        optional_tools={},
         alerts={},
         evidence={},
         interpretation="",

@@ -16,7 +16,7 @@
 | `case_growth_rate` | DT_SIN_PRI, DT_DIGITA | casos com DT_SIN_PRI na janela atual menos casos na janela anterior | casos com DT_SIN_PRI na janela anterior digitados ate o fechamento dessa janela mais REPORTING_LAG_DAYS dias | sim |
 | `mortality_rate` | EVOLUCAO, DT_SIN_PRI | casos com EVOLUCAO = 2 (Obito por SRAG) | casos com EVOLUCAO em (1-Cura, 2-Obito, 3-Obito por outras causas) | sim |
 | `icu_admission_rate` | UTI, HOSPITAL, DT_SIN_PRI | internados com UTI = 1 (Sim) | internados com UTI informado (1-Sim ou 2-Nao) | sim |
-| `icu_bed_occupancy_rate` | - | leitos de UTI ocupados | leitos de UTI disponiveis (capacidade instalada) | nao |
+| `icu_bed_occupancy_rate` | DT_ENTUTI, DT_SAIDUTI, DT_EVOLUCA, UTI | pacientes de SRAG presentes em UTI no dia (censo diario, SIVEP-Gripe) | leitos de UTI adulto e pediatrica existentes na UF na competencia do CNES compativel com a janela (capacidade instalada) | sim |
 | `icu_patient_census` | DT_ENTUTI, DT_SAIDUTI, DT_EVOLUCA | pacientes de SRAG com permanencia em UTI cobrindo o dia | nao aplicavel (contagem absoluta, nao proporcao) | sim |
 | `vaccination_coverage_among_cases` | VACINA_COV, VACINA, DT_SIN_PRI | casos com vacinacao declarada como 1-Sim | casos com a informacao vacinal preenchida (1-Sim ou 2-Nao) | sim |
 | `population_vaccination_coverage` | - | doses aplicadas na campanha, na UF e no ano de referencia (SI-PNI) | populacao-alvo da campanha ou populacao residente (IBGE) | sim |
@@ -45,7 +45,7 @@
 - Quando a janela anterior tem zero casos, a variacao percentual e indefinida e o indicador retorna valor nulo.
 - O SIVEP-Gripe registra casos de SRAG notificados, majoritariamente hospitalizados. Nenhum indicador aqui representa a populacao geral.
 
-### `mortality_rate` - Taxa de mortalidade por SRAG (letalidade entre casos encerrados)
+### `mortality_rate` - Letalidade entre casos encerrados de SRAG
 
 - **Definicao:** Proporcao de obitos por SRAG entre os casos encerrados elegiveis: obitos (EVOLUCAO = 2) / casos encerrados (EVOLUCAO em 1, 2 ou 3) x 100.
 - **Numerador:** casos com EVOLUCAO = 2 (Obito por SRAG)
@@ -81,22 +81,25 @@
 - A serie recente e incompleta por atraso de notificacao: casos com sintomas nos ultimos dias ainda nao foram digitados. As janelas excluem os dias mais recentes (REPORTING_LAG_DAYS) e usam como referencia a maior data de digitacao da base, nunca a data de hoje.
 - O SIVEP-Gripe registra casos de SRAG notificados, majoritariamente hospitalizados. Nenhum indicador aqui representa a populacao geral.
 
-### `icu_bed_occupancy_rate` - Taxa de ocupacao de leitos de UTI
+### `icu_bed_occupancy_rate` - Taxa de ocupacao de leitos de UTI por pacientes de SRAG
 
-- **Definicao:** Proporcao de leitos de UTI ocupados em relacao a capacidade instalada: leitos_ocupados / leitos_totais x 100.
-- **Numerador:** leitos de UTI ocupados
-- **Denominador:** leitos de UTI disponiveis (capacidade instalada)
-- **Campos utilizados:** nenhum
-- **Periodo:** nao aplicavel
+- **Definicao:** Proporcao da capacidade instalada de UTI ocupada por pacientes de SRAG em um dia: pacientes_srag_em_uti_no_dia / leitos_uti_disponiveis_no_dia x 100. O numerador vem do censo diario calculado sobre o SIVEP-Gripe; o denominador vem da capacidade instalada publicada pelo CNES para a UF e a competencia compativel com a janela analisada.
+- **Numerador:** pacientes de SRAG presentes em UTI no dia (censo diario, SIVEP-Gripe)
+- **Denominador:** leitos de UTI adulto e pediatrica existentes na UF na competencia do CNES compativel com a janela (capacidade instalada)
+- **Campos utilizados:** `DT_ENTUTI`, `DT_SAIDUTI`, `DT_EVOLUCA`, `UTI`
+- **Periodo:** dia de pico do censo maduro dentro da janela analisada; a serie diaria completa acompanha o resultado
 - **Unidade:** %
-- **Tratamento de dados ausentes:** nao aplicavel
-
-> **NAO CALCULAVEL COM ESTE DATASET.** Nao e possivel calcular taxa de ocupacao de UTI com os dados disponiveis: o SIVEP-Gripe nao registra capacidade instalada nem leitos ocupados. Como aproximacao, sao reportados a taxa de admissao em UTI entre hospitalizados e o censo diario de pacientes de SRAG em UTI.
+- **Tratamento de dados ausentes:** Sem a referencia de capacidade carregada, sem leitos cadastrados para a UF, com competencia do CNES distante da janela alem de ICU_CAPACITY_MAX_LAG_MONTHS, ou com denominador zero, o indicador e declarado NAO CALCULAVEL com o motivo. Nunca se usa capacidade estimada, extrapolada ou de outro periodo sem declarar.
 
 **Limitacoes:**
 
-- O dataset SRAG do SIVEP-Gripe nao contem capacidade instalada de leitos nem contagem de leitos ocupados por unidade de saude.
-- Um denominador de capacidade exigiria fonte externa (CNES / leitos habilitados), fora do escopo desta PoC.
+- MEDE APENAS A PARCELA DE SRAG. O numerador conta pacientes de SRAG notificados em UTI; os leitos do denominador tambem atendem pacientes sem SRAG (trauma, pos-operatorio, sepse de outras causas). O valor e portanto um PISO da ocupacao total de UTI, nao a ocupacao total. Um valor baixo NAO significa rede com folga.
+- O numerador depende da imputacao de permanencia das estadias sem data de saida registrada; o percentual imputado no dia publicado acompanha o indicador.
+- A capacidade do CNES e o cadastro de leitos, nao leitos operacionais no dia: leito cadastrado pode estar bloqueado por falta de equipe. O denominador tende a superestimar a capacidade efetiva e, com isso, a subestimar a ocupacao.
+- Numerador e denominador tem defasagens diferentes e competencias distintas; a competencia usada e a distancia dela ate a janela sao publicadas com o valor.
+- O recorte geografico e a UF de NOTIFICACAO, nao a de residencia: o leito e ocupado onde o paciente foi internado.
+- Leitos de UTI neonatal, de queimados e coronariana ficam fora do denominador: sao unidades fechadas para outras condicoes e nao estao disponiveis para o paciente de SRAG. Os quantitativos continuam na referencia e podem ser auditados.
+- A serie recente e incompleta por atraso de notificacao: casos com sintomas nos ultimos dias ainda nao foram digitados. As janelas excluem os dias mais recentes (REPORTING_LAG_DAYS) e usam como referencia a maior data de digitacao da base, nunca a data de hoje.
 
 ### `icu_patient_census` - Censo diario de pacientes de SRAG em UTI
 
@@ -128,7 +131,7 @@
 
 - ATENCAO: este indicador NAO e taxa de vacinacao da populacao. O denominador sao casos notificados de SRAG (majoritariamente hospitalizados), um grupo com perfil de risco distinto da populacao geral -- ha vies de selecao por definicao.
 - A informacao e declarada no momento da notificacao e depende da apresentacao da caderneta; a subnotificacao de doses e conhecida.
-- A cobertura vacinal populacional exigiria fonte externa (SI-PNI / localizaSUS) e denominador demografico (IBGE), fora do escopo da PoC.
+- A cobertura vacinal populacional e um indicador SEPARADO (`population_vaccination_coverage`), com numerador do SI-PNI e denominador demografico. Esta metrica nunca deve ser lida no lugar dela, nem usada como aproximacao dela.
 - O SIVEP-Gripe registra casos de SRAG notificados, majoritariamente hospitalizados. Nenhum indicador aqui representa a populacao geral.
 
 ### `population_vaccination_coverage` - Taxa de vacinacao da populacao
