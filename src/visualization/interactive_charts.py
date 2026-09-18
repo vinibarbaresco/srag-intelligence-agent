@@ -185,8 +185,16 @@ def _themed_component(
         if theme == "light":
             light_data, light_layout = data, layout
 
+    # O grafico interativo nasce OCULTO e o PNG estatico ao lado nasce visivel:
+    # a imagem e o padrao, e o Plotly e a promocao. A ordem inversa (interativo
+    # por padrao, PNG revelado por JS quando o Plotly falta) foi o defeito real
+    # medido no htmlpreview.github.io -- ali o <script src> do Plotly entra por
+    # innerHTML e nunca executa, e a revelacao do PNG dependia de um JS que
+    # corria contra a injecao do documento. O resultado eram dois retangulos
+    # vazios. Assim, um visualizador que nao roda JS nenhum ainda mostra os
+    # graficos; o pior caso deixou de ser "nada" e passou a ser "estatico".
     return (
-        f'<div class="chart-interactive" id="{element_id}"></div>\n'
+        f'<div class="chart-interactive" id="{element_id}" hidden></div>\n'
         "<script>\n"
         "(function () {\n"
         f"  var id = {json.dumps(element_id)};\n"
@@ -194,8 +202,20 @@ def _themed_component(
         f"  window.__sragCharts[id] = {json.dumps(themes)};\n"
         "  if (typeof Plotly === 'undefined') { return; }\n"
         f"  Plotly.newPlot(id, {json.dumps(light_data)}, "
-        f"{json.dumps(light_layout)}, {json.dumps(_CONFIG)});\n"
-        "  if (window.__sragPaintCharts) { window.__sragPaintCharts(); }\n"
+        f"{json.dumps(light_layout)}, {json.dumps(_CONFIG)}).then(function () {{\n"
+        "    // So aqui o interativo existe de fato: promove e recolhe o PNG.\n"
+        "    var element = document.getElementById(id);\n"
+        "    if (!element) { return; }\n"
+        "    element.hidden = false;\n"
+        "    // O PNG e escondido por CLASSE no wrap, nunca buscando o <img>\n"
+        "    // aqui: numa carga normal esta promessa resolve durante o parse,\n"
+        "    // ANTES de o parser chegar na tag <img> que vem logo abaixo -- um\n"
+        "    // querySelector agora devolveria null e a imagem ficaria visivel\n"
+        "    // embaixo do grafico. A classe vale para o <img> quando ele chegar.\n"
+        "    var wrap = element.closest ? element.closest('.chart-wrap') : null;\n"
+        "    if (wrap) { wrap.classList.add('chart-live'); }\n"
+        "    if (window.__sragPaintCharts) { window.__sragPaintCharts(); }\n"
+        "  });\n"
         "})();\n"
         "</script>"
     )

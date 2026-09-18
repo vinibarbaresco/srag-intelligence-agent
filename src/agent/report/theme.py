@@ -435,8 +435,18 @@ section[id], details[id] { scroll-margin-top: calc(var(--topbar-h) + 14px); }
   background: var(--surface);
   padding: .75rem .9rem .9rem;
 }
+/* O PNG estatico e o padrao VISIVEL; o interativo nasce com `hidden` e so e
+   promovido quando o Plotly pinta de fato (ver interactive_charts.py). Assim
+   um visualizador que nao executa o <script src> do CDN -- medido no
+   htmlpreview.github.io -- ainda mostra os graficos, em vez de dois
+   retangulos vazios. */
 .chart-interactive { width: 100%; min-height: 370px; }
-.chart-print-only { display: none; width: 100%; border-radius: 6px; }
+.chart-print-only { width: 100%; border-radius: 6px; }
+.chart-interactive[hidden] { display: none; }
+/* `chart-live` e posta no wrap quando o Plotly termina de pintar. E o wrap,
+   e nao o proprio <img>, porque a promessa do `newPlot` resolve durante o
+   parse -- antes de a tag <img> existir. */
+.chart-wrap.chart-live .chart-print-only { display: none; }
 .chart-empty { color: var(--muted); font-size: .9rem; }
 
 .insights-box {
@@ -599,8 +609,11 @@ section[id], details[id] { scroll-margin-top: calc(var(--topbar-h) + 14px); }
   .no-print, .topbar { display: none !important; }
   body { background: #fff; }
   .report-shell { max-width: none; padding: 0; }
-  .chart-interactive { display: none !important; }
-  .chart-print-only { display: block !important; }
+  /* Na impressao o estatico sempre vence, inclusive quando o interativo ja
+     foi promovido e o PNG levou `hidden` -- por isso o seletor cobre os dois
+     estados. */
+  .chart-interactive, .chart-interactive[hidden] { display: none !important; }
+  .chart-print-only, .chart-wrap.chart-live .chart-print-only { display: block !important; }
   /* So o que fica ilegivel partido ao meio e que nao pode quebrar. Aplicar
      isso a `.block` inteiro empurrava a secao seguinte para a proxima folha e
      deixava um terco de pagina em branco a cada corte. */
@@ -795,80 +808,19 @@ _PAGE_SCRIPT = """
 
   syncToggle();
 
-  // Troca o grafico interativo pelo PNG estatico do mesmo grafico, por par
-  // `.chart-wrap` -- nunca em bloco, para que a falha de um grafico nao
-  // derrube o outro.
-  function useStaticFallback(wrap) {
-    var fallback = wrap.querySelector(".chart-print-only");
-    if (!fallback) { return; }
-    var interactive = wrap.querySelector(".chart-interactive");
-    if (interactive) { interactive.style.display = "none"; }
-    fallback.style.display = "block";
-  }
+  // Nao ha mais maquina de fallback em JS aqui, e a ausencia e o ponto:
+  // o PNG estatico e o estado PADRAO da pagina e o grafico interativo
+  // nasce com `hidden`, promovido so quando `Plotly.newPlot` resolve (ver
+  // src/visualization/interactive_charts.py). Sem Plotly -- CDN fora do ar,
+  // ou um visualizador como o htmlpreview.github.io, que insere o
+  // <script src> por innerHTML e nunca o executa -- nada precisa acontecer
+  // para a imagem aparecer: ela ja esta la. As tentativas anteriores de
+  // revelar o PNG por JS (no evento `load`, depois em laco com prazo)
+  // perdiam a corrida contra a injecao do documento e deixavam os dois
+  // graficos em branco.
 
-  // Aplica o fallback a todos os graficos, inclusive aos que ainda nao estao
-  // no DOM. Isso nao e paranoia: `htmlpreview.github.io` -- o visualizador do
-  // link publicado no README -- AVALIA OS <script> ANTES de injetar o corpo do
-  // documento. Quando este codigo roda ali, `.chart-wrap` ainda nao existe, e
-  // uma troca de passada unica nao encontra nada para trocar.
-  //
-  // A espera e por OBSERVACAO, nao por prazo: uma versao anterior tentava em
-  // laco por 5 segundos e ainda assim perdia a janela quando o visualizador
-  // demorava mais do que isso para injetar o corpo -- exatamente o que foi
-  // medido. O observer reage no instante em que os graficos aparecem, sem
-  // depender de quanto tempo isso leve. A troca e idempotente.
-  function applyStaticFallback() {
-    function aplicar() {
-      var wraps = document.querySelectorAll(".chart-wrap");
-      wraps.forEach(useStaticFallback);
-      // Alvo lido a cada passada: o registro pode ser populado depois desta
-      // funcao comecar, e o corpo pode ser injetado em partes -- parar no
-      // primeiro grafico que aparece deixaria o segundo em branco.
-      var alvo = Object.keys(window.__sragCharts || {}).length;
-      return alvo > 0 && wraps.length >= alvo;
-    }
-
-    if (aplicar()) { return; }
-    if (!window.MutationObserver) { return; }
-
-    var observer = new MutationObserver(function () {
-      if (aplicar()) { observer.disconnect(); }
-    });
-    observer.observe(document.documentElement, { childList: true, subtree: true });
-    // Rede de seguranca: nenhum observer fica vivo indefinidamente.
-    window.setTimeout(function () { observer.disconnect(); }, 30000);
-  }
-
-  // O fallback NAO pode depender do evento `load`, e este era o defeito: num
-  // visualizador que injeta o documento depois que a pagina ja carregou, o
-  // `load` ja ocorreu e o listener nunca disparava. Pior, ali o <script src>
-  // do Plotly entra no DOM por innerHTML e por isso NUNCA executa -- entao o
-  // grafico interativo nao era pintado e o PNG seguia escondido: dois
-  // retangulos vazios no lugar dos dois graficos.
-  //
-  // Este bloco roda no fim do <body>, quando o <script src> do Plotly (que e
-  // sincrono, no <head>) ja terminou -- com sucesso ou nao. Nesse ponto
-  // `Plotly === undefined` e conclusivo, e a troca pode ser decidida.
-  function settleCharts() {
-    if (typeof Plotly === "undefined") {
-      applyStaticFallback();
-      return;
-    }
-    window.__sragPaintCharts();
-    // Segunda passada: cobre o caso em que o Plotly existe mas `newPlot`
-    // falhou (dado invalido, erro do proprio CDN). O atraso da tempo ao
-    // `newPlot`, que e assincrono, de inserir o SVG antes da verificacao.
-    window.setTimeout(function () {
-      document.querySelectorAll(".chart-wrap").forEach(function (wrap) {
-        var interactive = wrap.querySelector(".chart-interactive");
-        if (interactive && interactive.children.length === 0) { useStaticFallback(wrap); }
-      });
-    }, 1200);
-  }
-
-  settleCharts();
-  // O `load` continua repintando o tema: numa carga normal ele chega depois
-  // das fontes, e o Plotly so acerta as cores com o layout ja estabilizado.
+  // O `load` repinta o tema: numa carga normal ele chega depois das fontes, e
+  // o Plotly so acerta as cores com o layout ja estabilizado.
   window.addEventListener("load", function () {
     if (typeof Plotly !== "undefined") { window.__sragPaintCharts(); }
   });
