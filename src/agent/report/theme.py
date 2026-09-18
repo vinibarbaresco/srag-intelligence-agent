@@ -806,24 +806,37 @@ _PAGE_SCRIPT = """
     fallback.style.display = "block";
   }
 
-  // Aplica o fallback a todos os graficos, repetindo ate eles existirem no
-  // DOM. A repeticao nao e paranoia: `htmlpreview.github.io` -- o visualizador
-  // do link publicado no README -- AVALIA OS <script> ANTES de injetar o corpo
-  // do documento. Quando este codigo roda ali, `.chart-wrap` ainda nao existe,
-  // e uma troca de passada unica nao encontra nada para trocar. A troca em si
-  // e idempotente, entao repetir e seguro.
+  // Aplica o fallback a todos os graficos, inclusive aos que ainda nao estao
+  // no DOM. Isso nao e paranoia: `htmlpreview.github.io` -- o visualizador do
+  // link publicado no README -- AVALIA OS <script> ANTES de injetar o corpo do
+  // documento. Quando este codigo roda ali, `.chart-wrap` ainda nao existe, e
+  // uma troca de passada unica nao encontra nada para trocar.
+  //
+  // A espera e por OBSERVACAO, nao por prazo: uma versao anterior tentava em
+  // laco por 5 segundos e ainda assim perdia a janela quando o visualizador
+  // demorava mais do que isso para injetar o corpo -- exatamente o que foi
+  // medido. O observer reage no instante em que os graficos aparecem, sem
+  // depender de quanto tempo isso leve. A troca e idempotente.
   function applyStaticFallback() {
-    var esperado = Object.keys(window.__sragCharts || {}).length;
-    var prazo = Date.now() + 5000;
-    (function tentar() {
+    function aplicar() {
       var wraps = document.querySelectorAll(".chart-wrap");
       wraps.forEach(useStaticFallback);
-      // Para quando todos os graficos registrados ja foram tratados; o corpo
-      // pode ser injetado em partes, e parar no primeiro que aparecer deixaria
-      // o segundo grafico em branco.
-      if (wraps.length && wraps.length >= esperado) { return; }
-      if (Date.now() < prazo) { window.setTimeout(tentar, 100); }
-    })();
+      // Alvo lido a cada passada: o registro pode ser populado depois desta
+      // funcao comecar, e o corpo pode ser injetado em partes -- parar no
+      // primeiro grafico que aparece deixaria o segundo em branco.
+      var alvo = Object.keys(window.__sragCharts || {}).length;
+      return alvo > 0 && wraps.length >= alvo;
+    }
+
+    if (aplicar()) { return; }
+    if (!window.MutationObserver) { return; }
+
+    var observer = new MutationObserver(function () {
+      if (aplicar()) { observer.disconnect(); }
+    });
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+    // Rede de seguranca: nenhum observer fica vivo indefinidamente.
+    window.setTimeout(function () { observer.disconnect(); }, 30000);
   }
 
   // O fallback NAO pode depender do evento `load`, e este era o defeito: num

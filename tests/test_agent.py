@@ -377,13 +377,14 @@ class TestRelatorio:
         pagina = render_html(render_markdown(state), state)
         corpo = pagina.split("function applyStaticFallback()", 1)[1].split("\n  }", 1)[0]
 
-        # Retenta ate os graficos aparecerem, com prazo -- nao uma passada so.
-        assert "setTimeout(tentar" in corpo
-        assert "Date.now()" in corpo
+        # A espera e por observacao, nao por prazo: um laco com deadline ainda
+        # perdia a janela quando o visualizador demorava mais que o prazo.
+        assert "MutationObserver" in corpo
+        assert "observer.observe(document.documentElement" in corpo
         # E so para quando TODOS os graficos registrados foram tratados: o
         # corpo pode ser injetado em partes, e parar no primeiro deixaria o
         # segundo grafico em branco.
-        assert "wraps.length >= esperado" in corpo
+        assert "wraps.length >= alvo" in corpo
 
     def test_estado_inicial_tem_todos_os_compartimentos(self):
         state = initial_state("run-1", "pedido")
