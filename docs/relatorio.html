@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SRAG Intelligence Report - 760c2840-56dd-4c2b-a316-7dc79632721a</title>
+<title>SRAG Intelligence Report - 3e32fd30-e002-4d9e-9d11-0ee3a406efeb</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet"
@@ -430,8 +430,18 @@ section[id], details[id] { scroll-margin-top: calc(var(--topbar-h) + 14px); }
   background: var(--surface);
   padding: .75rem .9rem .9rem;
 }
+/* O PNG estatico e o padrao VISIVEL; o interativo nasce com `hidden` e so e
+   promovido quando o Plotly pinta de fato (ver interactive_charts.py). Assim
+   um visualizador que nao executa o <script src> do CDN -- medido no
+   htmlpreview.github.io -- ainda mostra os graficos, em vez de dois
+   retangulos vazios. */
 .chart-interactive { width: 100%; min-height: 370px; }
-.chart-print-only { display: none; width: 100%; border-radius: 6px; }
+.chart-print-only { width: 100%; border-radius: 6px; }
+.chart-interactive[hidden] { display: none; }
+/* `chart-live` e posta no wrap quando o Plotly termina de pintar. E o wrap,
+   e nao o proprio <img>, porque a promessa do `newPlot` resolve durante o
+   parse -- antes de a tag <img> existir. */
+.chart-wrap.chart-live .chart-print-only { display: none; }
 .chart-empty { color: var(--muted); font-size: .9rem; }
 
 .insights-box {
@@ -614,8 +624,11 @@ section[id], details[id] { scroll-margin-top: calc(var(--topbar-h) + 14px); }
   .no-print, .topbar { display: none !important; }
   body { background: #fff; }
   .report-shell { max-width: none; padding: 0; }
-  .chart-interactive { display: none !important; }
-  .chart-print-only { display: block !important; }
+  /* Na impressao o estatico sempre vence, inclusive quando o interativo ja
+     foi promovido e o PNG levou `hidden` -- por isso o seletor cobre os dois
+     estados. */
+  .chart-interactive, .chart-interactive[hidden] { display: none !important; }
+  .chart-print-only, .chart-wrap.chart-live .chart-print-only { display: block !important; }
   /* So o que fica ilegivel partido ao meio e que nao pode quebrar. Aplicar
      isso a `.block` inteiro empurrava a secao seguinte para a proxima folha e
      deixava um terco de pagina em branco a cada corte. */
@@ -677,7 +690,7 @@ section[id], details[id] { scroll-margin-top: calc(var(--topbar-h) + 14px); }
   <p class="delivery-label">Certificação AI Engineering - Vinícius Barbaresco</p>
   <p class="eyebrow">SRAG Intelligence Report · Open DATASUS / SIVEP-Gripe (SRAG 2019-2026)</p>
   <h1>Monitoramento de Síndrome Respiratória Aguda Grave</h1>
-  <ul class="hero-chips"><li class="chip chip-accent"><span class="chip-key">run</span><b>760c2840</b></li><li class="chip"><span class="chip-key">recorte</span><b>BR (nacional) · todas as classificações finais</b></li><li class="chip"><span class="chip-key">corte analítico</span><b>2026-08-23</b></li><li class="chip"><span class="chip-key">base atualizada</span><b>2026-09-16 20:37</b></li><li class="chip"><span class="chip-key">gerado em</span><b>17/09/2026 23:37</b></li><li class="chip"><span class="chip-key">via</span><b>deterministic-template</b></li><li class="chip chip-warn"><span class="chip-key">PoC</span><b>não é conduta clínica</b></li></ul>
+  <ul class="hero-chips"><li class="chip chip-accent"><span class="chip-key">run</span><b>3e32fd30</b></li><li class="chip"><span class="chip-key">recorte</span><b>BR (nacional) · todas as classificações finais</b></li><li class="chip"><span class="chip-key">corte analítico</span><b>2026-08-23</b></li><li class="chip"><span class="chip-key">base atualizada</span><b>2026-09-16 20:37</b></li><li class="chip"><span class="chip-key">gerado em</span><b>18/09/2026 00:04</b></li><li class="chip"><span class="chip-key">via</span><b>deterministic-template</b></li><li class="chip chip-warn"><span class="chip-key">PoC</span><b>não é conduta clínica</b></li></ul>
 </header>
 
 
@@ -738,15 +751,27 @@ section[id], details[id] { scroll-margin-top: calc(var(--topbar-h) + 14px); }
     <h2 class="block-headline">Casos diários estáveis nas duas últimas semanas</h2>
   </div>
   <div class="chart-wrap">
-    <div class="chart-interactive" id="chart-daily"></div>
+    <div class="chart-interactive" id="chart-daily" hidden></div>
 <script>
 (function () {
   var id = "chart-daily";
   window.__sragCharts = window.__sragCharts || {};
   window.__sragCharts[id] = {"light": {"layout": {"paper_bgcolor": "#FFFFFF", "plot_bgcolor": "#FFFFFF", "font.color": "#1A2331", "hoverlabel.bgcolor": "#FFFFFF", "hoverlabel.bordercolor": "#D7DBE0", "hoverlabel.font.color": "#1A2331", "legend.font.color": "#6B7280", "xaxis.linecolor": "#D7DBE0", "yaxis.gridcolor": "#EEF0F2"}, "traces": [[0, {"line.color": "#B8C0CC", "fillcolor": "rgba(15,107,98,0.08)"}], [1, {"line.color": "#0F6B62"}], [2, {"marker.color": "#C2521B", "textfont.color": "#C2521B"}], [3, {"marker.color": "#1A2331", "textfont.color": "#1A2331"}]]}, "dark": {"layout": {"paper_bgcolor": "#171C24", "plot_bgcolor": "#171C24", "font.color": "#E6EDF3", "hoverlabel.bgcolor": "#171C24", "hoverlabel.bordercolor": "#39424F", "hoverlabel.font.color": "#E6EDF3", "legend.font.color": "#9AA4B2", "xaxis.linecolor": "#39424F", "yaxis.gridcolor": "#262D38"}, "traces": [[0, {"line.color": "#5A6678", "fillcolor": "rgba(79,209,192,0.12)"}], [1, {"line.color": "#4FD1C0"}], [2, {"marker.color": "#F59356", "textfont.color": "#F59356"}], [3, {"marker.color": "#E6EDF3", "textfont.color": "#E6EDF3"}]]}};
   if (typeof Plotly === 'undefined') { return; }
-  Plotly.newPlot(id, [{"type": "scatter", "mode": "lines", "name": "Casos por dia", "x": ["2026-07-25", "2026-07-26", "2026-07-27", "2026-07-28", "2026-07-29", "2026-07-30", "2026-07-31", "2026-08-01", "2026-08-02", "2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06", "2026-08-07", "2026-08-08", "2026-08-09", "2026-08-10", "2026-08-11", "2026-08-12", "2026-08-13", "2026-08-14", "2026-08-15", "2026-08-16", "2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21", "2026-08-22", "2026-08-23"], "y": [691, 675, 733, 698, 593, 563, 631, 823, 661, 681, 612, 582, 596, 706, 619, 644, 794, 573, 572, 580, 620, 655, 654, 659, 621, 591, 753, 578, 575, 603], "line": {"color": "#B8C0CC", "width": 1.4}, "fill": "tozeroy", "fillcolor": "rgba(15,107,98,0.08)", "hovertemplate": "%{x|%d/%m/%Y}<br>Casos: %{y}<extra></extra>"}, {"type": "scatter", "mode": "lines", "name": "M\u00e9dia m\u00f3vel de 7 dias", "x": ["2026-07-25", "2026-07-26", "2026-07-27", "2026-07-28", "2026-07-29", "2026-07-30", "2026-07-31", "2026-08-01", "2026-08-02", "2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06", "2026-08-07", "2026-08-08", "2026-08-09", "2026-08-10", "2026-08-11", "2026-08-12", "2026-08-13", "2026-08-14", "2026-08-15", "2026-08-16", "2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21", "2026-08-22", "2026-08-23"], "y": [691.0, 683.0, 699.67, 699.25, 678.0, 658.83, 654.86, 673.71, 671.71, 664.29, 652.0, 650.43, 655.14, 665.86, 636.71, 634.29, 650.43, 644.86, 643.43, 641.14, 628.86, 634.0, 635.43, 616.14, 623.0, 625.71, 650.43, 644.43, 633.0, 625.71], "line": {"color": "#0F6B62", "width": 3}, "hovertemplate": "%{x|%d/%m/%Y}<br>M\u00e9dia 7d: %{y:.1f}<extra></extra>"}, {"type": "scatter", "mode": "markers+text", "name": "Pico", "x": ["2026-08-01"], "y": [823], "marker": {"color": "#C2521B", "size": 10}, "text": ["pico: 823"], "textposition": "top center", "textfont": {"color": "#C2521B", "size": 11}, "hovertemplate": "%{x|%d/%m/%Y}<br>Pico: %{y}<extra></extra>", "showlegend": false}, {"type": "scatter", "mode": "markers+text", "name": "\u00daltimo valor", "x": ["2026-08-23"], "y": [603], "marker": {"color": "#1A2331", "size": 9}, "text": ["\u00faltimo: 603"], "textposition": "bottom center", "textfont": {"color": "#1A2331", "size": 11}, "hovertemplate": "%{x|%d/%m/%Y}<br>\u00daltimo valor: %{y}<extra></extra>", "showlegend": false}], {"font": {"family": "'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif", "color": "#1A2331"}, "margin": {"l": 52, "r": 18, "t": 16, "b": 44}, "plot_bgcolor": "#FFFFFF", "paper_bgcolor": "#FFFFFF", "hovermode": "x unified", "hoverlabel": {"bgcolor": "#FFFFFF", "bordercolor": "#D7DBE0", "font": {"color": "#1A2331"}}, "modebar": {"orientation": "v", "color": "#6B7280"}, "legend": {"orientation": "h", "y": -0.18, "yanchor": "top", "x": 0, "font": {"size": 12, "color": "#6B7280"}}, "xaxis": {"showgrid": false, "showline": true, "linecolor": "#D7DBE0", "tickfont": {"size": 11}, "automargin": true, "type": "date"}, "yaxis": {"showgrid": true, "gridcolor": "#EEF0F2", "zeroline": false, "tickfont": {"size": 11}, "separatethousands": true}}, {"displayModeBar": "hover", "displaylogo": false, "modeBarButtonsToRemove": ["select2d", "lasso2d", "autoScale2d", "hoverCompareCartesian", "toggleSpikelines"], "responsive": true, "locale": "pt-br"});
-  if (window.__sragPaintCharts) { window.__sragPaintCharts(); }
+  Plotly.newPlot(id, [{"type": "scatter", "mode": "lines", "name": "Casos por dia", "x": ["2026-07-25", "2026-07-26", "2026-07-27", "2026-07-28", "2026-07-29", "2026-07-30", "2026-07-31", "2026-08-01", "2026-08-02", "2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06", "2026-08-07", "2026-08-08", "2026-08-09", "2026-08-10", "2026-08-11", "2026-08-12", "2026-08-13", "2026-08-14", "2026-08-15", "2026-08-16", "2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21", "2026-08-22", "2026-08-23"], "y": [691, 675, 733, 698, 593, 563, 631, 823, 661, 681, 612, 582, 596, 706, 619, 644, 794, 573, 572, 580, 620, 655, 654, 659, 621, 591, 753, 578, 575, 603], "line": {"color": "#B8C0CC", "width": 1.4}, "fill": "tozeroy", "fillcolor": "rgba(15,107,98,0.08)", "hovertemplate": "%{x|%d/%m/%Y}<br>Casos: %{y}<extra></extra>"}, {"type": "scatter", "mode": "lines", "name": "M\u00e9dia m\u00f3vel de 7 dias", "x": ["2026-07-25", "2026-07-26", "2026-07-27", "2026-07-28", "2026-07-29", "2026-07-30", "2026-07-31", "2026-08-01", "2026-08-02", "2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06", "2026-08-07", "2026-08-08", "2026-08-09", "2026-08-10", "2026-08-11", "2026-08-12", "2026-08-13", "2026-08-14", "2026-08-15", "2026-08-16", "2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21", "2026-08-22", "2026-08-23"], "y": [691.0, 683.0, 699.67, 699.25, 678.0, 658.83, 654.86, 673.71, 671.71, 664.29, 652.0, 650.43, 655.14, 665.86, 636.71, 634.29, 650.43, 644.86, 643.43, 641.14, 628.86, 634.0, 635.43, 616.14, 623.0, 625.71, 650.43, 644.43, 633.0, 625.71], "line": {"color": "#0F6B62", "width": 3}, "hovertemplate": "%{x|%d/%m/%Y}<br>M\u00e9dia 7d: %{y:.1f}<extra></extra>"}, {"type": "scatter", "mode": "markers+text", "name": "Pico", "x": ["2026-08-01"], "y": [823], "marker": {"color": "#C2521B", "size": 10}, "text": ["pico: 823"], "textposition": "top center", "textfont": {"color": "#C2521B", "size": 11}, "hovertemplate": "%{x|%d/%m/%Y}<br>Pico: %{y}<extra></extra>", "showlegend": false}, {"type": "scatter", "mode": "markers+text", "name": "\u00daltimo valor", "x": ["2026-08-23"], "y": [603], "marker": {"color": "#1A2331", "size": 9}, "text": ["\u00faltimo: 603"], "textposition": "bottom center", "textfont": {"color": "#1A2331", "size": 11}, "hovertemplate": "%{x|%d/%m/%Y}<br>\u00daltimo valor: %{y}<extra></extra>", "showlegend": false}], {"font": {"family": "'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif", "color": "#1A2331"}, "margin": {"l": 52, "r": 18, "t": 16, "b": 44}, "plot_bgcolor": "#FFFFFF", "paper_bgcolor": "#FFFFFF", "hovermode": "x unified", "hoverlabel": {"bgcolor": "#FFFFFF", "bordercolor": "#D7DBE0", "font": {"color": "#1A2331"}}, "modebar": {"orientation": "v", "color": "#6B7280"}, "legend": {"orientation": "h", "y": -0.18, "yanchor": "top", "x": 0, "font": {"size": 12, "color": "#6B7280"}}, "xaxis": {"showgrid": false, "showline": true, "linecolor": "#D7DBE0", "tickfont": {"size": 11}, "automargin": true, "type": "date"}, "yaxis": {"showgrid": true, "gridcolor": "#EEF0F2", "zeroline": false, "tickfont": {"size": 11}, "separatethousands": true}}, {"displayModeBar": "hover", "displaylogo": false, "modeBarButtonsToRemove": ["select2d", "lasso2d", "autoScale2d", "hoverCompareCartesian", "toggleSpikelines"], "responsive": true, "locale": "pt-br"}).then(function () {
+    // So aqui o interativo existe de fato: promove e recolhe o PNG.
+    var element = document.getElementById(id);
+    if (!element) { return; }
+    element.hidden = false;
+    // O PNG e escondido por CLASSE no wrap, nunca buscando o <img>
+    // aqui: numa carga normal esta promessa resolve durante o parse,
+    // ANTES de o parser chegar na tag <img> que vem logo abaixo -- um
+    // querySelector agora devolveria null e a imagem ficaria visivel
+    // embaixo do grafico. A classe vale para o <img> quando ele chegar.
+    var wrap = element.closest ? element.closest('.chart-wrap') : null;
+    if (wrap) { wrap.classList.add('chart-live'); }
+    if (window.__sragPaintCharts) { window.__sragPaintCharts(); }
+  });
 })();
 </script>
     <img class="chart-print-only" src="charts/casos_diarios.png"
@@ -765,15 +790,27 @@ section[id], details[id] { scroll-margin-top: calc(var(--topbar-h) + 14px); }
     <h2 class="block-headline">Casos mensais em trajetória de alta no último ano, com pico em mai/26</h2>
   </div>
   <div class="chart-wrap">
-    <div class="chart-interactive" id="chart-monthly"></div>
+    <div class="chart-interactive" id="chart-monthly" hidden></div>
 <script>
 (function () {
   var id = "chart-monthly";
   window.__sragCharts = window.__sragCharts || {};
   window.__sragCharts[id] = {"light": {"layout": {"paper_bgcolor": "#FFFFFF", "plot_bgcolor": "#FFFFFF", "font.color": "#1A2331", "hoverlabel.bgcolor": "#FFFFFF", "hoverlabel.bordercolor": "#D7DBE0", "hoverlabel.font.color": "#1A2331", "legend.font.color": "#6B7280", "xaxis.linecolor": "#D7DBE0", "yaxis.gridcolor": "#EEF0F2"}, "traces": [[0, {"marker.color": ["#0F6B62", "#0F6B62", "#0F6B62", "#0F6B62", "#0F6B62", "#0F6B62", "#0F6B62", "#0F6B62", "#C2521B", "#0F6B62", "#0F6B62", "#B8C0CC"], "textfont.color": "#6B7280"}], [1, {"marker.color": "#0F6B62"}], [2, {"marker.color": "#C2521B"}], [3, {"marker.color": "#B8C0CC"}]]}, "dark": {"layout": {"paper_bgcolor": "#171C24", "plot_bgcolor": "#171C24", "font.color": "#E6EDF3", "hoverlabel.bgcolor": "#171C24", "hoverlabel.bordercolor": "#39424F", "hoverlabel.font.color": "#E6EDF3", "legend.font.color": "#9AA4B2", "xaxis.linecolor": "#39424F", "yaxis.gridcolor": "#262D38"}, "traces": [[0, {"marker.color": ["#4FD1C0", "#4FD1C0", "#4FD1C0", "#4FD1C0", "#4FD1C0", "#4FD1C0", "#4FD1C0", "#4FD1C0", "#F59356", "#4FD1C0", "#4FD1C0", "#5A6678"], "textfont.color": "#9AA4B2"}], [1, {"marker.color": "#4FD1C0"}], [2, {"marker.color": "#F59356"}], [3, {"marker.color": "#5A6678"}]]}};
   if (typeof Plotly === 'undefined') { return; }
-  Plotly.newPlot(id, [{"type": "bar", "name": "Casos por m\u00eas", "x": ["set/25", "out/25", "nov/25", "dez/25", "jan/26", "fev/26", "mar/26", "abr/26", "mai/26", "jun/26", "jul/26", "ago/26"], "y": [24341, 24030, 21011, 16349, 12824, 15912, 27092, 31530, 39321, 37384, 27541, 14752], "marker": {"color": ["#0F6B62", "#0F6B62", "#0F6B62", "#0F6B62", "#0F6B62", "#0F6B62", "#0F6B62", "#0F6B62", "#C2521B", "#0F6B62", "#0F6B62", "#B8C0CC"]}, "text": ["24.341", "24.030", "21.011", "16.349", "12.824", "15.912", "27.092", "31.530", "39.321", "37.384", "27.541", "14.752"], "textposition": "outside", "textfont": {"size": 10.5, "color": "#6B7280"}, "hovertemplate": "%{x}<br>Casos: %{y}<extra></extra>", "showlegend": false}, {"type": "bar", "name": "Casos por m\u00eas", "x": [null], "y": [null], "marker": {"color": "#0F6B62"}, "showlegend": true}, {"type": "bar", "name": "M\u00eas de pico", "x": [null], "y": [null], "marker": {"color": "#C2521B"}, "showlegend": true}, {"type": "bar", "name": "M\u00eas parcial", "x": [null], "y": [null], "marker": {"color": "#B8C0CC"}, "showlegend": true}], {"font": {"family": "'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif", "color": "#1A2331"}, "margin": {"l": 52, "r": 18, "t": 16, "b": 44}, "plot_bgcolor": "#FFFFFF", "paper_bgcolor": "#FFFFFF", "hovermode": "x unified", "hoverlabel": {"bgcolor": "#FFFFFF", "bordercolor": "#D7DBE0", "font": {"color": "#1A2331"}}, "modebar": {"orientation": "v", "color": "#6B7280"}, "legend": {"orientation": "h", "y": -0.18, "yanchor": "top", "x": 0, "font": {"size": 12, "color": "#6B7280"}}, "xaxis": {"showgrid": false, "showline": true, "linecolor": "#D7DBE0", "tickfont": {"size": 11}, "automargin": true}, "yaxis": {"showgrid": true, "gridcolor": "#EEF0F2", "zeroline": false, "tickfont": {"size": 11}, "separatethousands": true, "rangemode": "tozero"}}, {"displayModeBar": "hover", "displaylogo": false, "modeBarButtonsToRemove": ["select2d", "lasso2d", "autoScale2d", "hoverCompareCartesian", "toggleSpikelines"], "responsive": true, "locale": "pt-br"});
-  if (window.__sragPaintCharts) { window.__sragPaintCharts(); }
+  Plotly.newPlot(id, [{"type": "bar", "name": "Casos por m\u00eas", "x": ["set/25", "out/25", "nov/25", "dez/25", "jan/26", "fev/26", "mar/26", "abr/26", "mai/26", "jun/26", "jul/26", "ago/26"], "y": [24341, 24030, 21011, 16349, 12824, 15912, 27092, 31530, 39321, 37384, 27541, 14752], "marker": {"color": ["#0F6B62", "#0F6B62", "#0F6B62", "#0F6B62", "#0F6B62", "#0F6B62", "#0F6B62", "#0F6B62", "#C2521B", "#0F6B62", "#0F6B62", "#B8C0CC"]}, "text": ["24.341", "24.030", "21.011", "16.349", "12.824", "15.912", "27.092", "31.530", "39.321", "37.384", "27.541", "14.752"], "textposition": "outside", "textfont": {"size": 10.5, "color": "#6B7280"}, "hovertemplate": "%{x}<br>Casos: %{y}<extra></extra>", "showlegend": false}, {"type": "bar", "name": "Casos por m\u00eas", "x": [null], "y": [null], "marker": {"color": "#0F6B62"}, "showlegend": true}, {"type": "bar", "name": "M\u00eas de pico", "x": [null], "y": [null], "marker": {"color": "#C2521B"}, "showlegend": true}, {"type": "bar", "name": "M\u00eas parcial", "x": [null], "y": [null], "marker": {"color": "#B8C0CC"}, "showlegend": true}], {"font": {"family": "'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif", "color": "#1A2331"}, "margin": {"l": 52, "r": 18, "t": 16, "b": 44}, "plot_bgcolor": "#FFFFFF", "paper_bgcolor": "#FFFFFF", "hovermode": "x unified", "hoverlabel": {"bgcolor": "#FFFFFF", "bordercolor": "#D7DBE0", "font": {"color": "#1A2331"}}, "modebar": {"orientation": "v", "color": "#6B7280"}, "legend": {"orientation": "h", "y": -0.18, "yanchor": "top", "x": 0, "font": {"size": 12, "color": "#6B7280"}}, "xaxis": {"showgrid": false, "showline": true, "linecolor": "#D7DBE0", "tickfont": {"size": 11}, "automargin": true}, "yaxis": {"showgrid": true, "gridcolor": "#EEF0F2", "zeroline": false, "tickfont": {"size": 11}, "separatethousands": true, "rangemode": "tozero"}}, {"displayModeBar": "hover", "displaylogo": false, "modeBarButtonsToRemove": ["select2d", "lasso2d", "autoScale2d", "hoverCompareCartesian", "toggleSpikelines"], "responsive": true, "locale": "pt-br"}).then(function () {
+    // So aqui o interativo existe de fato: promove e recolhe o PNG.
+    var element = document.getElementById(id);
+    if (!element) { return; }
+    element.hidden = false;
+    // O PNG e escondido por CLASSE no wrap, nunca buscando o <img>
+    // aqui: numa carga normal esta promessa resolve durante o parse,
+    // ANTES de o parser chegar na tag <img> que vem logo abaixo -- um
+    // querySelector agora devolveria null e a imagem ficaria visivel
+    // embaixo do grafico. A classe vale para o <img> quando ele chegar.
+    var wrap = element.closest ? element.closest('.chart-wrap') : null;
+    if (wrap) { wrap.classList.add('chart-live'); }
+    if (window.__sragPaintCharts) { window.__sragPaintCharts(); }
+  });
 })();
 </script>
     <img class="chart-print-only" src="charts/casos_mensais.png"
@@ -832,8 +869,8 @@ section[id], details[id] { scroll-margin-top: calc(var(--topbar-h) + 14px); }
     <div class="technical-appendix-body"><h1>Relatorio epidemiologico de SRAG</h1>
 <blockquote><strong>Certificação AI Engineering - Vinícius Barbaresco</strong></blockquote>
 <ul>
-<li><strong>Execucao (run_id):</strong> <code>760c2840-56dd-4c2b-a316-7dc79632721a</code></li>
-<li><strong>Gerado em:</strong> 2026-09-17 23:37 Hora oficial do Brasil</li>
+<li><strong>Execucao (run_id):</strong> <code>3e32fd30-e002-4d9e-9d11-0ee3a406efeb</code></li>
+<li><strong>Gerado em:</strong> 2026-09-18 00:04 Hora oficial do Brasil</li>
 <li><strong>Solicitacao:</strong> Gere o relatorio de monitoramento de SRAG com os indicadores de aumento de casos, letalidade entre casos encerrados, UTI (admissao e ocupacao de leitos) e vacinacao, as series diaria e mensal, e o contexto de noticias recentes.</li>
 <li><strong>Recorte:</strong> BR (nacional) | todas as classificações finais</li>
 <li><strong>Fonte dos dados:</strong> Open DATASUS / SIVEP-Gripe (SRAG 2019-2026) (<a href="https://dadosabertos.saude.gov.br/dataset/srag-2019-a-2026">dataset</a>)</li>
@@ -862,7 +899,7 @@ section[id], details[id] { scroll-margin-top: calc(var(--topbar-h) + 14px); }
 </table>
 <h3>Variacao desde a execucao anterior</h3>
 <ul>
-<li><strong>Execucao anterior:</strong> <code>df66fc29-1e03-4bec-9fcc-e3d5356c42fe</code> (gerada em 2026-09-18T01:55:17, corte 2026-08-23; corte atual 2026-08-23)</li>
+<li><strong>Execucao anterior:</strong> <code>e5f42f8b-f268-4e5a-9dc3-6b3adedaad44</code> (gerada em 2026-09-18T02:59:55, corte 2026-08-23; corte atual 2026-08-23)</li>
 </ul>
 <table>
 <tr><th>Indicador</th><th>Anterior</th><th>Atual</th><th>Variacao</th></tr>
@@ -1222,13 +1259,13 @@ section[id], details[id] { scroll-margin-top: calc(var(--topbar-h) + 14px); }
 <h2>Governanca, auditoria e guardrails</h2>
 <h3>Trilha de auditoria</h3>
 <ul>
-<li><strong>run_id:</strong> <code>760c2840-56dd-4c2b-a316-7dc79632721a</code></li>
+<li><strong>run_id:</strong> <code>3e32fd30-e002-4d9e-9d11-0ee3a406efeb</code></li>
 <li><strong>Eventos registrados:</strong> 24</li>
-<li><strong>Duracao total:</strong> 16202.69 ms</li>
+<li><strong>Duracao total:</strong> 31164.54 ms</li>
 <li><strong>Status dos eventos:</strong> {&quot;ok&quot;: 24}</li>
-<li><strong>Arquivo:</strong> <code><repo>\outputs\audit\760c2840-56dd-4c2b-a316-7dc79632721a.jsonl</code></li>
+<li><strong>Arquivo:</strong> <code><repo>\outputs\audit\3e32fd30-e002-4d9e-9d11-0ee3a406efeb.jsonl</code></li>
 </ul>
-<p>Consulta por SQL, sobre todas as execucoes: <code>SELECT * FROM audit_events WHERE run_id = &#x27;&lt;run_id&gt;&#x27; ORDER BY seq;</code> no banco analitico. Ou, no terminal: <code>python main.py --audit 760c2840-56dd-4c2b-a316-7dc79632721a</code>.</p>
+<p>Consulta por SQL, sobre todas as execucoes: <code>SELECT * FROM audit_events WHERE run_id = &#x27;&lt;run_id&gt;&#x27; ORDER BY seq;</code> no banco analitico. Ou, no terminal: <code>python main.py --audit 3e32fd30-e002-4d9e-9d11-0ee3a406efeb</code>.</p>
 <h3>Planejamento</h3>
 <ul>
 <li><strong>Planejador:</strong> <code>deterministic-template</code></li>
@@ -1298,8 +1335,8 @@ section[id], details[id] { scroll-margin-top: calc(var(--topbar-h) + 14px); }
 <footer class="report-footer">
   <p class="delivery-label">Certificação AI Engineering - Vinícius Barbaresco</p>
   <p>Fonte: Open DATASUS / SIVEP-Gripe (SRAG 2019-2026) &middot;
-  <a href="https://dadosabertos.saude.gov.br/dataset/srag-2019-a-2026">dataset</a> &middot; gerado em 2026-09-17 23:37 Hora oficial do Brasil
-  &middot; run_id 760c2840-56dd-4c2b-a316-7dc79632721a &middot;
+  <a href="https://dadosabertos.saude.gov.br/dataset/srag-2019-a-2026">dataset</a> &middot; gerado em 2026-09-18 00:04 Hora oficial do Brasil
+  &middot; run_id 3e32fd30-e002-4d9e-9d11-0ee3a406efeb &middot;
   SRAG Intelligence Agent — Prova de Conceito (PoC), Indicium HealthCare.</p>
   <p class="disclaimer">Este relatório apresenta análise epidemiológica agregada de dados públicos de vigilância. Não constitui diagnóstico, prescrição, recomendação terapêutica nem orientação de conduta clínica individual.</p>
 </footer>
@@ -1462,48 +1499,19 @@ section[id], details[id] { scroll-margin-top: calc(var(--topbar-h) + 14px); }
 
   syncToggle();
 
-  // Troca o grafico interativo pelo PNG estatico do mesmo grafico, por par
-  // `.chart-wrap` -- nunca em bloco, para que a falha de um grafico nao
-  // derrube o outro.
-  function useStaticFallback(wrap) {
-    var fallback = wrap.querySelector(".chart-print-only");
-    if (!fallback) { return; }
-    var interactive = wrap.querySelector(".chart-interactive");
-    if (interactive) { interactive.style.display = "none"; }
-    fallback.style.display = "block";
-  }
+  // Nao ha mais maquina de fallback em JS aqui, e a ausencia e o ponto:
+  // o PNG estatico e o estado PADRAO da pagina e o grafico interativo
+  // nasce com `hidden`, promovido so quando `Plotly.newPlot` resolve (ver
+  // src/visualization/interactive_charts.py). Sem Plotly -- CDN fora do ar,
+  // ou um visualizador como o htmlpreview.github.io, que insere o
+  // <script src> por innerHTML e nunca o executa -- nada precisa acontecer
+  // para a imagem aparecer: ela ja esta la. As tentativas anteriores de
+  // revelar o PNG por JS (no evento `load`, depois em laco com prazo)
+  // perdiam a corrida contra a injecao do documento e deixavam os dois
+  // graficos em branco.
 
-  // O fallback NAO pode depender do evento `load`, e este era o defeito: num
-  // visualizador que injeta o documento depois que a pagina ja carregou
-  // (htmlpreview.github.io, usado no link do README), o `load` ja ocorreu e o
-  // listener nunca disparava. Pior, ali o <script src> do Plotly entra no DOM
-  // por innerHTML e por isso NUNCA executa -- entao o grafico interativo nao
-  // era pintado e o PNG seguia escondido: dois retangulos vazios no lugar dos
-  // dois graficos.
-  //
-  // Este bloco roda no fim do <body>, quando o <script src> do Plotly (que e
-  // sincrono, no <head>) ja terminou -- com sucesso ou nao. Nesse ponto
-  // `Plotly === undefined` e conclusivo, e a troca pode ser imediata.
-  function settleCharts() {
-    if (typeof Plotly === "undefined") {
-      document.querySelectorAll(".chart-wrap").forEach(useStaticFallback);
-      return;
-    }
-    window.__sragPaintCharts();
-    // Segunda passada: cobre o caso em que o Plotly existe mas `newPlot`
-    // falhou (dado invalido, erro do proprio CDN). O atraso da tempo ao
-    // `newPlot`, que e assincrono, de inserir o SVG antes da verificacao.
-    window.setTimeout(function () {
-      document.querySelectorAll(".chart-wrap").forEach(function (wrap) {
-        var interactive = wrap.querySelector(".chart-interactive");
-        if (interactive && interactive.children.length === 0) { useStaticFallback(wrap); }
-      });
-    }, 1200);
-  }
-
-  settleCharts();
-  // O `load` continua repintando o tema: numa carga normal ele chega depois
-  // das fontes, e o Plotly so acerta as cores com o layout ja estabilizado.
+  // O `load` repinta o tema: numa carga normal ele chega depois das fontes, e
+  // o Plotly so acerta as cores com o layout ja estabilizado.
   window.addEventListener("load", function () {
     if (typeof Plotly !== "undefined") { window.__sragPaintCharts(); }
   });

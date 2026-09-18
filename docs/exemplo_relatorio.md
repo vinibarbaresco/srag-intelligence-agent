@@ -4,8 +4,8 @@
 
 > **Certificação AI Engineering - Vinícius Barbaresco**
 
-- **Execucao (run_id):** `760c2840-56dd-4c2b-a316-7dc79632721a`
-- **Gerado em:** 2026-09-17 23:37 Hora oficial do Brasil
+- **Execucao (run_id):** `3e32fd30-e002-4d9e-9d11-0ee3a406efeb`
+- **Gerado em:** 2026-09-18 00:04 Hora oficial do Brasil
 - **Solicitacao:** Gere o relatorio de monitoramento de SRAG com os indicadores de aumento de casos, letalidade entre casos encerrados, UTI (admissao e ocupacao de leitos) e vacinacao, as series diaria e mensal, e o contexto de noticias recentes.
 - **Recorte:** BR (nacional) | todas as classificações finais
 - **Fonte dos dados:** Open DATASUS / SIVEP-Gripe (SRAG 2019-2026) ([dataset](https://dadosabertos.saude.gov.br/dataset/srag-2019-a-2026))
@@ -39,7 +39,7 @@
 
 ### Variacao desde a execucao anterior
 
-- **Execucao anterior:** `df66fc29-1e03-4bec-9fcc-e3d5356c42fe` (gerada em 2026-09-18T01:55:17, corte 2026-08-23; corte atual 2026-08-23)
+- **Execucao anterior:** `e5f42f8b-f268-4e5a-9dc3-6b3adedaad44` (gerada em 2026-09-18T02:59:55, corte 2026-08-23; corte atual 2026-08-23)
 
 | Indicador | Anterior | Atual | Variacao |
 |-----------|----------|-------|----------|
@@ -454,13 +454,13 @@ Este relatório apresenta análise epidemiológica agregada de dados públicos d
 
 ### Trilha de auditoria
 
-- **run_id:** `760c2840-56dd-4c2b-a316-7dc79632721a`
+- **run_id:** `3e32fd30-e002-4d9e-9d11-0ee3a406efeb`
 - **Eventos registrados:** 24
-- **Duracao total:** 16202.69 ms
+- **Duracao total:** 31164.54 ms
 - **Status dos eventos:** {"ok": 24}
-- **Arquivo:** `<repo>\outputs\audit\760c2840-56dd-4c2b-a316-7dc79632721a.jsonl`
+- **Arquivo:** `<repo>\outputs\audit\3e32fd30-e002-4d9e-9d11-0ee3a406efeb.jsonl`
 
-Consulta por SQL, sobre todas as execucoes: `SELECT * FROM audit_events WHERE run_id = '<run_id>' ORDER BY seq;` no banco analitico. Ou, no terminal: `python main.py --audit 760c2840-56dd-4c2b-a316-7dc79632721a`.
+Consulta por SQL, sobre todas as execucoes: `SELECT * FROM audit_events WHERE run_id = '<run_id>' ORDER BY seq;` no banco analitico. Ou, no terminal: `python main.py --audit 3e32fd30-e002-4d9e-9d11-0ee3a406efeb`.
 
 ### Planejamento
 

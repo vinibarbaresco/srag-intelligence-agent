@@ -346,29 +346,52 @@ class TestRelatorio:
         assert "javascript:" not in pagina
         assert "fonte" in pagina
 
-    def test_fallback_do_grafico_nao_depende_do_evento_load(self, state):
-        """Defeito real: o PNG de fallback so era revelado dentro de um
-        listener de `load`. Num visualizador que injeta o documento depois da
-        pagina ja ter carregado (htmlpreview.github.io, o link do README), o
-        `load` ja ocorreu -- e ali o <script src> do Plotly entra por innerHTML
-        e nunca executa. Resultado: nem grafico interativo, nem PNG; dois
-        retangulos vazios.
+    def test_grafico_estatico_e_o_padrao_e_o_interativo_e_a_promocao(self, state):
+        """Defeito real, medido no htmlpreview.github.io (o link do README):
+        os dois graficos apareciam como retangulos vazios. Ali o <script src>
+        do Plotly entra no DOM por innerHTML e NUNCA executa, e os <script>
+        inline sao avaliados ANTES de o corpo do documento ser injetado -- entao
+        qualquer tentativa de revelar o PNG por JS perde a corrida.
+
+        A garantia agora e estrutural, nao temporal: o PNG e o estado padrao da
+        pagina e o interativo nasce `hidden`. Um visualizador que nao execute
+        JS nenhum ainda mostra os graficos.
         """
         pagina = render_html(render_markdown(state), state)
 
-        # A decisao de trocar pelo PNG e tomada na execucao do proprio script,
-        # no fim do <body> -- nao adiada para um evento que pode nunca vir.
-        assert "settleCharts();" in pagina
-        corpo = pagina.split("function settleCharts()", 1)[1]
-        decisao = corpo.split("}", 1)[0]
-        assert 'typeof Plotly === "undefined"' in decisao
-        assert "useStaticFallback" in decisao
+        # O interativo nasce oculto...
+        assert 'class="chart-interactive" id="chart-daily" hidden' in pagina
+        # ...e o PNG NAO tem display:none no CSS, nem nasce com `hidden`.
+        assert ".chart-print-only { width: 100%" in pagina
+        assert 'class="chart-print-only" src="' in pagina
+        assert 'class="chart-print-only" hidden' not in pagina
 
-        # O listener de `load` que sobrou so repinta o tema; ele nao pode
-        # voltar a ser o unico caminho ate o fallback.
-        depois_do_settle = pagina.split("settleCharts();", 1)[1]
-        listener = depois_do_settle.split("addEventListener", 1)[1]
-        assert "useStaticFallback" not in listener
+        # A promocao acontece so depois de `newPlot` resolver -- nao antes.
+        promocao = pagina.split("Plotly.newPlot", 1)[1].split("})();", 1)[0]
+        assert ".then(function ()" in promocao
+        assert "element.hidden = false;" in promocao
+        # O PNG sai por CLASSE no wrap, nunca por querySelector do <img> aqui:
+        # esta promessa resolve durante o parse, antes de a tag <img> existir.
+        assert "wrap.classList.add('chart-live')" in promocao
+        assert "querySelector('.chart-print-only')" not in promocao
+        assert ".chart-wrap.chart-live .chart-print-only { display: none; }" in pagina
+
+    def test_fallback_do_grafico_nao_depende_de_js_nem_de_evento(self, state):
+        """As duas tentativas anteriores de corrigir isso revelavam o PNG por
+        JS -- primeiro no evento `load`, depois em laco com prazo -- e as duas
+        falharam no visualizador real. Nenhuma pode voltar.
+        """
+        pagina = render_html(render_markdown(state), state)
+
+        assert "useStaticFallback" not in pagina
+        assert "applyStaticFallback" not in pagina
+        assert "settleCharts" not in pagina
+
+        # O unico listener de `load` que sobrou cuida do tema, nao do fallback.
+        listener = pagina.split('addEventListener("load"', 1)[1].split("});", 1)[0]
+        assert "__sragPaintCharts" in listener
+        assert "display" not in listener
+        assert "hidden" not in listener
 
     def test_estado_inicial_tem_todos_os_compartimentos(self):
         state = initial_state("run-1", "pedido")
