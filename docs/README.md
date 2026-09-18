@@ -12,6 +12,7 @@
 | [`pipeline_dados/README.md`](pipeline_dados/README.md) | redigido à mão, com números medidos na base real | Diagnóstico da camada de dados, dicionário analítico, regras epidemiológicas, relatório de qualidade e schema drift executados, e as respostas às treze perguntas obrigatórias sobre tratamento de dados |
 | [`pipeline_dados/decisoes.md`](pipeline_dados/decisoes.md) | redigido à mão | Log de decisões da revisão da camada de dados — evidência, alternativa considerada, decisão, impacto — incluindo a rodada de revisão independente (Red Team) |
 | [`dicionario_datasus_manifesto.json`](dicionario_datasus_manifesto.json) | redigido à mão, com URL, data de publicação e `sha256` verificados nesta rodada | Proveniência do dicionário oficial de dados do DATASUS (`DATASUS_DICTIONARY_URL`): URL, versão, hash, as 22 colunas efetivamente lidas com o propósito de cada uma, e referência às colunas excluídas |
+| [`relatorio_de_entrega.md`](relatorio_de_entrega.md) | redigido à mão, com evidência de execução real | Relatório de entrega da rodada multiagente que trouxe vacinação populacional real, guardrail de causalidade, endurecimento da API e correção de dois defeitos encontrados só em execução real |
 
 Os quatro primeiros artefatos são **gerados a partir do código**, não redigidos à mão: as mesmas
 `MetricDefinition`, `ToolSpec` e `GuardrailPolicy` que a aplicação executa alimentam a

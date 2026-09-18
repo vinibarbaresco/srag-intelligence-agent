@@ -44,6 +44,10 @@ Os CSVs do DATASUS, bancos locais, chaves e relatórios gerados não são versio
 reproduzíveis, volumosos ou sensíveis. A seção [Como executar](#12-como-executar) explica como
 reconstruir esses artefatos a partir da fonte oficial.
 
+> **Relatório da última rodada de mudanças:** [`docs/relatorio_de_entrega.md`](docs/relatorio_de_entrega.md)
+> — vacinação populacional real, guardrail de causalidade, endurecimento da API e dois defeitos
+> encontrados e corrigidos só em execução real ([PR #4](https://github.com/vinibarbaresco/srag-intelligence-agent/pull/4)).
+
 ---
 
 ## 1. Visão geral
