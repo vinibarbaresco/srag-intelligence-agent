@@ -806,20 +806,39 @@ _PAGE_SCRIPT = """
     fallback.style.display = "block";
   }
 
+  // Aplica o fallback a todos os graficos, repetindo ate eles existirem no
+  // DOM. A repeticao nao e paranoia: `htmlpreview.github.io` -- o visualizador
+  // do link publicado no README -- AVALIA OS <script> ANTES de injetar o corpo
+  // do documento. Quando este codigo roda ali, `.chart-wrap` ainda nao existe,
+  // e uma troca de passada unica nao encontra nada para trocar. A troca em si
+  // e idempotente, entao repetir e seguro.
+  function applyStaticFallback() {
+    var esperado = Object.keys(window.__sragCharts || {}).length;
+    var prazo = Date.now() + 5000;
+    (function tentar() {
+      var wraps = document.querySelectorAll(".chart-wrap");
+      wraps.forEach(useStaticFallback);
+      // Para quando todos os graficos registrados ja foram tratados; o corpo
+      // pode ser injetado em partes, e parar no primeiro que aparecer deixaria
+      // o segundo grafico em branco.
+      if (wraps.length && wraps.length >= esperado) { return; }
+      if (Date.now() < prazo) { window.setTimeout(tentar, 100); }
+    })();
+  }
+
   // O fallback NAO pode depender do evento `load`, e este era o defeito: num
-  // visualizador que injeta o documento depois que a pagina ja carregou
-  // (htmlpreview.github.io, usado no link do README), o `load` ja ocorreu e o
-  // listener nunca disparava. Pior, ali o <script src> do Plotly entra no DOM
-  // por innerHTML e por isso NUNCA executa -- entao o grafico interativo nao
-  // era pintado e o PNG seguia escondido: dois retangulos vazios no lugar dos
-  // dois graficos.
+  // visualizador que injeta o documento depois que a pagina ja carregou, o
+  // `load` ja ocorreu e o listener nunca disparava. Pior, ali o <script src>
+  // do Plotly entra no DOM por innerHTML e por isso NUNCA executa -- entao o
+  // grafico interativo nao era pintado e o PNG seguia escondido: dois
+  // retangulos vazios no lugar dos dois graficos.
   //
   // Este bloco roda no fim do <body>, quando o <script src> do Plotly (que e
   // sincrono, no <head>) ja terminou -- com sucesso ou nao. Nesse ponto
-  // `Plotly === undefined` e conclusivo, e a troca pode ser imediata.
+  // `Plotly === undefined` e conclusivo, e a troca pode ser decidida.
   function settleCharts() {
     if (typeof Plotly === "undefined") {
-      document.querySelectorAll(".chart-wrap").forEach(useStaticFallback);
+      applyStaticFallback();
       return;
     }
     window.__sragPaintCharts();

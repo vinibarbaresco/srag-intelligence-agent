@@ -359,16 +359,31 @@ class TestRelatorio:
         # A decisao de trocar pelo PNG e tomada na execucao do proprio script,
         # no fim do <body> -- nao adiada para um evento que pode nunca vir.
         assert "settleCharts();" in pagina
-        corpo = pagina.split("function settleCharts()", 1)[1]
-        decisao = corpo.split("}", 1)[0]
+        decisao = pagina.split("function settleCharts()", 1)[1].split("}", 1)[0]
         assert 'typeof Plotly === "undefined"' in decisao
-        assert "useStaticFallback" in decisao
+        assert "applyStaticFallback()" in decisao
 
         # O listener de `load` que sobrou so repinta o tema; ele nao pode
         # voltar a ser o unico caminho ate o fallback.
-        depois_do_settle = pagina.split("settleCharts();", 1)[1]
-        listener = depois_do_settle.split("addEventListener", 1)[1]
-        assert "useStaticFallback" not in listener
+        listener = pagina.split("settleCharts();", 1)[1].split("addEventListener", 1)[1]
+        assert "StaticFallback" not in listener
+
+    def test_fallback_do_grafico_espera_o_dom_do_visualizador(self, state):
+        """Segundo round do mesmo defeito: com a troca em passada unica, o
+        `htmlpreview` continuava mostrando os retangulos vazios -- ali os
+        <script> sao avaliados ANTES de o corpo do documento ser injetado,
+        entao `.chart-wrap` ainda nao existe no momento da troca.
+        """
+        pagina = render_html(render_markdown(state), state)
+        corpo = pagina.split("function applyStaticFallback()", 1)[1].split("\n  }", 1)[0]
+
+        # Retenta ate os graficos aparecerem, com prazo -- nao uma passada so.
+        assert "setTimeout(tentar" in corpo
+        assert "Date.now()" in corpo
+        # E so para quando TODOS os graficos registrados foram tratados: o
+        # corpo pode ser injetado em partes, e parar no primeiro deixaria o
+        # segundo grafico em branco.
+        assert "wraps.length >= esperado" in corpo
 
     def test_estado_inicial_tem_todos_os_compartimentos(self):
         state = initial_state("run-1", "pedido")
