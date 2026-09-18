@@ -335,7 +335,13 @@ def _summarize(result: Any) -> str:
         )
 
     if "articles" in result:
-        return f"{result.get('total', 0)} noticias recuperadas"
+        janela = result.get("janela_dias")
+        intervalo = (
+            f"; intervalo {result.get('data_mais_antiga')} a {result.get('data_mais_recente')}"
+            if result.get("data_mais_antiga") or result.get("data_mais_recente")
+            else ""
+        )
+        return f"{result.get('total', 0)} noticias recuperadas; janela {janela} dia(s){intervalo}"
 
     keys = ", ".join(sorted(result)[:6])
     return f"dict com chaves: {keys}"

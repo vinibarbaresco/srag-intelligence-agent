@@ -116,6 +116,14 @@ def search_srag_news(**kwargs: Any) -> dict[str, Any]:
     if not articles and unavailable_reason is None:
         unavailable_reason = NEWS_EMPTY_NOTICE
 
+    # As datas publicadas tem de vir dos artigos EFETIVAMENTE recuperados por
+    # esta busca (ja filtrados por `effective_max_age_days`), nunca de
+    # `store_stats`: aquele bloco descreve o acervo inteiro, sem filtro de
+    # janela, e usa-lo aqui fazia o relatorio anunciar como "mais antiga
+    # dentro da janela" uma noticia que na verdade estava fora dela -- o
+    # acervo pode conter anos de historico enquanto a busca so devolve dias.
+    datas_recuperadas = sorted(article["data"] for article in articles if article.get("data"))
+
     return {
         "query": query.query,
         "articles": articles,
@@ -123,8 +131,8 @@ def search_srag_news(**kwargs: Any) -> dict[str, Any]:
         "source": _SOURCE_LABEL,
         "vector_db": store_stats,
         "janela_dias": effective_max_age_days,
-        "data_mais_recente": store_stats.get("noticia_mais_recente"),
-        "data_mais_antiga": store_stats.get("noticia_mais_antiga"),
+        "data_mais_recente": datas_recuperadas[-1] if datas_recuperadas else None,
+        "data_mais_antiga": datas_recuperadas[0] if datas_recuperadas else None,
         "unavailable_reason": unavailable_reason,
         "technical_detail": detail,
         "acesso_ao_acervo": report.to_dict(),

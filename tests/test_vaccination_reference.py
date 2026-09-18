@@ -31,7 +31,9 @@ from src.data.reference.vaccination import (
 from src.metrics.epidemiology import population_vaccination_coverage
 from src.metrics.filters import AnalyticFilters
 
-_HEADER = "uf,ano,campanha,doses_aplicadas,populacao_alvo,fonte,url,data_extracao\n"
+_HEADER = (
+    "uf,ano,campanha,doses_aplicadas,populacao_alvo,fonte,url,data_extracao,periodo_completo\n"
+)
 
 #: Cabecalho minimo do extrato do PNI, com as quatro colunas lidas. As outras 56
 #: colunas do arquivo oficial nao aparecem aqui de proposito: se o agregador
@@ -169,19 +171,25 @@ class TestAgregacaoDoExtratoPNI:
 class TestContratoDoArquivo:
     def test_campanha_desconhecida_e_rejeitada(self, tmp_path):
         path = tmp_path / "cob.csv"
-        path.write_text(_HEADER + "SP,2026,sarampo,10,100,SI-PNI,,2026-09-01\n", encoding="utf-8")
+        path.write_text(
+            _HEADER + "SP,2026,sarampo,10,100,SI-PNI,,2026-09-01,true\n", encoding="utf-8"
+        )
         with pytest.raises(VaccinationReferenceError, match="Campanhas desconhecidas"):
             read_vaccination_reference(path)
 
     def test_populacao_alvo_nula_e_rejeitada(self, tmp_path):
         path = tmp_path / "cob.csv"
-        path.write_text(_HEADER + "SP,2026,influenza,10,0,SI-PNI,,2026-09-01\n", encoding="utf-8")
+        path.write_text(
+            _HEADER + "SP,2026,influenza,10,0,SI-PNI,,2026-09-01,true\n", encoding="utf-8"
+        )
         with pytest.raises(VaccinationReferenceError, match="nao positiva"):
             read_vaccination_reference(path)
 
     def test_populacao_alvo_vazia_e_legitima(self, tmp_path):
         path = tmp_path / "cob.csv"
-        path.write_text(_HEADER + "SP,2026,influenza,10,,SI-PNI,,2026-09-01\n", encoding="utf-8")
+        path.write_text(
+            _HEADER + "SP,2026,influenza,10,,SI-PNI,,2026-09-01,true\n", encoding="utf-8"
+        )
         frame = read_vaccination_reference(path)
         assert pd.isna(frame.iloc[0]["populacao_alvo"])
 
@@ -195,6 +203,18 @@ class TestContratoDoArquivo:
         )
         frame = read_vaccination_reference(path)
         assert frame.iloc[0]["data_extracao"] is None
+
+    def test_referencia_sem_periodo_completo_e_tratada_como_incompleta(self, tmp_path):
+        """Arquivos anteriores a este contrato nao declaram a coluna nova --
+        a ausencia tem de virar `False` (incompleto), nunca `True`."""
+        path = tmp_path / "cob.csv"
+        path.write_text(
+            "uf,ano,campanha,doses_aplicadas,populacao_alvo,fonte,url,data_extracao\n"
+            "SP,2026,influenza,10,100,SI-PNI,https://exemplo,2026-09-01\n",
+            encoding="utf-8",
+        )
+        frame = read_vaccination_reference(path)
+        assert bool(frame.iloc[0]["periodo_completo"]) is False
 
     def test_arquivo_ausente_explica_como_gerar(self, tmp_path):
         with pytest.raises(VaccinationReferenceError, match="--from-pni"):
@@ -215,8 +235,8 @@ class TestCalculoDaCobertura:
         connection = self._connection(
             tmp_path,
             monkeypatch,
-            "SP,2026,influenza,4000000,8000000,SI-PNI,https://exemplo,2026-09-01\n"
-            "RJ,2026,influenza,1000000,4000000,SI-PNI,https://exemplo,2026-09-01\n",
+            "SP,2026,influenza,4000000,8000000,SI-PNI,https://exemplo,2026-09-01,true\n"
+            "RJ,2026,influenza,1000000,4000000,SI-PNI,https://exemplo,2026-09-01,true\n",
         )
         try:
             national = population_vaccination_coverage(connection, AnalyticFilters(), 2026)
@@ -233,7 +253,9 @@ class TestCalculoDaCobertura:
 
     def test_sem_populacao_alvo_o_ibge_entra_declarado_como_substituto(self, tmp_path, monkeypatch):
         connection = self._connection(
-            tmp_path, monkeypatch, "SP,2026,covid19,2000000,,SI-PNI,https://exemplo,2026-09-01\n"
+            tmp_path,
+            monkeypatch,
+            "SP,2026,covid19,2000000,,SI-PNI,https://exemplo,2026-09-01,true\n",
         )
         try:
             sp = population_vaccination_coverage(connection, AnalyticFilters(uf="SP"), 2026)
@@ -252,8 +274,8 @@ class TestCalculoDaCobertura:
         connection = self._connection(
             tmp_path,
             monkeypatch,
-            "SP,2026,influenza,1000,10000,SI-PNI,https://exemplo,2026-09-01\n"
-            "SP,2026,covid19,5000,10000,SI-PNI,https://exemplo,2026-09-01\n",
+            "SP,2026,influenza,1000,10000,SI-PNI,https://exemplo,2026-09-01,true\n"
+            "SP,2026,covid19,5000,10000,SI-PNI,https://exemplo,2026-09-01,true\n",
         )
         try:
             sp = population_vaccination_coverage(connection, AnalyticFilters(uf="SP"), 2026)
@@ -271,7 +293,7 @@ class TestCalculoDaCobertura:
         connection = self._connection(
             tmp_path,
             monkeypatch,
-            "SP,2026,influenza,1000,10000,SI-PNI,https://exemplo,2026-09-01\n",
+            "SP,2026,influenza,1000,10000,SI-PNI,https://exemplo,2026-09-01,true\n",
         )
         try:
             ac = population_vaccination_coverage(connection, AnalyticFilters(uf="AC"), 2026)
@@ -301,6 +323,79 @@ class TestCalculoDaCobertura:
         assert "SI-PNI" in result["unavailable_reason"]
         # A recusa tem de ensinar o caminho, nao so negar.
         assert "--from-pni" in result["unavailable_reason"]
+
+    def test_periodo_incompleto_fica_indisponivel_mesmo_com_populacao_alvo(
+        self, tmp_path, monkeypatch
+    ):
+        """O caso real que motivou a correcao: um extrato mensal isolado do
+        SI-PNI (fev/2026) nao pode virar uma taxa anual/populacional, mesmo
+        quando ha populacao-alvo publicada."""
+        connection = self._connection(
+            tmp_path,
+            monkeypatch,
+            "SP,2026,influenza,4000000,8000000,SI-PNI,https://exemplo,2026-09-01,false\n",
+        )
+        try:
+            sp = population_vaccination_coverage(connection, AnalyticFilters(uf="SP"), 2026)
+        finally:
+            connection.close()
+            monkeypatch.undo()
+            reset_settings_cache()
+
+        influenza = sp["campanhas"]["influenza"]
+        assert influenza["value"] is None
+        assert "periodo completo" in influenza["unavailable_reason"]
+        assert "--periodo-completo" in influenza["unavailable_reason"]
+
+    def test_periodo_completo_ausente_da_coluna_tambem_fica_indisponivel(
+        self, tmp_path, monkeypatch
+    ):
+        """Coluna `periodo_completo` totalmente ausente do arquivo (referencia
+        anterior a este contrato) tem de cair no mesmo padrao seguro."""
+        path = tmp_path / "cobertura_vacinal_uf.csv"
+        path.write_text(
+            "uf,ano,campanha,doses_aplicadas,populacao_alvo,fonte,url,data_extracao\n"
+            "SP,2026,influenza,4000000,8000000,SI-PNI,https://exemplo,2026-09-01\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("VACCINATION_REFERENCE_PATH", str(path))
+        reset_settings_cache()
+        connection = duckdb.connect(str(tmp_path / "ref.duckdb"))
+        try:
+            load_reference_tables(connection)
+            sp = population_vaccination_coverage(connection, AnalyticFilters(uf="SP"), 2026)
+        finally:
+            connection.close()
+            monkeypatch.undo()
+            reset_settings_cache()
+
+        assert sp["campanhas"]["influenza"]["value"] is None
+
+    def test_denominador_incompativel_sem_alvo_e_sem_ibge_fica_indisponivel(
+        self, tmp_path, monkeypatch
+    ):
+        """Periodo completo declarado, mas sem populacao-alvo nem IBGE
+        carregado: nao ha denominador possivel, mesmo com o numerador valido."""
+        path = tmp_path / "cobertura_vacinal_uf.csv"
+        path.write_text(
+            _HEADER + "SP,2026,covid19,2000000,,SI-PNI,https://exemplo,2026-09-01,true\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("VACCINATION_REFERENCE_PATH", str(path))
+        monkeypatch.setenv("POPULATION_REFERENCE_PATH", str(tmp_path / "populacao_inexistente.csv"))
+        reset_settings_cache()
+        connection = duckdb.connect(str(tmp_path / "ref.duckdb"))
+        try:
+            load_reference_tables(connection)
+            sp = population_vaccination_coverage(connection, AnalyticFilters(uf="SP"), 2026)
+        finally:
+            connection.close()
+            monkeypatch.undo()
+            reset_settings_cache()
+
+        covid = sp["campanhas"]["covid19"]
+        assert covid["value"] is None
+        assert "denominador" in covid["unavailable_reason"]
 
     def test_cobertura_entre_casos_nunca_e_usada_como_proxy(self, synthetic_database):
         """O indicador populacional nao pode herdar o valor do indicador de casos."""

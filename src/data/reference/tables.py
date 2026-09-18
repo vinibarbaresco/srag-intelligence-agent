@@ -44,14 +44,15 @@ CREATE OR REPLACE TABLE {TABLE_POPULATION} (
 
 _VACCINATION_TABLE_SQL = f"""
 CREATE OR REPLACE TABLE {TABLE_VACCINATION} (
-    uf              VARCHAR,
-    ano             INTEGER,
-    campanha        VARCHAR,
-    doses_aplicadas BIGINT,
-    populacao_alvo  BIGINT,
-    fonte           VARCHAR,
-    url             VARCHAR,
-    data_extracao   VARCHAR
+    uf               VARCHAR,
+    ano              INTEGER,
+    campanha         VARCHAR,
+    doses_aplicadas  BIGINT,
+    populacao_alvo   BIGINT,
+    fonte            VARCHAR,
+    url              VARCHAR,
+    data_extracao    VARCHAR,
+    periodo_completo BOOLEAN
 )
 """
 
@@ -111,7 +112,7 @@ def load_reference_tables(connection: Any) -> dict[str, int]:
         loaded[TABLE_VACCINATION] = 0
     else:
         connection.executemany(
-            f"INSERT INTO {TABLE_VACCINATION} VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            f"INSERT INTO {TABLE_VACCINATION} VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 (
                     str(row.uf),
@@ -122,6 +123,7 @@ def load_reference_tables(connection: Any) -> dict[str, int]:
                     _nullable(row.fonte, str),
                     _nullable(row.url, str),
                     _nullable(row.data_extracao, str),
+                    bool(row.periodo_completo),
                 )
                 for row in vaccination.itertuples(index=False)
             ],

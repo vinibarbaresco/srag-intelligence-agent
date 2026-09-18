@@ -142,13 +142,14 @@
 - **Campos utilizados:** nenhum
 - **Periodo:** ano de referencia da campanha mais proximo da data de corte analitica
 - **Unidade:** %
-- **Tratamento de dados ausentes:** Sem o arquivo de referencia de doses aplicadas, o indicador e declarado nao calculavel com o motivo. Nunca e estimado a partir dos casos.
+- **Tratamento de dados ausentes:** Sem o arquivo de referencia de doses aplicadas, o indicador e declarado nao calculavel com o motivo. Nunca e estimado a partir dos casos. Uma referencia presente mas sem `periodo_completo=true` declarado pelo operador tambem fica indisponivel: um extrato mensal isolado do SI-PNI nao pode ser apresentado como cobertura anual ou populacional.
 
 **Limitacoes:**
 
 - O SIVEP-Gripe nao contem este dado: numerador e denominador vem de fontes externas (SI-PNI e IBGE), com sua propria defasagem.
 - Doses aplicadas sao um proxy de pessoas vacinadas; em campanhas de dose unica (influenza) a aproximacao e boa, em esquemas de multiplas doses (covid-19) ela superestima a cobertura.
 - Quando nao ha populacao-alvo informada, o denominador e a populacao total, o que subestima a cobertura do publico-alvo.
+- So e publicado quando a referencia declara cobertura de periodo completo da campanha (`periodo_completo=true`); um extrato parcial (ex.: um unico mes) fica indisponivel em vez de gerar uma taxa anual ou populacional sem base temporal equivalente.
 
 ### `incidence_rate` - Incidencia de SRAG notificada por 100 mil habitantes
 

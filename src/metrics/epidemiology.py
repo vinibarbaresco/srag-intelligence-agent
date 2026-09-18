@@ -1346,7 +1346,8 @@ def population_vaccination_coverage(
                string_agg(DISTINCT fonte, '; '),
                string_agg(DISTINCT url, '; '),
                max(data_extracao),
-               count(DISTINCT uf)
+               count(DISTINCT uf),
+               bool_and(coalesce(periodo_completo, FALSE))
         FROM {TABLE_VACCINATION}
         WHERE ano = ? AND {uf_clause}
         GROUP BY campanha
@@ -1365,8 +1366,35 @@ def population_vaccination_coverage(
 
     population, population_year = _reference_population(connection, filters, reference_year)
     campaigns: dict[str, Any] = {}
-    for campaign, doses, target, without_target, source, url, extracted, ufs in rows:
+    for row in rows:
+        campaign, doses, target, without_target, source, url, extracted, ufs, period_complete = row
         doses = int(doses or 0)
+        # --- Completude temporal, verificada ANTES do denominador ---------------
+        #
+        # Um extrato mensal isolado do SI-PNI nao e cobertura anual nem
+        # populacional: dividir doses de um unico mes pela populacao do ano
+        # inteiro produz um percentual sem lastro epidemiologico, nao uma
+        # aproximacao dela. A declaracao de completude e do operador que gerou
+        # a referencia (`--periodo-completo`), nunca inferida aqui a partir da
+        # contagem de linhas -- ver contrato do arquivo em
+        # `src/data/reference/vaccination.py`.
+        if not bool(period_complete):
+            campaigns[campaign] = {
+                "value": None,
+                "numerator": doses,
+                "unavailable_reason": (
+                    "A referencia de doses aplicadas para esta campanha nao declara "
+                    "cobertura de periodo completo (`periodo_completo=true`); os "
+                    f"registros disponiveis somam {doses} doses, mas podem ser um "
+                    "extrato mensal isolado do SI-PNI. Um recorte parcial dividido "
+                    "pela populacao do ano nao e cobertura vacinal anual nem "
+                    "populacional -- e um numero sem significado epidemiologico. "
+                    "Agregue todos os extratos mensais da campanha com "
+                    "`python -m src.data.reference.vaccination --from-pni ... "
+                    "--periodo-completo` para habilitar este indicador."
+                ),
+            }
+            continue
         if target is not None and int(without_target) == 0:
             denominator = int(target)
             denominator_label = "populacao-alvo da campanha (SI-PNI)"
@@ -1406,6 +1434,7 @@ def population_vaccination_coverage(
             "fonte": source,
             "url": url,
             "data_extracao": extracted,
+            "periodo_completo": True,
         }
 
     return {

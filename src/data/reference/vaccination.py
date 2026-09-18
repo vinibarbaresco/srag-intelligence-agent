@@ -37,8 +37,8 @@ Contrato do arquivo `data/reference/cobertura_vacinal_uf.csv`
 --------------------------------------------------------------
 ::
 
-    uf,ano,campanha,doses_aplicadas,populacao_alvo,fonte,url,data_extracao
-    SP,2026,influenza,12345678,15000000,SI-PNI,https://...,2026-09-17
+    uf,ano,campanha,doses_aplicadas,populacao_alvo,fonte,url,data_extracao,periodo_completo
+    SP,2026,influenza,12345678,15000000,SI-PNI,https://...,2026-09-17,true
 
 * `campanha`: `influenza` ou `covid19` -- as duas campanhas com equivalente no
   SIVEP-Gripe (`VACINA` e `VACINA_COV`), mantidas separadas porque tem publico
@@ -49,7 +49,17 @@ Contrato do arquivo `data/reference/cobertura_vacinal_uf.csv`
   rotulada como "sobre a populacao total", que subestima a cobertura do
   publico-alvo -- a substituicao nunca e silenciosa;
 * `fonte`, `url`, `data_extracao`: proveniencia, publicada com o indicador.
-  `data_extracao` e opcional para compatibilidade com referencias antigas.
+  `data_extracao` e opcional para compatibilidade com referencias antigas;
+* `periodo_completo`: **declaracao explicita** de que `doses_aplicadas` cobre
+  o periodo INTEIRO da campanha (todos os meses relevantes agregados), nao um
+  extrato mensal isolado. Opcional; ausente ou `false` e o padrao seguro.
+  Enquanto `false`, `population_vaccination_coverage` publica a campanha como
+  **indisponivel** -- um unico mes do SI-PNI dividido pela populacao anual
+  produz um percentual sem significado epidemiologico, e nao um percentual
+  aproximado. So marque `true` depois de agregar todos os extratos mensais que
+  compoem a campanha (`--periodo-completo` em `build_vaccination_reference`);
+  a alegacao e do operador, o codigo nunca infere completude a partir do
+  numero de arquivos informados.
 
 Sem o arquivo, o indicador permanece explicitamente **nao calculavel** -- nunca
 estimado a partir dos casos de SRAG.
@@ -97,12 +107,15 @@ VACCINATION_COLUMNS: Final[tuple[str, ...]] = (
     "fonte",
     "url",
     "data_extracao",
+    "periodo_completo",
 )
 
-#: Colunas exigidas no arquivo. `data_extracao` fica de fora: referencias
-#: preenchidas a mao antes desta versao continuam validas, e a ausencia vira
-#: `None` -- declarada no relatorio como proveniencia incompleta.
-_REQUIRED_COLUMNS: Final[tuple[str, ...]] = VACCINATION_COLUMNS[:-1]
+#: Colunas exigidas no arquivo. `data_extracao` e `periodo_completo` ficam de
+#: fora: referencias preenchidas a mao antes desta versao continuam validas, e
+#: a ausencia de `periodo_completo` vira `False` -- o padrao seguro que declara
+#: a campanha indisponivel em vez de publicar uma cobertura sem base temporal
+#: completa.
+_REQUIRED_COLUMNS: Final[tuple[str, ...]] = VACCINATION_COLUMNS[:-2]
 
 CAMPAIGNS: Final[frozenset[str]] = frozenset({"influenza", "covid19"})
 
@@ -165,11 +178,14 @@ _RAW_ENCODING: Final[str] = "cp1252"
 
 #: Conteudo do arquivo-modelo distribuido com o repositorio.
 TEMPLATE: Final[str] = (
-    "uf,ano,campanha,doses_aplicadas,populacao_alvo,fonte,url,data_extracao\n"
-    "# Gere com `python -m src.data.reference.vaccination --from-pni <extratos> --year <ano>`\n"
+    "uf,ano,campanha,doses_aplicadas,populacao_alvo,fonte,url,data_extracao,periodo_completo\n"
+    "# Gere com `python -m src.data.reference.vaccination --from-pni <extratos> --year <ano>"
+    " --periodo-completo`\n"
     "# ou preencha a partir da extracao oficial do SI-PNI e salve como\n"
     "# cobertura_vacinal_uf.csv (sem estas linhas de comentario).\n"
     "# campanha: influenza | covid19. populacao_alvo e data_extracao sao opcionais.\n"
+    "# periodo_completo: true somente se doses_aplicadas cobre a campanha inteira (nao um\n"
+    "# extrato mensal isolado); ausente ou false mantem a cobertura populacional indisponivel.\n"
 )
 
 
@@ -296,6 +312,7 @@ def build_vaccination_reference(
     *,
     year: int,
     target_population: dict[tuple[str, str], int] | None = None,
+    period_complete: bool = False,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Agrega um ou mais extratos do PNI no contrato da referencia.
 
@@ -303,6 +320,13 @@ def build_vaccination_reference(
         extracts: arquivos `vacinacao_<mes>_<ano>_csv.zip` (ou CSV) ja em disco.
         year: ano da campanha.
         target_population: populacao-alvo por `(uf, campanha)`, quando publicada.
+        period_complete: declara que `extracts` cobre a campanha INTEIRA, nao um
+            recorte mensal. Falso por padrao -- de proposito: o codigo nao pode
+            inferir completude a partir do numero de arquivos informados (uma
+            campanha pode durar poucos meses ou o ano inteiro), entao a alegacao
+            e sempre do operador que roda a agregacao. Enquanto falso,
+            `population_vaccination_coverage` publica a campanha como
+            indisponivel em vez de uma taxa sem base temporal completa.
 
     Returns:
         Par `(tabela, proveniencia)`.
@@ -353,6 +377,7 @@ def build_vaccination_reference(
                 "fonte": VACCINATION_SOURCE_LABEL,
                 "url": dataset_url,
                 "data_extracao": extracted_at[:10],
+                "periodo_completo": period_complete,
             }
             for (uf, campaign), doses in sorted(totals.items())
         ],
@@ -368,6 +393,7 @@ def build_vaccination_reference(
         "colunas_lidas_do_bruto": list(_RAW_COLUMNS_READ),
         "campanhas_obtidas": sorted({campaign for _, campaign in totals}),
         "populacao_alvo_informada": bool(targets),
+        "periodo_completo_declarado": period_complete,
         "nota_de_privacidade": (
             "O extrato bruto do PNI e por dose aplicada e contem identificador "
             "pseudonimizado de paciente. Ele nao e persistido: apenas quatro "
@@ -405,6 +431,27 @@ def read_target_population(path: Path) -> dict[tuple[str, str], int]:
 # =============================================================================
 # Leitura, validacao e persistencia
 # =============================================================================
+
+#: Grafias aceitas para `periodo_completo=true`. Qualquer outro valor -- vazio,
+#: "false", "nao", ou um erro de digitacao -- vira `False`: o padrao seguro
+#: exigido pelo contrato do arquivo e nunca o inverso.
+_TRUE_SPELLINGS: Final[frozenset[str]] = frozenset({"true", "1", "sim", "yes", "verdadeiro"})
+
+
+def _parse_one_bool(value: Any) -> bool:
+    """Interpreta um unico valor de `periodo_completo`; vazio/desconhecido e `False`."""
+    if pd.isna(value):
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int | float):
+        return bool(value)
+    return str(value).strip().lower() in _TRUE_SPELLINGS
+
+
+def _parse_bool_column(column: pd.Series) -> pd.Series:
+    """Normaliza uma coluna booleana tolerante a grafia (`true`/`sim`/`1`/vazio)."""
+    return column.apply(_parse_one_bool)
 
 
 def provenance_path(csv_path: Path) -> Path:
@@ -465,6 +512,12 @@ def read_vaccination_reference(path: Path | None = None) -> pd.DataFrame:
 
     if "data_extracao" not in frame.columns:
         frame["data_extracao"] = None
+    if "periodo_completo" not in frame.columns:
+        # Ausente = padrao seguro: sem a declaracao explicita do operador, a
+        # campanha e tratada como cobertura temporal incompleta (ver contrato
+        # do arquivo, no topo do modulo).
+        frame["periodo_completo"] = False
+    frame["periodo_completo"] = _parse_bool_column(frame["periodo_completo"])
 
     frame["uf"] = frame["uf"].str.upper()
     frame["campanha"] = frame["campanha"].str.lower()
@@ -539,24 +592,46 @@ def main(argv: list[str] | None = None) -> int:
         help="CSV uf,campanha,populacao_alvo com o publico-alvo de cada campanha",
     )
     parser.add_argument("--output", type=Path, default=None, help="CSV de destino")
+    parser.add_argument(
+        "--periodo-completo",
+        action="store_true",
+        help=(
+            "declara que os extratos informados cobrem a campanha INTEIRA, nao um "
+            "recorte mensal. Sem esta flag, population_vaccination_coverage publica "
+            "a campanha como indisponivel (ver docstring do modulo)"
+        ),
+    )
     args = parser.parse_args(argv)
 
     try:
         targets = read_target_population(args.target_population) if args.target_population else None
         frame, provenance = build_vaccination_reference(
-            args.from_pni, year=args.year, target_population=targets
+            args.from_pni,
+            year=args.year,
+            target_population=targets,
+            period_complete=args.periodo_completo,
         )
-        # A agregacao so cobre os extratos mensais informados nesta execucao, nunca
-        # o ano civil inteiro por definicao (cada extrato e um mes). Isso precisa
-        # ficar declarado na propria proveniencia -- sem isto, "ano: <ano>" no CSV
-        # poderia ser lido, erradamente, como cobertura anual completa.
-        provenance["cobertura_temporal_observacao"] = (
-            f"Cobertura temporal PARCIAL: agregado a partir de {len(args.from_pni)} "
-            f"extrato(s) mensal(is) do PNI ({', '.join(p.name for p in args.from_pni)}), "
-            f"nao do ano civil completo de {args.year}. Doses aplicadas em meses de "
-            f"{args.year} nao incluidos nesta lista NAO estao refletidas neste "
-            "indicador -- nao interpretar 'ano' como cobertura anual completa."
-        )
+        # A agregacao so cobre os extratos mensais informados nesta execucao. Isso
+        # precisa ficar declarado na propria proveniencia -- sem isto, "ano: <ano>"
+        # no CSV poderia ser lido, erradamente, como cobertura anual completa.
+        if args.periodo_completo:
+            observacao = (
+                f"Cobertura temporal DECLARADA COMPLETA pelo operador: {len(args.from_pni)} "
+                f"extrato(s) do PNI ({', '.join(p.name for p in args.from_pni)}) cobrindo a "
+                f"campanha inteira de {args.year}, conforme --periodo-completo."
+            )
+        else:
+            observacao = (
+                f"Cobertura temporal PARCIAL: agregado a partir de {len(args.from_pni)} "
+                f"extrato(s) mensal(is) do PNI ({', '.join(p.name for p in args.from_pni)}), "
+                f"sem declaracao de periodo completo para a campanha de {args.year}. Doses "
+                f"aplicadas em meses nao incluidos nesta lista NAO estao refletidas neste "
+                "indicador -- nao interpretar 'ano' como cobertura anual completa. A "
+                "cobertura vacinal populacional desta campanha sera publicada como "
+                "indisponivel ate que todos os extratos da campanha sejam agregados com "
+                "--periodo-completo."
+            )
+        provenance["cobertura_temporal_observacao"] = observacao
         target = write_vaccination_reference(frame, provenance, args.output)
     except VaccinationReferenceError as exc:
         logger.error("atualizacao da referencia vacinal falhou", extra={"motivo": str(exc)})
@@ -569,6 +644,12 @@ def main(argv: list[str] | None = None) -> int:
         print(
             "AVISO: sem populacao-alvo informada; a cobertura sera calculada "
             "sobre a populacao residente do IBGE e rotulada como tal."
+        )
+    if not provenance["periodo_completo_declarado"]:
+        print(
+            "AVISO: sem --periodo-completo; a taxa de vacinacao da populacao desta "
+            "campanha sera publicada como INDISPONIVEL ate que todos os extratos "
+            "mensais da campanha sejam agregados e a flag seja informada."
         )
     return 0
 

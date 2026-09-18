@@ -1,8 +1,9 @@
-uf,ano,campanha,doses_aplicadas,populacao_alvo,fonte,url,data_extracao
+uf,ano,campanha,doses_aplicadas,populacao_alvo,fonte,url,data_extracao,periodo_completo
 # Modelo do contrato da referencia de cobertura vacinal populacional (SI-PNI).
 #
-# Caminho recomendado -- agregar os extratos oficiais do PNI:
-#   python -m src.data.reference.vaccination --from-pni vacinacao_*_2026_csv.zip --year 2026
+# Caminho recomendado -- agregar os extratos oficiais do PNI (TODOS os meses
+# que compoem a campanha, e so entao declarar --periodo-completo):
+#   python -m src.data.reference.vaccination --from-pni vacinacao_*_2026_csv.zip --year 2026 --periodo-completo
 # Os extratos mensais estao em
 #   https://dadosabertos.saude.gov.br/dataset/doses-aplicadas-pelo-programa-de-nacional-de-imunizacoes-pni-2026
 # e tem de 1,8 a 4,3 GB comprimidos por mes; o agregador le em fluxo, usa quatro
@@ -16,3 +17,7 @@ uf,ano,campanha,doses_aplicadas,populacao_alvo,fonte,url,data_extracao
 # IBGE, o que SUBESTIMA a cobertura do publico-alvo; a substituicao e declarada
 # no relatorio.
 # data_extracao e opcional.
+# periodo_completo: true somente quando doses_aplicadas cobre a campanha
+# INTEIRA (todos os meses agregados), nunca um extrato mensal isolado. Ausente
+# ou false mantem a cobertura vacinal da populacao indisponivel -- ver
+# src/data/reference/vaccination.py.

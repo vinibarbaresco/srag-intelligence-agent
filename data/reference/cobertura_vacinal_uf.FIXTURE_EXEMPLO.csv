@@ -1,4 +1,4 @@
-uf,ano,campanha,doses_aplicadas,populacao_alvo,fonte,url,data_extracao
+uf,ano,campanha,doses_aplicadas,populacao_alvo,fonte,url,data_extracao,periodo_completo
 # ============================================================================
 # FIXTURE DE TESTE -- NAO E DADO OFICIAL. NAO USE EM RELATORIO DE PRODUCAO.
 # ============================================================================
@@ -14,6 +14,9 @@ uf,ano,campanha,doses_aplicadas,populacao_alvo,fonte,url,data_extracao
 # "FIXTURE DE TESTE", e essa string aparece literalmente no relatorio ao lado
 # do percentual (ver src/agent/report.py:_population_coverage_lines), de modo
 # que o rotulo de teste nao pode se perder entre o arquivo e o texto final.
+# `periodo_completo=true` e parte da mesma demonstracao: simula uma campanha
+# cujos extratos mensais foram TODOS agregados (nunca use `true` fora deste
+# cenario fictício).
 #
 # Para usar (nunca como padrao -- so como demonstracao explicita):
 #   cp cobertura_vacinal_uf.FIXTURE_EXEMPLO.csv cobertura_vacinal_uf.csv
@@ -22,7 +25,7 @@ uf,ano,campanha,doses_aplicadas,populacao_alvo,fonte,url,data_extracao
 #
 # Cobre apenas SP e RJ, e so duas campanhas -- de proposito, para nao parecer
 # uma base nacional completa.
-SP,2026,influenza,12000000,15000000,FIXTURE DE TESTE - NAO E DADO OFICIAL (formato SI-PNI),https://exemplo.invalido/fixture,2026-01-01
-SP,2026,covid19,9000000,,FIXTURE DE TESTE - NAO E DADO OFICIAL (formato SI-PNI),https://exemplo.invalido/fixture,2026-01-01
-RJ,2026,influenza,5000000,7000000,FIXTURE DE TESTE - NAO E DADO OFICIAL (formato SI-PNI),https://exemplo.invalido/fixture,2026-01-01
-RJ,2026,covid19,4000000,,FIXTURE DE TESTE - NAO E DADO OFICIAL (formato SI-PNI),https://exemplo.invalido/fixture,2026-01-01
+SP,2026,influenza,12000000,15000000,FIXTURE DE TESTE - NAO E DADO OFICIAL (formato SI-PNI),https://exemplo.invalido/fixture,2026-01-01,true
+SP,2026,covid19,9000000,,FIXTURE DE TESTE - NAO E DADO OFICIAL (formato SI-PNI),https://exemplo.invalido/fixture,2026-01-01,true
+RJ,2026,influenza,5000000,7000000,FIXTURE DE TESTE - NAO E DADO OFICIAL (formato SI-PNI),https://exemplo.invalido/fixture,2026-01-01,true
+RJ,2026,covid19,4000000,,FIXTURE DE TESTE - NAO E DADO OFICIAL (formato SI-PNI),https://exemplo.invalido/fixture,2026-01-01,true

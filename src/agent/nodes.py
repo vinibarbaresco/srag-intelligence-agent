@@ -313,7 +313,9 @@ def make_search_news(context: GraphContext):
 
             access = result.get("acesso_ao_acervo") or {}
             audit["summary"] = (
-                f"{result['total']} noticias recuperadas; acesso ao acervo: "
+                f"{result['total']} noticias recuperadas; janela {result.get('janela_dias')} "
+                f"dia(s); intervalo {result.get('data_mais_antiga')} a "
+                f"{result.get('data_mais_recente')}; acesso ao acervo: "
                 f"{access.get('resultado')} ({access.get('retentativas', 0)} retentativa(s))"
             )
             if result["total"] == 0 or access.get("retentativas"):
