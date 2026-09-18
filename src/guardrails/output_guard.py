@@ -21,6 +21,7 @@ from typing import Any, Final
 
 from src.guardrails.pii import find_pii
 from src.guardrails.policies import (
+    CAUSAL_OUTPUT_PATTERNS,
     EVIDENCE_BINDING,
     MEDICAL_ADVICE,
     PRESCRIPTIVE_OUTPUT_PATTERNS,
@@ -54,6 +55,60 @@ _NUMBER_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"|(?<![\w/])-?\d+,\d+(?![\w/])"  # 12,4
     r"|(?<![\w/])-?\d+(?:\.\d+)?(?![\w/])"  # 12 ou 12.4
 )
+
+# =============================================================================
+# Atribuicao de fonte para linguagem causal
+# =============================================================================
+#
+# Um conectivo causal (`CAUSAL_OUTPUT_PATTERNS`) so e permitido quando a frase
+# em que aparece -- ou a frase imediatamente anterior -- atribui a afirmacao a
+# uma fonte explicita. Duas formas contam como atribuicao, e a heuristica e
+# deliberadamente simples (ver a nota em `CAUSAL_OUTPUT_PATTERNS`):
+#
+# 1. um marcador de atribuicao ("segundo", "de acordo com", "conforme a
+#    noticia/reportagem/fonte");
+# 2. um nome propio seguido de um verbo de fala tipico de citacao jornalistica
+#    ("O Ministerio da Saude informou que...", "A Fiocruz apontou..."), que e
+#    o padrao com que uma fonte de noticia costuma aparecer nomeada no texto.
+_ATTRIBUTION_MARKER_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"\bsegundo\b|\bde acordo com\b|\bconforme\s+(a\s+|o\s+)?(noticia|notícia|reportagem|fonte)\w*",
+    re.IGNORECASE,
+)
+_ATTRIBUTION_NAMED_SOURCE_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r"\b[A-ZÀ-Ú][\wÀ-ÿ]*(?:\s+[A-ZÀ-Ú][\wÀ-ÿ]*){0,3}\s+"
+    r"(informou|afirmou|declarou|divulgou|apontou|noticiou|reportou)\b"
+)
+
+#: Fim de frase, para delimitar "a mesma frase ou a frase imediatamente
+#: anterior" sem precisar de um parser de linguagem natural.
+_SENTENCE_BOUNDARY_PATTERN: Final[re.Pattern[str]] = re.compile(r"(?<=[.!?])\s+")
+
+
+def _sentence_spans(text: str) -> list[tuple[int, int]]:
+    """Delimita as frases do texto por posicao, para localizar uma ocorrencia."""
+    spans: list[tuple[int, int]] = []
+    start = 0
+    for boundary in _SENTENCE_BOUNDARY_PATTERN.finditer(text):
+        spans.append((start, boundary.start()))
+        start = boundary.end()
+    spans.append((start, len(text)))
+    return spans
+
+
+def _has_source_attribution(text: str, position: int) -> bool:
+    """Indica se ha atribuicao de fonte na frase de `position` ou na anterior."""
+    spans = _sentence_spans(text)
+    index = next(
+        (i for i, (start, end) in enumerate(spans) if start <= position < end),
+        len(spans) - 1,
+    )
+    window_start = spans[index - 1][0] if index > 0 else spans[index][0]
+    window_end = spans[index][1]
+    window = text[window_start:window_end]
+    return bool(
+        _ATTRIBUTION_MARKER_PATTERN.search(window)
+        or _ATTRIBUTION_NAMED_SOURCE_PATTERN.search(window)
+    )
 
 
 @dataclass
@@ -179,6 +234,23 @@ def validate_output(text: str, evidence: EvidenceSet) -> OutputValidation:
                     "policy": MEDICAL_ADVICE.key,
                     "type": "linguagem_prescritiva",
                     "detail": f"Trecho com conteudo prescritivo: {match.group(0)!r}.",
+                }
+            )
+
+    # Mesmo mecanismo de descarte do numero sem lastro: um achado aqui entra na
+    # mesma lista de violacoes e o texto inteiro cai para a redacao
+    # deterministica. Um conectivo causal so passa quando a frase (ou a
+    # anterior) atribui a afirmacao a uma fonte explicita.
+    for pattern in CAUSAL_OUTPUT_PATTERNS:
+        match = pattern.search(text)
+        if match and not _has_source_attribution(text, match.start()):
+            violations.append(
+                {
+                    "policy": EVIDENCE_BINDING.key,
+                    "type": "causalidade_sem_atribuicao",
+                    "detail": (
+                        f"Trecho com linguagem causal sem atribuicao de fonte: {match.group(0)!r}."
+                    ),
                 }
             )
 

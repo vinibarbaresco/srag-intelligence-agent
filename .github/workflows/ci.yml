@@ -36,13 +36,16 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: |
-            requirements.txt
-            requirements-dev.txt
+            requirements-dev.lock.txt
 
       - name: Instalar dependencias
+        # A partir do lockfile com hash: toda dependencia, direta e transitiva,
+        # vem fixada e verificada por hash (ver requirements-dev.lock.txt e
+        # `make lock`). `pip install --upgrade pip` fica fora do gate de hash
+        # de proposito -- e o proprio instalador, nao uma dependencia do projeto.
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements-dev.txt
+          python -m pip install --require-hashes -r requirements-dev.lock.txt
 
       - name: Ruff (lint)
         run: python -m ruff check .

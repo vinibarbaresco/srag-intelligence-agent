@@ -244,3 +244,114 @@ class TestNoticias:
 
         assert stored_backend(store) == replacement.backend
         assert [item["titulo"] for item in result] == ["Noticia nova sobre SRAG"]
+
+    def test_envelope_traz_janela_e_datas_do_acervo(self, tmp_path, monkeypatch):
+        """A tool declara a janela efetivamente usada e o intervalo do acervo."""
+        from src.news.embeddings import HashingEmbedder
+        from src.news.rss_client import NewsArticle
+        from src.news.vector_store import search, stats, upsert_articles
+        from src.tools.news_tools import search_srag_news
+
+        store = tmp_path / "janela.duckdb"
+        embedder = HashingEmbedder(dimensions=16)
+        article = NewsArticle(
+            title="Aumento de casos de SRAG no Brasil",
+            source="Fonte oficial",
+            published_at=datetime.now(tz=UTC).isoformat(),
+            url="https://example.org/noticia",
+            query="SRAG",
+            article_id="noticia-janela",
+        )
+        upsert_articles([article], embedder=embedder, path=store)
+
+        monkeypatch.setattr(
+            "src.news.vector_store.search",
+            lambda query, **kw: search(
+                query,
+                top_k=kw.get("top_k", 5),
+                max_age_days=kw.get("max_age_days"),
+                embedder=embedder,
+                path=store,
+                report=kw.get("report"),
+            ),
+        )
+        monkeypatch.setattr(
+            "src.news.vector_store.stats", lambda **kw: stats(path=store, report=kw.get("report"))
+        )
+
+        result = search_srag_news(query="SRAG casos recentes", max_age_days=45)
+
+        assert result["janela_dias"] == 45
+        assert result["data_mais_recente"] is not None
+        assert result["data_mais_antiga"] is not None
+
+    def test_janela_dias_usa_o_padrao_quando_nao_informada(self, synthetic_database):
+        """Sem `max_age_days` explicito, a tool declara a janela padrao configurada."""
+        from src.config import get_settings
+
+        result = call_tool("search_srag_news", {"query": "SRAG casos recentes"})
+        assert result["janela_dias"] == get_settings().news_max_age_days
+
+    def test_snippet_do_artigo_chega_ao_resultado_da_busca(self, tmp_path):
+        """O resumo do feed RSS precisa sobreviver ao armazenamento e a busca."""
+        from src.news.embeddings import HashingEmbedder
+        from src.news.rss_client import NewsArticle
+        from src.news.vector_store import search, upsert_articles
+
+        store = tmp_path / "snippet.duckdb"
+        embedder = HashingEmbedder(dimensions=16)
+        article = NewsArticle(
+            title="Aumento de casos de SRAG no Brasil",
+            source="Fonte oficial",
+            published_at=datetime.now(tz=UTC).isoformat(),
+            url="https://example.org/noticia",
+            query="SRAG",
+            article_id="noticia-snippet",
+            snippet="Autoridades registraram alta de casos na ultima semana.",
+        )
+        upsert_articles([article], embedder=embedder, path=store)
+
+        resultado = search("casos de SRAG", embedder=embedder, path=store)
+
+        assert resultado[0]["snippet"] == "Autoridades registraram alta de casos na ultima semana."
+
+    def test_snippet_ausente_no_feed_vira_string_vazia(self):
+        """`_build_article` nunca falha por descricao ausente no item do feed."""
+        from datetime import timedelta
+        from xml.etree import ElementTree
+
+        from src.news.rss_client import NewsArticle, _build_article
+
+        pub_date = (datetime.now(tz=UTC) - timedelta(days=1)).strftime("%a, %d %b %Y %H:%M:%S GMT")
+        xml_bytes = (
+            "<item>"
+            "<title>Aumento de casos de SRAG no Brasil</title>"
+            "<link>https://agenciabrasil.ebc.com.br/sem-descricao</link>"
+            f"<pubDate>{pub_date}</pubDate>"
+            '<source url="https://agenciabrasil.ebc.com.br">Agencia Brasil</source>'
+            "</item>"
+        )
+        item = ElementTree.fromstring(xml_bytes)
+        horizon = datetime.now(tz=UTC) - timedelta(days=45)
+        article = _build_article(item, "SRAG", horizon, True)
+
+        assert isinstance(article, NewsArticle)
+        assert article.snippet == ""
+
+    def test_snippet_remove_html_colapsa_espacos_e_trunca(self):
+        """`_extract_snippet` limpa a descricao bruta do feed e a limita a 280 chars."""
+        from xml.etree import ElementTree
+
+        from src.news.rss_client import _extract_snippet
+
+        # A marcacao vem escapada dentro do XML, como o Google News RSS entrega
+        # de fato: o texto bruto do elemento contem "<b>...</b>" literal.
+        descricao = "&lt;b&gt;Casos&lt;/b&gt; sobem   muito" + " x" * 200
+        xml_bytes = f"<item><description>{descricao}</description></item>"
+        item = ElementTree.fromstring(xml_bytes)
+
+        snippet = _extract_snippet(item)
+
+        assert "<b>" not in snippet
+        assert "  " not in snippet
+        assert len(snippet) <= 280

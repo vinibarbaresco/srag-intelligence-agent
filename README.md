@@ -127,7 +127,9 @@ matplotlib · Plotly.js (CDN, só no relatório HTML) · PyMuPDF · pytest
 ## 5. Dataset
 
 [SRAG 2019–2026 — Open DATASUS](https://dadosabertos.saude.gov.br/dataset/srag-2019-a-2026)
-([dicionário de dados](https://s3.sa-east-1.amazonaws.com/ckan.saude.gov.br/SRAG/dicionario-de-dados-2019-a-2025.pdf)).
+([dicionário de dados](https://s3.sa-east-1.amazonaws.com/ckan.saude.gov.br/SRAG/dicionario-de-dados-2019-a-2025.pdf),
+proveniência própria — URL, versão, `sha256` e as 22 colunas lidas — em
+[`docs/dicionario_datasus_manifesto.json`](docs/dicionario_datasus_manifesto.json)).
 
 Os arquivos **não são versionados** — são grandes e reproduzíveis. `src/data/download.py` os obtém
 sob demanda e registra proveniência (URL, tamanho, `sha256`, data) em `data/raw/manifest.json`.
@@ -423,6 +425,13 @@ indicadores já calculados, consulta `outputs/history/runs.jsonl` pela execuçã
 recorte e publica a variação. O veredito (`normal` / `atencao` / `alerta`) entra no relatório como
 DADO e, com `--fail-on-alert`, no código de saída do processo (2).
 
+Cada notícia carrega, além de título, fonte, data e URL, um **snippet** curto extraído do próprio
+`<description>` do feed RSS — nunca de uma segunda requisição HTTP a outra página. A URL continua
+fora do contexto que vai para o LLM (decisão de segurança preservada). O relatório também declara a
+janela configurada (`NEWS_MAX_AGE_DAYS`) e as datas da notícia mais recente e mais antiga
+efetivamente usadas, para que a leitura do contexto externo não dependa de inferir o alcance da
+busca.
+
 O acervo de notícias é um DuckDB, e DuckDB tem um escritor só: a ingestão escrevia enquanto a busca
 lia, e a colisão derrubava o contexto externo. Três medidas independentes, nenhuma suficiente
 sozinha ([`src/news/vector_store.py`](src/news/vector_store.py)):
@@ -527,6 +536,20 @@ O **guardrail 3** é o mais consequente. O conjunto de valores citáveis é mont
 retornos das tools; todo número do texto é extraído (notação pt-BR inclusa) e confrontado com ele.
 Se o modelo publicar um valor sem lastro, o texto é **descartado** e substituído pela redação
 determinística — e o bloqueio aparece no relatório.
+
+O mesmo guardrail 3 cobre **causalidade indevida**: conectivos causais explícitos ("devido a", "por
+causa de", "causado pel[oa]", "provocou", "em decorrência de", "como consequência de", "foi
+responsável pel[oa]", "levou a") são bloqueados quando a frase — ou a anterior — não atribui a
+afirmação a uma fonte explícita ("segundo X", "de acordo com X", "X informou/afirmou/declarou..."),
+com o mesmo destino do achado de evidência: texto inteiro descartado, redação determinística no
+lugar. Não é uma nona política — a tabela acima reflete as 8 `GuardrailPolicy` do código, e essa
+verificação vive na mesma `evidence_binding`. O revisor semântico (guardrail 7) ganhou a categoria
+consultiva/bloqueante correspondente, `causalidade_indevida`, também mapeada internamente para
+`evidence_binding`, para pegar o que regex não alcança (paráfrase causal sem o conectivo literal).
+"Resultou em" foi testado e **removido de propósito** dessa lista de conectivos: calibração real
+mostrou que é a forma corrente de descrever a própria distribuição de um indicador ("uma proporção
+resultou em óbito", i.e. `mortality_rate`), não uma inferência causal externa — incluí-lo bloqueava
+a seção de letalidade quase sempre.
 
 ## 11. Governança e auditoria
 
@@ -649,13 +672,20 @@ As dependencias possuem limites de versao principal para evitar atualizacoes
 incompativeis. Para executar tambem as verificacoes de qualidade do codigo, use
 `python -m pip install -r requirements-dev.txt`.
 
+**Lockfile.** `requirements.lock.txt` e `requirements-dev.lock.txt` fixam, com hash, toda
+dependencia direta e transitiva (`uv pip compile --universal --generate-hashes`, resolvido para
+multiplas plataformas porque o time desenvolve no Windows e o CI/Docker rodam Linux). `make install`
+e `make venv` instalam a partir dos lockfiles com `--require-hashes`; o CI e o `Dockerfile` fazem o
+mesmo. `make lock` regenera os dois a partir de `requirements.txt`/`requirements-dev.txt` quando uma
+dependencia muda.
+
 **Antes de rodar a suite, confira a versao do interpretador.** O CI instala
 exatamente o que `requirements.txt` fixa; um Python de sistema fora dessa faixa
 executa os testes contra uma configuracao que o projeto nao suporta, e o defeito
 so aparece no CI. Para reproduzir o ambiente do CI:
 
 ```bash
-make venv                                  # cria .venv-ci nas versoes fixadas
+make venv                                  # cria .venv-ci nas versoes fixadas, a partir do lockfile
 make check PYTHON=.venv-ci/bin/python      # Windows: .venv-ci/Scripts/python.exe
 ```
 
@@ -731,6 +761,9 @@ push).
 | `AGENT_MAX_TOOL_ITERATIONS` | `2` | Iterações do laço de tool calling |
 | `AGENT_MAX_TOOL_RETRIES` | `1` | Retentativas de uma chamada que falhou por rede ou limite de taxa |
 | `API_HOST` / `API_PORT` | `127.0.0.1` / `8000` | Endereço da API HTTP |
+| `API_AUTH_TOKEN` | — | Se definido, exige `Authorization: Bearer <token>` idêntico em toda rota exceto `/health`; sem definir, API local sem autenticação, como antes |
+| `API_RATE_LIMIT_PER_MINUTE` | `60` | Limite de requisições por IP por minuto (em memória); acima dele, `429` com `Retry-After` |
+| `API_CORS_ALLOWED_ORIGINS` | *(vazio)* | Lista explícita de origens liberadas por CORS, separadas por vírgula; vazio = sem CORS habilitado, nunca `*` |
 | `NEWS_MAX_AGE_DAYS` | `45` | Janela de notícias |
 | `NEWS_MAX_RESULTS` | `12` | Limite máximo de notícias recuperadas |
 | `MIN_CELL_SIZE` | `5` | Piso de denominador; abaixo dele a proporção é suprimida |
@@ -760,8 +793,8 @@ registros · arquivos republicados em 14/09/2026 · corte analítico **2026-08-2
 | Cobertura vacinal (covid-19) | **39,93 %** | 7.636 de 19.124 |
 | Incidência por 100 mil hab. | **9,03** | 19.336 casos sobre 214.211.951 habitantes (IBGE 2026) |
 | Excesso sobre o baseline sazonal | **−12,08 %** | 19.336 contra mediana de 21.993 na mesma janela de 2022–2024 — compatível com a sazonalidade |
-| Ocupação de leitos de UTI | **não calculável** | o dataset não registra capacidade instalada |
-| Vacinação da população | **não calculável** | referência SI-PNI não fornecida em `data/reference/` |
+| Ocupação de leitos de UTI | **por exemplo, ~7,7 %** numa execução recente | piso da ocupação real (só pacientes de SRAG); ver `docs/exemplo_relatorio.md`, seção "3b", para o valor e o período exatos de uma execução congelada |
+| Vacinação da população | **por exemplo, ~0,2 %** (covid-19) e **~0,19 %** (influenza) numa execução recente | baixo por definição: `cobertura_vacinal_uf.csv` cobre só fevereiro/2026 (1 mês) do SI-PNI contra um denominador anual; sem população-alvo oficial informada, o denominador cai no IBGE, rotulado como subestimativa — não é indicador quebrado, ver `docs/exemplo_relatorio.md` |
 | Alertas | **normal** | nenhuma regra disparada; variação zero frente à execução anterior de mesmo corte |
 
 Relatório completo desta execução: [`docs/exemplo_relatorio.md`](docs/exemplo_relatorio.md).
@@ -895,10 +928,15 @@ src/
   guardrails/  policies.py · pii.py · input_guard.py · output_guard.py · small_cells.py
                semantic_judge.py (revisor independente)
   observability/ logging_config.py · audit.py
-  agent/       state.py · llm.py · nodes.py · graph.py · orchestrator.py · report.py
+  agent/       state.py · llm.py · nodes.py · graph.py · orchestrator.py
+               report/  render_markdown · render_html · write_report (interface pública inalterada),
+                        dividido por responsabilidade em 7 módulos (formatting, markdown_sections,
+                        html_dashboard, theme, markdown_to_html, writer)
   visualization/ charts.py
 data/          raw/ · processed/ · analytics/          (não versionado)
-               reference/  populacao_uf.csv + proveniência · cobertura_vacinal_uf.template.csv
+               reference/  populacao_uf.csv (IBGE) · leitos_uti_uf.csv (CNES) ·
+                           cobertura_vacinal_uf.csv (SI-PNI) — os três reais, com proveniência ao
+                           lado; + cobertura_vacinal_uf.template.csv
 outputs/       reports/ · charts/ · audit/ · history/  (não versionado)
 docs/          arquitetura.pdf · dicionario_metricas.md · regras_transformacao.md
                catalogo_tools.md · exemplo_relatorio.md · gerar_*.py
@@ -953,23 +991,28 @@ entra em modo determinístico. Os testes cobrem allowlist, schemas, limites, aud
 um seletor controlado, e não a qualidade das escolhas de um modelo real — isso é comportamento de
 modelo, não contrato de software, e não é verificável de forma determinística.
 
-**Do escopo.** A API HTTP não tem autenticação nem limitação de taxa: destina-se a rede interna ou
-a um gateway na frente. A execução agendada baixa a base a cada rodada (sem cache entre execuções).
+**Do escopo.** A API HTTP tem autenticação por token, limitação de taxa e CORS restritivo, mas os
+três são **opt-in** (`API_AUTH_TOKEN`, `API_RATE_LIMIT_PER_MINUTE`, `API_CORS_ALLOWED_ORIGINS` — ver
+seção 12); sem configurá-los, o comportamento é o mesmo de antes, sem autenticação nem CORS. Segue
+recomendável rede interna ou um gateway na frente para exposição fora dela. A execução agendada
+baixa a base a cada rodada (sem cache entre execuções).
 
 ## 17. Próximos passos
 
-1. **Leitos de UTI (CNES)** — o último indicador exigido ainda não calculável: integrar leitos
-   habilitados por UF para transformar o censo de pacientes em taxa de ocupação real.
-2. **Feed oficial do SI-PNI** — substituir o arquivo de referência por extração automática quando
+1. **Feed oficial do SI-PNI** — substituir o arquivo de referência por extração automática quando
    houver fonte estável, mantendo o mesmo contrato e proveniência.
+2. **Estender a cobertura temporal da referência de vacinação** — `cobertura_vacinal_uf.csv` hoje
+   cobre só fevereiro/2026 (1 mês); agregar os demais meses do ano civil com
+   `python -m src.data.reference.vaccination --from-pni <extratos> --year <ano>` deixaria a
+   cobertura populacional comparável a uma campanha anual, em vez de 1 mês contra um denominador
+   anual.
 3. **Nowcasting do atraso de notificação** — estimar a subnotificação recente a partir da
    distribuição de atraso já medida, publicando intervalo em vez de apenas descartar a janela.
 4. **Recorte por faixa etária** — o dado já está na camada analítica; falta expô-lo como parâmetro
    de tool com a supressão de pequenas células que já existe.
 5. **Painel sobre `audit_events` e `runs.jsonl`** — duração por tool, taxa de degradação, deriva dos
    indicadores e custo por execução ao longo do tempo.
-6. **Autenticação e limitação de taxa na API** — pré-requisito para expô-la fora da rede interna.
-7. **Cache do dataset na execução agendada** — evitar o download de ~2 GB a cada rodada.
+6. **Cache do dataset na execução agendada** — evitar o download de ~2 GB a cada rodada.
 
 ---
 

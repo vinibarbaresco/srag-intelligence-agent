@@ -212,6 +212,25 @@ class TestMensagemPublica:
         publico = _public_cause(exc)
         assert not re.search(r"\d", publico)
 
+    def test_causa_publica_nao_despeja_estrutura_tecnica_de_sdk(self):
+        """Achado real (execucao com credencial invalida): o `str()` de uma
+        excecao de SDK de API (ex.: `openai.AuthenticationError`) e algo como
+        `Error code: 401 - {'error': {'message': '...', 'type': '...'}}`.
+        Nada disso e caminho, PID ou numero (o numero vira "N"), mas a chave e
+        as aspas de um dict/JSON cru vazavam no relatorio publicado -- exatamente
+        o "despejo tecnico" que esta funcao promete nao publicar.
+        """
+        exc = RuntimeError(
+            "Error code: 401 - {'error': {'message': 'Incorrect API key provided: "
+            "sk-inval***', 'type': 'invalid_request_error', 'code': 'invalid_api_key', "
+            "'param': None}}"
+        )
+        publico = public_reason(exc, fallback=NEWS_UNAVAILABLE_NOTICE)
+        assert publico == NEWS_UNAVAILABLE_NOTICE
+        assert "{" not in publico and "}" not in publico
+        # O detalhe integral continua disponivel para a auditoria.
+        assert "invalid_api_key" in technical_detail(exc)
+
     def test_aviso_de_indisponibilidade_atravessa_o_guardrail_de_evidencia(self):
         """A falha de noticias nao pode derrubar a interpretacao deterministica."""
         evidence = build_evidence({"mortality_rate": {"value": 7.86, "numerator": 100}})
@@ -270,3 +289,120 @@ class TestIngestaoDegradada:
         evento = trail.events[-1]
         assert evento.status == STATUS_DEGRADED
         assert "771" in evento.error
+
+
+class TestJanelaDeNoticias:
+    """Transparencia da janela de idade: sem numero magico morto e sem vazamento."""
+
+    def _feed_xml(self, *, pub_date: str, title: str, link: str) -> str:
+        return (
+            "<rss><channel><item>"
+            f"<title>{title}</title>"
+            f"<link>{link}</link>"
+            f"<pubDate>{pub_date}</pubDate>"
+            f'<source url="https://agenciabrasil.ebc.com.br">Agencia Brasil</source>'
+            "</item></channel></rss>"
+        )
+
+    def test_default_de_collect_articles_usa_a_configuracao_e_nao_30_fixo(self, monkeypatch):
+        """`rss_client.py:231` nao pode ter um default morto que nunca e usado."""
+        from src.config import get_settings, reset_settings_cache
+        from src.news import rss_client
+
+        monkeypatch.setenv("NEWS_MAX_AGE_DAYS", "10")
+        reset_settings_cache()
+        try:
+            assert get_settings().news_max_age_days == 10
+
+            capturados: list = []
+            real_build = rss_client._build_article
+
+            def espiao(item, query, horizon, trusted_only):
+                capturados.append(horizon)
+                return real_build(item, query, horizon, trusted_only)
+
+            from xml.etree import ElementTree
+
+            xml_bytes = self._feed_xml(
+                pub_date=(datetime.now(tz=UTC) - timedelta(days=1)).strftime(
+                    "%a, %d %b %Y %H:%M:%S GMT"
+                ),
+                title="Aumento de casos de SRAG no Brasil",
+                link="https://agenciabrasil.ebc.com.br/x",
+            )
+            items = list(ElementTree.fromstring(xml_bytes).iterfind(".//item"))
+
+            monkeypatch.setattr(rss_client, "_build_article", espiao)
+            monkeypatch.setattr(rss_client, "fetch_feed", lambda *a, **k: items)
+
+            rss_client.collect_articles(("SRAG",))
+            assert capturados, "collect_articles nao chamou _build_article nem uma vez"
+            janela_usada = datetime.now(tz=UTC) - capturados[0]
+            assert 9.9 <= janela_usada.total_seconds() / 86400 <= 10.1
+        finally:
+            monkeypatch.delenv("NEWS_MAX_AGE_DAYS", raising=False)
+            reset_settings_cache()
+
+    def test_artigo_fora_da_janela_e_descartado_por_collect_articles(self, monkeypatch):
+        from xml.etree import ElementTree
+
+        from src.news import rss_client
+
+        pub_date_velha = (datetime.now(tz=UTC) - timedelta(days=100)).strftime(
+            "%a, %d %b %Y %H:%M:%S GMT"
+        )
+        xml_bytes = self._feed_xml(
+            pub_date=pub_date_velha,
+            title="Aumento de casos de SRAG no Brasil",
+            link="https://agenciabrasil.ebc.com.br/velha",
+        )
+        items = list(ElementTree.fromstring(xml_bytes).iterfind(".//item"))
+        monkeypatch.setattr(rss_client, "fetch_feed", lambda *a, **k: items)
+
+        articles, warnings = rss_client.collect_articles(("SRAG",), max_age_days=45)
+
+        assert articles == []
+        assert warnings == []
+
+    def test_artigo_dentro_da_janela_e_mantido_por_collect_articles(self, monkeypatch):
+        from xml.etree import ElementTree
+
+        from src.news import rss_client
+
+        pub_date_recente = (datetime.now(tz=UTC) - timedelta(days=1)).strftime(
+            "%a, %d %b %Y %H:%M:%S GMT"
+        )
+        xml_bytes = self._feed_xml(
+            pub_date=pub_date_recente,
+            title="Aumento de casos de SRAG no Brasil",
+            link="https://agenciabrasil.ebc.com.br/recente",
+        )
+        items = list(ElementTree.fromstring(xml_bytes).iterfind(".//item"))
+        monkeypatch.setattr(rss_client, "fetch_feed", lambda *a, **k: items)
+
+        articles, _ = rss_client.collect_articles(("SRAG",), max_age_days=45)
+
+        assert len(articles) == 1
+
+    def test_artigo_fora_da_janela_nao_aparece_na_busca_do_vector_store(self, tmp_path):
+        """Mesmo ja gravado, a busca com `max_age_days` nao pode devolve-lo."""
+        from src.news.embeddings import HashingEmbedder
+
+        store = tmp_path / "janela.duckdb"
+        embedder = HashingEmbedder(dimensions=16)
+        antiga = NewsArticle(
+            article_id="antiga",
+            title="Noticia antiga sobre SRAG, fora da janela",
+            source="agenciabrasil.ebc.com.br",
+            published_at=(datetime.now(tz=UTC) - timedelta(days=100)).isoformat(),
+            url="https://agenciabrasil.ebc.com.br/antiga",
+            query="SRAG",
+        )
+        recente = _article(1)
+        upsert_articles([antiga, recente], embedder=embedder, path=store)
+
+        resultado = search("SRAG", top_k=10, max_age_days=45, embedder=embedder, path=store)
+
+        titulos = [item["titulo"] for item in resultado]
+        assert antiga.title not in titulos
+        assert recente.title in titulos

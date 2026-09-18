@@ -1,0 +1,37 @@
+{
+  "fonte": "SI-PNI / Portal de Dados Abertos do SUS - doses aplicadas pelo Programa Nacional de Imunizacoes, agregadas por UF, campanha e ano",
+  "dataset": "https://dadosabertos.saude.gov.br/dataset/doses-aplicadas-pelo-programa-de-nacional-de-imunizacoes-pni-2026",
+  "url": "https://dadosabertos.saude.gov.br/dataset/doses-aplicadas-pelo-programa-de-nacional-de-imunizacoes-pni-2026",
+  "ano_da_campanha": 2026,
+  "extratos": [
+    {
+      "arquivo": "vacinacao_fev_2026_csv.zip",
+      "sha256": "a2ba6e8f8da29b8da0136958755be2ade13f28df608835f03bec7da6e2d6e425",
+      "linhas_lidas": 8902121,
+      "descartes": {
+        "documento_nao_final": 0,
+        "outro_ano": 0,
+        "campanha_fora_do_escopo": 8060077,
+        "uf_invalida": 10286,
+        "data_ilegivel": 0
+      }
+    }
+  ],
+  "colunas_lidas_do_bruto": [
+    "sg_uf_paciente",
+    "ds_nome",
+    "dt_vacina",
+    "st_documento"
+  ],
+  "campanhas_obtidas": [
+    "covid19",
+    "influenza"
+  ],
+  "populacao_alvo_informada": false,
+  "nota_de_privacidade": "O extrato bruto do PNI e por dose aplicada e contem identificador pseudonimizado de paciente. Ele nao e persistido: apenas quatro colunas sao lidas em fluxo e somente o agregado por UF, campanha e ano e gravado.",
+  "obtido_em": "2026-09-17T23:30:04.070431+00:00",
+  "cobertura_temporal_observacao": "Cobertura temporal PARCIAL: agregado a partir de 1 extrato(s) mensal(is) do PNI (vacinacao_fev_2026_csv.zip), nao do ano civil completo de 2026. Doses aplicadas em meses de 2026 nao incluidos nesta lista NAO estao refletidas neste indicador -- nao interpretar 'ano' como cobertura anual completa.",
+  "arquivo": "cobertura_vacinal_uf.csv",
+  "linhas": 54,
+  "sha256": "d4c5f1fe3b8a30bfa267b7403293d6db0d82a3b374f1b29bb20c25c8aeee774b"
+}

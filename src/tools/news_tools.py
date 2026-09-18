@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.config import get_settings
 from src.guardrails.sanitize import public_reason, technical_detail
 from src.news import vector_store
 from src.news.vector_store import AccessReport, EmbeddingBackendMismatch, VectorStoreBusy
@@ -89,11 +90,19 @@ def search_srag_news(**kwargs: Any) -> dict[str, Any]:
     query = NewsQuery(**kwargs)
     report = AccessReport(operacao="busca_de_noticias")
 
+    # Janela efetivamente usada: a informada pelo chamador, ou a padrao
+    # configurada quando ele a omite. Resolvida aqui -- e nao deixada em
+    # aberto na busca -- para que a busca real e o que o relatorio declara
+    # como janela nunca divirjam (Guardrail de transparencia da janela).
+    effective_max_age_days = (
+        query.max_age_days if query.max_age_days is not None else get_settings().news_max_age_days
+    )
+
     try:
         articles = vector_store.search(
             query.query,
             top_k=query.top_k,
-            max_age_days=query.max_age_days,
+            max_age_days=effective_max_age_days,
             report=report,
         )
         unavailable_reason: str | None = None
@@ -113,6 +122,9 @@ def search_srag_news(**kwargs: Any) -> dict[str, Any]:
         "total": len(articles),
         "source": _SOURCE_LABEL,
         "vector_db": store_stats,
+        "janela_dias": effective_max_age_days,
+        "data_mais_recente": store_stats.get("noticia_mais_recente"),
+        "data_mais_antiga": store_stats.get("noticia_mais_antiga"),
         "unavailable_reason": unavailable_reason,
         "technical_detail": detail,
         "acesso_ao_acervo": report.to_dict(),

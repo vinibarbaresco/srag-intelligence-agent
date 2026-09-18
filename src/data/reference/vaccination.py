@@ -113,12 +113,21 @@ VACCINATION_SOURCE_LABEL: Final[str] = (
 
 # --- Classificacao da campanha ----------------------------------------------
 #
-# O extrato do PNI nomeia o imunobiologico em texto livre (`ds_vacina`, ex.:
-# "VACINA COVID-19 COMIRNATY", "VACINA INFLUENZA TRIVALENTE"). A classificacao
-# e por palavra-chave, deliberadamente conservadora: uma dose que nao case com
-# nenhuma das duas campanhas e **descartada e contada**, nunca atribuida por
-# proximidade. As demais vacinas do calendario (BCG, tríplice, HPV) nao tem
-# equivalente no SIVEP-Gripe e nao entram no indicador.
+# O extrato do PNI nomeia o imunobiologico em texto livre (`ds_nome`, ex.:
+# "vacina covid-19", "vacina influenza trivalente (fragmentada, inativada)").
+# A classificacao e por palavra-chave, deliberadamente conservadora: uma dose
+# que nao case com nenhuma das duas campanhas e **descartada e contada**,
+# nunca atribuida por proximidade. As demais vacinas do calendario (BCG,
+# tríplice, HPV) nao tem equivalente no SIVEP-Gripe e nao entram no indicador.
+#
+# Confirmado no extrato real de fev/2026 (106 imunobiologicos distintos no
+# catalogo do PNI): seis deles citam a bacteria "Haemophilus influenzae B" --
+# Hib, DILHib, Penta, Penta acelular, Tetra, Hexa acelular -- e "influenza"
+# e substring de "influenzae" (e, em "Hib", grafado ate sem o "e" final: "Hae-
+# mophilus influenza B"). Sem a excecao abaixo essas doses do calendario
+# infantil, muito mais frequentes que a vacina de gripe, contaminariam a
+# campanha "influenza".
+_HAEMOPHILUS_MARKER: Final[str] = "HAEMOPHILUS"
 
 #: Palavras-chave que identificam cada campanha no texto do imunobiologico.
 CAMPAIGN_KEYWORDS: Final[dict[str, tuple[str, ...]]] = {
@@ -133,16 +142,26 @@ CAMPAIGN_KEYWORDS: Final[dict[str, tuple[str, ...]]] = {
 #: vezes, entao apenas o registro final entra.
 _FINAL_DOCUMENT_STATUS: Final[str] = "final"
 
-#: Colunas realmente lidas do extrato do PNI (quatro de 60).
+#: Colunas realmente lidas do extrato do PNI (quatro de 56-60, o numero varia
+#: por competencia). `ds_nome` -- nao `ds_vacina`, que nao existe no extrato
+#: real (confirmado no dicionario de fev/2026) -- e o nome completo do
+#: imunobiologico ("vacina influenza trivalente..."); `sg_imunobiologico` e
+#: so a sigla curta e nao contem palavras-chave de forma confiavel (ex.:
+#: "INF3" para influenza trivalente, sem a palavra "influenza").
 _RAW_COLUMNS_READ: Final[tuple[str, ...]] = (
     "sg_uf_paciente",
-    "ds_vacina",
+    "ds_nome",
     "dt_vacina",
     "st_documento",
 )
 
 _RAW_SEPARATOR: Final[str] = ";"
-_RAW_ENCODING: Final[str] = "utf-8"
+#: O extrato oficial do PNI e publicado em Windows-1252 (confirmado no extrato
+#: real de fev/2026: campos como "1a Dose" ou "Subcutanea" tem acentos em
+#: bytes fora da faixa ASCII que o UTF-8 rejeita). ASCII puro -- usado em todas
+#: as fixtures de teste -- decodifica de forma identica nas duas codificacoes,
+#: entao esta troca nao muda nenhum teste existente.
+_RAW_ENCODING: Final[str] = "cp1252"
 
 #: Conteudo do arquivo-modelo distribuido com o repositorio.
 TEMPLATE: Final[str] = (
@@ -172,6 +191,10 @@ def classify_campaign(description: str) -> str | None:
     """
     text = (description or "").upper()
     for campaign, keywords in CAMPAIGN_KEYWORDS.items():
+        if campaign == "influenza" and _HAEMOPHILUS_MARKER in text:
+            # "Haemophilus influenzae B" e a bacteria do componente Hib, nao a
+            # vacina de gripe -- ver nota acima de CAMPAIGN_KEYWORDS.
+            continue
         if any(keyword in text for keyword in keywords):
             return campaign
     return None
@@ -253,7 +276,7 @@ def aggregate_pni_csv(
             discarded["outro_ano"] += 1
             continue
 
-        campaign = classify_campaign(row[index["ds_vacina"]])
+        campaign = classify_campaign(row[index["ds_nome"]])
         if campaign is None:
             discarded["campanha_fora_do_escopo"] += 1
             continue
@@ -522,6 +545,17 @@ def main(argv: list[str] | None = None) -> int:
         targets = read_target_population(args.target_population) if args.target_population else None
         frame, provenance = build_vaccination_reference(
             args.from_pni, year=args.year, target_population=targets
+        )
+        # A agregacao so cobre os extratos mensais informados nesta execucao, nunca
+        # o ano civil inteiro por definicao (cada extrato e um mes). Isso precisa
+        # ficar declarado na propria proveniencia -- sem isto, "ano: <ano>" no CSV
+        # poderia ser lido, erradamente, como cobertura anual completa.
+        provenance["cobertura_temporal_observacao"] = (
+            f"Cobertura temporal PARCIAL: agregado a partir de {len(args.from_pni)} "
+            f"extrato(s) mensal(is) do PNI ({', '.join(p.name for p in args.from_pni)}), "
+            f"nao do ano civil completo de {args.year}. Doses aplicadas em meses de "
+            f"{args.year} nao incluidos nesta lista NAO estao refletidas neste "
+            "indicador -- nao interpretar 'ano' como cobertura anual completa."
         )
         target = write_vaccination_reference(frame, provenance, args.output)
     except VaccinationReferenceError as exc:

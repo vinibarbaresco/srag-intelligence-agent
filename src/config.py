@@ -217,6 +217,21 @@ class Settings(BaseSettings):
     # --- API HTTP ------------------------------------------------------------
     api_host: str = Field(default="127.0.0.1")
     api_port: int = Field(default=8000, ge=1, le=65535)
+    # Token de autenticacao da API HTTP. Distinto de `openai_api_key`, que e a
+    # credencial do provedor LLM -- este e o segredo que protege o proprio
+    # servidor. `None` (padrao) mantem o modo local sem autenticacao, para nao
+    # quebrar o uso hoje existente sem configuracao adicional; definido, toda
+    # rota (exceto `/health`) passa a exigir `Authorization: Bearer <token>`.
+    api_auth_token: str | None = Field(default=None)
+    # Teto de requisicoes por IP de origem por janela de um minuto. 60/min e
+    # folgado para uso interativo e humano, mas interrompe um cliente com bug
+    # de retry ou uma varredura antes que sobrecarregue o processo unico da API.
+    api_rate_limit_per_minute: int = Field(default=60, ge=1)
+    # Origens autorizadas a fazer requisicao cross-origin (CORS). Vazio (padrao)
+    # desativa o middleware de CORS por completo -- o estado mais restritivo,
+    # correto para consumo servidor-a-servidor ou mesma origem. Uma lista
+    # habilita CORS so para as origens listadas, nunca com `*`.
+    api_cors_allowed_origins: Annotated[list[str], NoDecode] = Field(default=[])
 
     # --- Noticias ------------------------------------------------------------
     news_max_age_days: int = Field(default=45, ge=1, le=365)
@@ -248,6 +263,19 @@ class Settings(BaseSettings):
                     f"SRAG_YEARS invalido: {value!r}. Use anos separados por "
                     "virgula, por exemplo: SRAG_YEARS=2025,2026"
                 ) from exc
+        return value
+
+    @field_validator("api_cors_allowed_origins", mode="before")
+    @classmethod
+    def _parse_origins(cls, value: object) -> object:
+        """Aceita `API_CORS_ALLOWED_ORIGINS=https://a.com,https://b.com` via `.env`.
+
+        Mesmo padrao de `_parse_years`: `NoDecode` desliga o parse JSON
+        automatico do pydantic-settings para este campo composto, entao o
+        parse por virgula precisa ser feito aqui.
+        """
+        if isinstance(value, str):
+            return [part.strip() for part in value.split(",") if part.strip()]
         return value
 
     # --- Caminhos ------------------------------------------------------------

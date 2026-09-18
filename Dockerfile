@@ -22,8 +22,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # Dependencias primeiro, para aproveitar o cache de camadas quando so o codigo muda.
-COPY requirements.txt .
-RUN pip install --upgrade pip && pip install -r requirements.txt
+# `requirements.lock.txt` fixa e verifica por hash toda dependencia, direta e
+# transitiva (gerado por `make lock`, ver requirements.txt para as diretas).
+COPY requirements.lock.txt .
+RUN pip install --upgrade pip && pip install --require-hashes -r requirements.lock.txt
 
 COPY main.py pyproject.toml ./
 COPY src/ src/
