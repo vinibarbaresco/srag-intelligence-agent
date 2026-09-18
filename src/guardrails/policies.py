@@ -231,6 +231,48 @@ PRESCRIPTIVE_OUTPUT_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
     ),
 )
 
+#: Conectivos causais explicitos, proibidos na saida do modelo quando a frase
+#: (ou a frase imediatamente anterior) nao atribui a afirmacao a uma fonte.
+#:
+#: Deliberadamente NAO inclui verbos isolados como "aumentou", "reduziu",
+#: "caiu" ou "subiu": esses aparecem o tempo todo em frases puramente
+#: descritivas e legitimas ("os casos aumentaram 20%", "a letalidade caiu
+#: entre janeiro e marco") sem afirmar causa alguma. Um guardrail que os
+#: bloqueasse teria alto falso positivo -- e a calibracao deste projeto
+#: (ver `openai_judge_model` em `src/config.py`) ja mostrou que um guardrail
+#: assim e desligado na pratica porque interrompe interpretacoes corretas.
+#: O que se proibe aqui e o CONECTIVO que liga explicitamente uma causa a um
+#: efeito ("devido a", "causado por" ...) sem fonte, porque e esse conectivo
+#: -- e nao o verbo de variacao -- que transforma uma leitura descritiva em
+#: uma afirmacao causal que os dados agregados nao sustentam.
+#:
+#: "resultou em" foi testado e REMOVIDO da lista: execucao real (nao so os
+#: exemplos de teste) mostrou que e a forma corrente de descrever a PROPRIA
+#: distribuicao de um indicador -- "uma proporcao significativa resultou em
+#: obito" e a leitura textual de EVOLUCAO/mortality_rate, ja evidenciada pelo
+#: numerador/denominador da propria tool, nao uma inferencia causal externa.
+#: Bloqueava a secao de letalidade, que aparece em praticamente todo
+#: relatorio, e caia sistematicamente na redacao deterministica -- o proprio
+#: efeito de "guardrail desligado na pratica" que o paragrafo acima descreve.
+#: A categoria `causalidade_indevida` do revisor semantico continua cobrindo
+#: um uso genuinamente causal dessa frase, porque so um modelo -- nao um
+#: regex -- distingue "X resultou em obito" (descritivo, ja lastreado) de
+#: "a queda da vacinacao resultou em mais casos" (causal, sem fonte).
+CAUSAL_OUTPUT_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
+    re.compile(r"\bdevido a\b", re.I),
+    re.compile(r"\bpor causa de\b", re.I),
+    re.compile(r"\bcausad[oa]\s+pel[oa]\b", re.I),
+    re.compile(r"\bprovoc(ou|a|aram)\b", re.I),
+    re.compile(r"\bem decorr[eê]ncia de\b", re.I),
+    re.compile(r"\bcomo consequ[eê]ncia de\b", re.I),
+    # "por" e a preposicao pedida na especificacao; "pel[oa]" cobre a
+    # contracao (preposicao + artigo) que o portugues corrente usa quase
+    # sempre antes de substantivo definido ("foi responsavel pelo aumento").
+    # Sem a contracao o padrao nunca casaria a forma mais comum da frase.
+    re.compile(r"\bfoi respons[aá]vel (por|pel[oa])\b", re.I),
+    re.compile(r"\blevou (a|ao)\b", re.I),
+)
+
 DISCLAIMER: Final[str] = (
     "Este relatório apresenta análise epidemiológica agregada de dados públicos "
     "de vigilância. Não constitui diagnóstico, prescrição, recomendação "

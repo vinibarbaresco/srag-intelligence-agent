@@ -7,7 +7,7 @@ quanto calcular errado.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 
 import pytest
 
@@ -124,7 +124,12 @@ class TestAtualidadeDaBase:
 
     def test_data_do_sistema_nao_se_confunde_com_a_da_base(self, connection):
         currency = data_currency(connection)
-        assert currency["data_atual_do_sistema"] == date.today().isoformat()
+        # `data_atual_do_sistema` e ancorada em UTC (src/metrics/epidemiology.py),
+        # de proposito -- mesma convencao usada no resto do sistema (ex.: o
+        # cabecalho do relatorio). `date.today()` e a data LOCAL e diverge da UTC
+        # numa janela de ate 3h por dia neste fuso (America/Sao_Paulo, UTC-3),
+        # o que tornava este teste um flake dependente do horario da execucao.
+        assert currency["data_atual_do_sistema"] == datetime.now(tz=UTC).date().isoformat()
         # A base sintetica e ancorada em 2026-08-23, nao em hoje.
         assert (
             currency["data_mais_recente_de_digitacao_na_base"] != currency["data_atual_do_sistema"]

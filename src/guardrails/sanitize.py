@@ -63,6 +63,15 @@ _FILENAME_PATTERN: Final[re.Pattern[str]] = re.compile(
 #: mensagem de erro nao introduza valor sem lastro no texto do relatorio.
 _NUMBER_PATTERN: Final[re.Pattern[str]] = re.compile(r"\d[\d.,:]*")
 
+#: Marcador de estrutura tecnica bruta (dict/JSON) que sobrevive as limpezas
+#: acima sem ser caminho, PID nem numero -- e o caso real de uma excecao de
+#: SDK de API (ex.: `openai.AuthenticationError`), cujo `str()` e algo como
+#: `Error code: 401 - {'error': {'message': '...', 'type': '...'}}`. Nenhum
+#: fragmento disso e caminho, PID ou numero (o numero vira "N"), mas chaves e
+#: aspas de dict/JSON nunca sao uma "frase publicavel" -- sao um despejo
+#: tecnico, do jeito que o docstring desta funcao promete que nao acontece.
+_STRUCTURED_DUMP_PATTERN: Final[re.Pattern[str]] = re.compile(r"[{}]")
+
 #: Tamanho maximo da mensagem publica.
 _PUBLIC_MAX_CHARS: Final[int] = 240
 
@@ -94,7 +103,7 @@ def public_reason(detail: Any, *, fallback: str) -> str:
     text = _NUMBER_PATTERN.sub("N", text)
     text = re.sub(r"\s+", " ", text).strip(" \t\n\r.;,")
 
-    if len(text) < 12:
+    if len(text) < 12 or _STRUCTURED_DUMP_PATTERN.search(text):
         return fallback
     if len(text) > _PUBLIC_MAX_CHARS:
         text = text[:_PUBLIC_MAX_CHARS].rsplit(" ", 1)[0] + "..."

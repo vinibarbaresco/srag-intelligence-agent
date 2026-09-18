@@ -36,7 +36,7 @@ _HEADER = "uf,ano,campanha,doses_aplicadas,populacao_alvo,fonte,url,data_extraca
 #: Cabecalho minimo do extrato do PNI, com as quatro colunas lidas. As outras 56
 #: colunas do arquivo oficial nao aparecem aqui de proposito: se o agregador
 #: passar a depender de alguma delas, este teste falha.
-_PNI_HEADER = "sg_uf_paciente;ds_vacina;dt_vacina;st_documento\n"
+_PNI_HEADER = "sg_uf_paciente;ds_nome;dt_vacina;st_documento\n"
 
 
 def _pni(rows: str) -> io.StringIO:
@@ -54,6 +54,18 @@ class TestClassificacaoDeCampanha:
             ("VACINA BCG", None),
             ("VACINA HPV QUADRIVALENTE", None),
             ("", None),
+            # Vacinas combinadas com o componente Haemophilus influenzae B
+            # citam "influenza" no nome da bacteria, nao da vacina de gripe.
+            # Nomes reais do catalogo do PNI (extrato de fev/2026) -- inclusive
+            # a grafia sem o "e" final em "Hib", que por si so bateria com a
+            # palavra-chave "INFLUENZA".
+            (
+                "vacina adsorvida difteria, tetano, pertussis, hepatite B "
+                "(recombinante) e Haemophilus influenzae B (conjugada)",
+                None,
+            ),  # Penta
+            ("vacina Haemophilus influenza B (conjugada)", None),  # Hib
+            ("diluente para vacina Haemophilus influenzae B (conjugada)", None),  # DILHib
         ],
     )
     def test_campanhas_sao_distinguidas_e_o_resto_e_descartado(self, descricao, esperado):
@@ -106,7 +118,7 @@ class TestAgregacaoDoExtratoPNI:
         """O extrato bruto tem co_paciente; o agregado nao pode ter nada disso."""
         extract = tmp_path / "vacinacao_abr_2026.csv"
         extract.write_text(
-            "co_paciente;sg_uf_paciente;ds_vacina;dt_vacina;st_documento\n"
+            "co_paciente;sg_uf_paciente;ds_nome;dt_vacina;st_documento\n"
             "abc123;SP;VACINA INFLUENZA;2026-04-10;final\n"
             "def456;RJ;VACINA COVID-19;2026-04-11;final\n",
             encoding="utf-8",

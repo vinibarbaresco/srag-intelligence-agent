@@ -112,6 +112,74 @@ class TestCamadaDeSaida:
         assert validate_output(texto, EVIDENCE).allowed is True
 
 
+class TestCausalidadeIndevida:
+    """Guardrail 3 (nova rodada): conectivo causal explicito exige fonte."""
+
+    def test_causal_sem_atribuicao_e_bloqueada(self):
+        texto = "A queda na cobertura vacinal foi responsavel pelo aumento de casos."
+        result = validate_output(texto, EVIDENCE)
+        assert result.allowed is False
+        assert "evidence_binding" in result.blocked_by
+        assert any(v["type"] == "causalidade_sem_atribuicao" for v in result.violations)
+
+    def test_causal_com_atribuicao_explicita_passa(self):
+        texto = (
+            "Segundo a Fiocruz, a queda na cobertura vacinal foi responsavel pelo aumento de casos."
+        )
+        assert validate_output(texto, EVIDENCE).allowed is True
+
+    def test_causal_com_atribuicao_na_frase_anterior_passa(self):
+        texto = (
+            "De acordo com a reportagem, houve mudanca no cenario. "
+            "A queda na cobertura vacinal foi responsavel pelo aumento de casos."
+        )
+        assert validate_output(texto, EVIDENCE).allowed is True
+
+    def test_linguagem_observacional_sem_conectivo_causal_passa(self):
+        texto = (
+            "O aumento de casos coincide temporalmente com a queda na cobertura "
+            "vacinal; os dados agregados nao permitem inferencia causal direta."
+        )
+        assert validate_output(texto, EVIDENCE).allowed is True
+
+    def test_verbo_de_variacao_isolado_nao_e_bloqueado(self):
+        """Verbos como 'aumentou'/'reduziu' sozinhos nao sao conectivo causal."""
+        texto = "A letalidade aumentou entre casos encerrados e a cobertura vacinal reduziu."
+        assert validate_output(texto, EVIDENCE).allowed is True
+
+    def test_resultou_em_descrevendo_o_proprio_indicador_nao_e_bloqueado(self):
+        """Achado real (execucao com LLM): 'resultou em' descrevendo a propria
+        distribuicao de EVOLUCAO/mortality_rate nao e causalidade externa --
+        e a leitura textual do numerador/denominador ja evidenciados pela
+        tool. Bloquear isso derrubava a secao de letalidade, presente em
+        praticamente todo relatorio, para a redacao deterministica. Por isso
+        'resultou em' foi removido de CAUSAL_OUTPUT_PATTERNS (ver policies.py).
+        """
+        texto = (
+            "A letalidade entre casos encerrados e de 5.25%, o que indica que, entre os "
+            "casos que tiveram um desfecho conhecido, uma proporcao significativa "
+            "resultou em obito."
+        )
+        assert validate_output(texto, EVIDENCE).allowed is True
+
+    @pytest.mark.parametrize(
+        "conectivo",
+        [
+            "devido a queda na cobertura vacinal",
+            "por causa de mudancas no cenario epidemiologico",
+            "causado pela queda na cobertura vacinal",
+            "em decorrencia de mudancas no cenario epidemiologico",
+            "como consequencia de mudancas no cenario epidemiologico",
+            "levou a mais casos",
+        ],
+    )
+    def test_conectivos_causais_sem_fonte_sao_bloqueados(self, conectivo):
+        texto = f"O aumento de casos foi {conectivo}."
+        result = validate_output(texto, EVIDENCE)
+        assert result.allowed is False
+        assert "evidence_binding" in result.blocked_by
+
+
 class TestSegredosEmLogs:
     def test_chave_de_api_e_detectada_e_mascarada(self):
         texto = "chave: sk-proj-abcdefghijklmnopqrstuvwxyz1234567890"

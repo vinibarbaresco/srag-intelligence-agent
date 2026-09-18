@@ -42,12 +42,15 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements.txt
+          cache-dependency-path: requirements.lock.txt
 
       - name: Instalar dependencias
+        # A partir do lockfile com hash (ver requirements.lock.txt e `make lock`):
+        # mesma reprodutibilidade do CI de qualidade, sem a dependencia de
+        # desenvolvimento (ruff, httpx) que este workflow nao usa.
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
+          python -m pip install --require-hashes -r requirements.lock.txt
 
       # A linha de base do schema drift (data/processed/schema_baseline.json)
       # nao e versionada (data/processed/ e gitignored de proposito -- ela e

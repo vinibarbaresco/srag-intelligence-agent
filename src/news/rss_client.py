@@ -33,6 +33,12 @@ _FEED_TEMPLATE: Final[str] = (
 _HTTP_TIMEOUT: Final[tuple[int, int]] = (10, 25)
 _USER_AGENT: Final[str] = "srag-intelligence-agent/1.0 (PoC academica)"
 
+#: Tamanho maximo do snippet extraido de `<description>`.
+_SNIPPET_MAX_CHARS: Final[int] = 280
+
+#: Marcacao HTML simples, removida do snippet bruto do feed.
+_HTML_TAG_PATTERN: Final[re.Pattern[str]] = re.compile(r"<[^>]+>")
+
 #: Consultas padrao, derivadas dos temas exigidos na especificacao.
 DEFAULT_QUERIES: Final[tuple[str, ...]] = (
     "SRAG sindrome respiratoria aguda grave",
@@ -134,6 +140,12 @@ class NewsArticle:
     url: str
     query: str
     article_id: str
+    #: Trecho curto do `<description>` do feed, sem marcacao HTML, truncado a
+    #: `_SNIPPET_MAX_CHARS` caracteres. Vazio quando o feed nao traz descricao.
+    #: Vem apenas do que o proprio RSS entrega -- nunca de uma segunda
+    #: requisicao ao corpo da materia, o que preservaria a decisao
+    #: arquitetural de nao buscar HTML completo.
+    snippet: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -228,20 +240,26 @@ def fetch_feed(
 def collect_articles(
     queries: tuple[str, ...] = DEFAULT_QUERIES,
     *,
-    max_age_days: int = 30,
+    max_age_days: int | None = None,
     trusted_only: bool = True,
 ) -> tuple[list[NewsArticle], list[str]]:
     """Coleta noticias das consultas informadas, deduplicadas e filtradas.
 
     Args:
         queries: termos de busca.
-        max_age_days: descarta itens publicados antes desta janela.
+        max_age_days: descarta itens publicados antes desta janela. Omitir usa
+            `settings.news_max_age_days` -- nao ha um numero magico proprio
+            aqui, para que a janela real da coleta nunca divirja da configurada.
         trusted_only: mantem apenas fontes da allowlist.
 
     Returns:
         Par `(artigos, avisos)`. Os avisos descrevem feeds que falharam, de modo
         que a degradacao da coleta seja visivel no relatorio em vez de silenciosa.
     """
+    if max_age_days is None:
+        from src.config import get_settings
+
+        max_age_days = get_settings().news_max_age_days
     horizon = datetime.now(tz=UTC) - timedelta(days=max_age_days)
     collected: dict[str, NewsArticle] = {}
     warnings: list[str] = []
@@ -308,4 +326,20 @@ def _build_article(
         url=link,
         query=query,
         article_id=_article_id(title, publisher_url),
+        snippet=_extract_snippet(item),
     )
+
+
+def _extract_snippet(item: ElementTree.Element) -> str:
+    """Snippet curto do `<description>` do item, sem HTML e truncado.
+
+    So le o que o proprio feed RSS ja entrega -- nunca faz uma segunda
+    requisicao para buscar o corpo da materia, o que preservaria a decisao
+    arquitetural do projeto de nao buscar HTML completo (ver o modulo).
+    """
+    raw = (item.findtext("description") or "").strip()
+    if not raw:
+        return ""
+    without_tags = _HTML_TAG_PATTERN.sub(" ", raw)
+    collapsed = " ".join(without_tags.split())
+    return collapsed[:_SNIPPET_MAX_CHARS]

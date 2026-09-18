@@ -13,11 +13,16 @@ from __future__ import annotations
 
 import json
 import re
+import time
+from collections import defaultdict
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from src.api.schemas import (
     ErrorResponse,
@@ -40,9 +45,66 @@ _RUN_ID = re.compile(
 _INDICATOR_CATEGORIES = {"indicador", "diagnostico"}
 _SERIES_CATEGORIES = {"serie"}
 
+#: Rotas publicas mesmo com token configurado: checagem de liveness nao pode
+#: exigir credencial, senao o proprio monitoramento de saude fica bloqueado.
+_PUBLIC_PATHS = {"/health"}
+
+
+def _require_auth(request: Request) -> None:
+    """Dependency de autenticacao por token, opcional.
+
+    Sem `api_auth_token` configurado (padrao), nao faz nada -- o modo local
+    sem autenticacao continua exatamente como hoje. Com o token configurado,
+    exige `Authorization: Bearer <token>` idendico; ausencia ou valor errado
+    vira 401 com mensagem generica (nunca ecoa o valor recebido).
+    """
+    settings = get_settings()
+    token = settings.api_auth_token
+    if token is None or request.url.path in _PUBLIC_PATHS:
+        return
+    header = request.headers.get("Authorization", "")
+    scheme, _, credential = header.partition(" ")
+    if scheme != "Bearer" or credential != token:
+        raise HTTPException(status_code=401, detail="Credencial invalida ou ausente.")
+
+
+class _RateLimitMiddleware(BaseHTTPMiddleware):
+    """Rate limiting por IP de origem, janela fixa de um minuto.
+
+    Implementacao propria e minima (sem dependencia nova): um contador em
+    memoria por `(ip, janela)`, protegido por um lock simples -- concorrencia
+    de threads dentro de um unico processo, nao um limite distribuido.
+    """
+
+    def __init__(self, app: Any) -> None:
+        super().__init__(app)
+        self._lock = Lock()
+        self._counters: dict[tuple[str, int], int] = defaultdict(int)
+
+    async def dispatch(self, request: Request, call_next: Any) -> Any:
+        settings = get_settings()
+        limit = settings.api_rate_limit_per_minute
+        window = int(time.time() // 60)
+        client = request.client.host if request.client else "desconhecido"
+        key = (client, window)
+        with self._lock:
+            # Janelas antigas nao precisam ser removidas explicitamente: o
+            # numero de chaves vivas e limitado por IPs distintos x poucas
+            # janelas recentes, e o processo da API nao roda meses sem reiniciar.
+            self._counters[key] += 1
+            count = self._counters[key]
+        if count > limit:
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Limite de requisicoes excedido."},
+                headers={"Retry-After": "60"},
+            )
+        return await call_next(request)
+
 
 def create_app() -> FastAPI:
     """Monta a aplicacao. Fabrica explicita para que os testes a instanciem."""
+    settings = get_settings()
     app = FastAPI(
         title="SRAG Intelligence Agent",
         version="1",
@@ -50,8 +112,25 @@ def create_app() -> FastAPI:
             "Indicadores deterministicos de SRAG (Open DATASUS) e geracao de relatorio "
             "com guardrails e trilha de auditoria. Analise agregada; nenhum dado individual."
         ),
-        responses={422: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
+        responses={
+            401: {"model": ErrorResponse},
+            422: {"model": ErrorResponse},
+            404: {"model": ErrorResponse},
+            429: {"model": ErrorResponse},
+        },
+        dependencies=[Depends(_require_auth)],
     )
+
+    app.add_middleware(_RateLimitMiddleware)
+
+    if settings.api_cors_allowed_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=list(settings.api_cors_allowed_origins),
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
     @app.get("/health", response_model=HealthResponse, tags=["operacao"])
     def health() -> HealthResponse:

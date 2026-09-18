@@ -6,10 +6,32 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.api import create_app
+from src.config import reset_settings_cache
 
 
 @pytest.fixture
 def client(synthetic_database, monkeypatch) -> TestClient:
+    monkeypatch.setattr("src.news.vector_store.search", lambda *a, **k: [])
+    monkeypatch.setattr(
+        "src.news.vector_store.stats",
+        lambda *a, **k: {"noticias_armazenadas": 0, "disponivel": False},
+    )
+    return TestClient(create_app(), raise_server_exceptions=False)
+
+
+def _configured_client(monkeypatch, synthetic_database, **env: str) -> TestClient:
+    """Client sobre uma app nova, com variaveis de ambiente da API HTTP customizadas.
+
+    `create_app()` le `get_settings()` na propria criacao (para decidir se
+    acopla o middleware de CORS), entao o ambiente precisa estar no lugar
+    ANTES da fabrica ser chamada -- diferente do fixture `client`, que usa
+    sempre a configuracao padrao. Quem chama e responsavel por
+    `monkeypatch.undo()` + `reset_settings_cache()` no fim do teste, no mesmo
+    padrao usado no resto da suite (ver `tests/test_metrics.py`).
+    """
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    reset_settings_cache()
     monkeypatch.setattr("src.news.vector_store.search", lambda *a, **k: [])
     monkeypatch.setattr(
         "src.news.vector_store.stats",
@@ -126,3 +148,111 @@ class TestRelatorios:
             "/relatorios/00000000-0000-0000-0000-000000000000", params={"formato": "pdf"}
         )
         assert response.status_code == 422
+
+
+class TestAutenticacao:
+    def test_sem_token_configurado_todas_rotas_acessiveis_sem_header(self, client):
+        """Regressao: o padrao (sem API_AUTH_TOKEN) nao exige header nenhum."""
+        assert client.get("/health").status_code == 200
+        assert client.get("/indicadores").status_code == 200
+        assert client.get("/indicadores/get_mortality_rate", params={"uf": "SP"}).status_code == 200
+
+    def test_sem_header_e_401_quando_token_configurado(self, monkeypatch, synthetic_database):
+        api_client = _configured_client(
+            monkeypatch, synthetic_database, API_AUTH_TOKEN="segredo-123"
+        )
+        try:
+            response = api_client.get("/indicadores")
+            assert response.status_code == 401
+            assert "segredo-123" not in response.text
+        finally:
+            monkeypatch.undo()
+            reset_settings_cache()
+
+    def test_header_com_token_errado_e_401(self, monkeypatch, synthetic_database):
+        api_client = _configured_client(
+            monkeypatch, synthetic_database, API_AUTH_TOKEN="segredo-123"
+        )
+        try:
+            response = api_client.get("/indicadores", headers={"Authorization": "Bearer errado"})
+            assert response.status_code == 401
+        finally:
+            monkeypatch.undo()
+            reset_settings_cache()
+
+    def test_header_com_token_correto_e_200(self, monkeypatch, synthetic_database):
+        api_client = _configured_client(
+            monkeypatch, synthetic_database, API_AUTH_TOKEN="segredo-123"
+        )
+        try:
+            response = api_client.get(
+                "/indicadores", headers={"Authorization": "Bearer segredo-123"}
+            )
+            assert response.status_code == 200
+        finally:
+            monkeypatch.undo()
+            reset_settings_cache()
+
+    def test_health_continua_publico_mesmo_com_token_configurado(
+        self, monkeypatch, synthetic_database
+    ):
+        api_client = _configured_client(
+            monkeypatch, synthetic_database, API_AUTH_TOKEN="segredo-123"
+        )
+        try:
+            assert api_client.get("/health").status_code == 200
+        finally:
+            monkeypatch.undo()
+            reset_settings_cache()
+
+
+class TestRateLimit:
+    def test_quarta_requisicao_na_mesma_janela_e_429_com_retry_after(
+        self, monkeypatch, synthetic_database
+    ):
+        api_client = _configured_client(
+            monkeypatch, synthetic_database, API_RATE_LIMIT_PER_MINUTE="3"
+        )
+        try:
+            for _ in range(3):
+                assert api_client.get("/health").status_code == 200
+            response = api_client.get("/health")
+            assert response.status_code == 429
+            assert response.headers.get("Retry-After") == "60"
+        finally:
+            monkeypatch.undo()
+            reset_settings_cache()
+
+
+class TestCORS:
+    def test_sem_origens_configuradas_resposta_nao_tem_header_cors(self, client):
+        response = client.get("/health", headers={"Origin": "https://exemplo.com"})
+        assert "access-control-allow-origin" not in response.headers
+
+    def test_origem_permitida_e_refletida_no_header(self, monkeypatch, synthetic_database):
+        api_client = _configured_client(
+            monkeypatch,
+            synthetic_database,
+            API_CORS_ALLOWED_ORIGINS="https://painel.exemplo.com",
+        )
+        try:
+            response = api_client.get("/health", headers={"Origin": "https://painel.exemplo.com"})
+            assert response.headers.get("access-control-allow-origin") == (
+                "https://painel.exemplo.com"
+            )
+        finally:
+            monkeypatch.undo()
+            reset_settings_cache()
+
+    def test_origem_fora_da_lista_nao_recebe_header_cors(self, monkeypatch, synthetic_database):
+        api_client = _configured_client(
+            monkeypatch,
+            synthetic_database,
+            API_CORS_ALLOWED_ORIGINS="https://painel.exemplo.com",
+        )
+        try:
+            response = api_client.get("/health", headers={"Origin": "https://outro-dominio.com"})
+            assert "access-control-allow-origin" not in response.headers
+        finally:
+            monkeypatch.undo()
+            reset_settings_cache()

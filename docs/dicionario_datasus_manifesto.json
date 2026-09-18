@@ -1,0 +1,50 @@
+{
+  "_delivery_label": "Certificação AI Engineering - Vinícius Barbaresco -- Arquivo entregue: docs/dicionario_datasus_manifesto.json",
+  "documento": "Dicionário de dados oficial do SIVEP-Gripe / SRAG 2019-a-2025 (Open DATASUS)",
+  "referenciado_em": "src/config.py::DATASUS_DICTIONARY_URL",
+  "url": "https://s3.sa-east-1.amazonaws.com/ckan.saude.gov.br/SRAG/dicionario-de-dados-2019-a-2025.pdf",
+  "dataset_associado": "https://dadosabertos.saude.gov.br/dataset/srag-2019-a-2026",
+  "versao_ou_data_de_publicacao": "O PDF nao traz um numero de versao explicito no proprio texto. O cabecalho HTTP do objeto no S3 (Last-Modified) registra 2026-01-29T17:39:56Z como a data de publicacao do arquivo atualmente servido nessa URL. E a versao 'publicada com o dataset 2019-2026' citada em docs/regras_transformacao.md e docs/gerar_documentacao.py.",
+  "sha256": "6b92d438cf1cab28cd3719a7bcc48df3c269cf271f7c8181e334db2e849a0e35",
+  "tamanho_bytes": 1052922,
+  "obtido_em": "2026-09-18T00:37:09+00:00",
+  "metodo_de_obtencao": "download direto da URL publica (HTTP GET), sha256 calculado localmente sobre o arquivo baixado -- nao inventado",
+  "segunda_versao_conferida_cruzada": {
+    "nome_citado_no_codigo": "Dicionario_de_Dados_SRAG_Hospitalizado",
+    "onde_e_citada": [
+      "docs/regras_transformacao.md (nota sobre duas versoes independentes do dicionario)",
+      "docs/pipeline_dados/decisoes.md, decisao D-02 (SUPORT_VEN)",
+      "docs/gerar_documentacao.py (gera a mesma nota em docs/regras_transformacao.md)"
+    ],
+    "url": null,
+    "sha256": null,
+    "declaracao": "O repositorio nao versiona uma URL estavel nem um hash para esta segunda versao -- apenas o nome do arquivo, usado nas decisoes de tratamento para conferencia cruzada da semantica dos campos (ex.: dominio de SUPORT_VEN, numeracao de CLASSI_FIN). Esta sessao nao conseguiu localizar uma URL oficial estavel para baixa-la e calcular seu hash; declarado aqui em vez de inventado. A numeracao dos campos na ficha difere entre as duas versoes (CLASSI_FIN e o campo 78 numa e 80 na outra), mas os dominios de codigo sao identicos nas duas, inclusive o de UTI (Internado em UTI?, 1-Sim/2-Nao/9-Ignorado)."
+  },
+  "colunas_lidas_do_bruto": [
+    { "coluna": "DT_SIN_PRI", "campo_no_dicionario": 2, "proposito": "Data dos primeiros sintomas -- eixo temporal de toda serie e janela analitica" },
+    { "coluna": "DT_INTERNA", "campo_no_dicionario": 49, "proposito": "Data da internacao -- usada na checagem de coerencia de internacao" },
+    { "coluna": "DT_ENTUTI", "campo_no_dicionario": 54, "proposito": "Data de entrada na UTI -- inicio da permanencia no censo diario de UTI" },
+    { "coluna": "DT_SAIDUTI", "campo_no_dicionario": 55, "proposito": "Data de saida da UTI -- fim da permanencia no censo; ausencia aciona imputacao limitada por teto" },
+    { "coluna": "DT_EVOLUCA", "campo_no_dicionario": 81, "proposito": "Data da alta ou do obito -- fallback de fim de permanencia quando falta DT_SAIDUTI" },
+    { "coluna": "DT_ENCERRA", "campo_no_dicionario": 82, "proposito": "Data de encerramento do caso -- usada para medir a maturidade do desfecho" },
+    { "coluna": "DT_DIGITA", "campo_no_dicionario": null, "proposito": "Data de digitacao -- ancora de todas as janelas analiticas, nunca a data de hoje" },
+    { "coluna": "SEM_PRI", "campo_no_dicionario": null, "proposito": "Semana epidemiologica dos sintomas publicada pela fonte -- usada so para reconciliacao com a semana derivada, nunca coalescida" },
+    { "coluna": "CS_SEXO", "campo_no_dicionario": 11, "proposito": "Sexo -- perfil demografico dos casos" },
+    { "coluna": "TP_IDADE", "campo_no_dicionario": 14, "proposito": "Unidade da idade (dia/mes/ano) -- necessaria para interpretar NU_IDADE_N" },
+    { "coluna": "NU_IDADE_N", "campo_no_dicionario": 13, "proposito": "Idade na unidade de TP_IDADE -- insumo para derivar a faixa etaria; descartada depois por minimizacao" },
+    { "coluna": "HOSPITAL", "campo_no_dicionario": 48, "proposito": "Houve internacao -- severidade dos casos e denominador de UTI" },
+    { "coluna": "UTI", "campo_no_dicionario": 53, "proposito": "Internado em UTI -- numerador da taxa de admissao em UTI e insumo do censo diario" },
+    { "coluna": "SUPORT_VEN", "campo_no_dicionario": 56, "proposito": "Suporte ventilatorio -- indicador de ventilacao invasiva/nao invasiva" },
+    { "coluna": "NOSOCOMIAL", "campo_no_dicionario": 32, "proposito": "Infeccao adquirida no hospital -- condiciona a checagem de coerencia de internacao" },
+    { "coluna": "CLASSI_FIN", "campo_no_dicionario": "78 numa versao do dicionario, 80 na outra", "proposito": "Classificacao final -- etiologia do caso (ex.: SRAG por covid-19)" },
+    { "coluna": "CRITERIO", "campo_no_dicionario": 79, "proposito": "Criterio de encerramento -- confianca da etiologia atribuida" },
+    { "coluna": "EVOLUCAO", "campo_no_dicionario": 80, "proposito": "Evolucao do caso -- numerador da letalidade e status do desfecho" },
+    { "coluna": "VACINA_COV", "campo_no_dicionario": 36, "proposito": "Vacinacao declarada contra covid-19 -- cobertura vacinal entre casos notificados" },
+    { "coluna": "VACINA", "campo_no_dicionario": 40, "proposito": "Vacinacao declarada contra influenza -- cobertura vacinal entre casos notificados" },
+    { "coluna": "SG_UF_NOT", "campo_no_dicionario": 3, "proposito": "UF de notificacao -- recorte geografico dos indicadores de carga assistencial (UTI, ventilacao, censo)" },
+    { "coluna": "SG_UF", "campo_no_dicionario": 23, "proposito": "UF de residencia -- recorte geografico da incidencia, para casar com o denominador populacional do IBGE" }
+  ],
+  "colunas_excluidas": "As demais 172 colunas do arquivo bruto (194 no total) estao em duas listas explicitas no codigo -- DENIED_COLUMNS (49, identificaveis ou sensiveis) e NOT_SELECTED_COLUMNS (3, avaliadas e descartadas por nao serem usadas por nenhuma metrica). A lista completa, com o motivo de cada exclusao, esta documentada em docs/pipeline_dados/README.md; este manifesto so aponta para ela, para nao duplicar as 49+3 linhas.",
+  "referencia_da_lista_de_colunas_lidas": "docs/pipeline_dados/README.md, secao \"2. Dicionário analítico\" (mesma fonte usada para esta lista)",
+  "gerado_por": "Documentado manualmente nesta rodada, a partir do pedido do auditor de proveniencia -- nao gerado por docs/gerar_documentacao.py, que so cobre metricas, regras de limpeza e catalogo de tools."
+}

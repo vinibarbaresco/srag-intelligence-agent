@@ -65,6 +65,24 @@ class TestVeredito:
         assert "nao bloqueante" in verdict.advisories()[0]
         assert all(item["type"].startswith("revisao_semantica:") for item in verdict.violations())
 
+    def test_causalidade_indevida_bloqueia_e_mapeia_para_evidence_binding(self):
+        """Nova categoria (rodada de guardrail de causalidade): mesma forma das outras."""
+        verdict = JudgeVerdict(
+            allowed=False,
+            findings=[
+                {
+                    "categoria": "causalidade_indevida",
+                    "trecho": "a queda de vacinacao explica o aumento de casos",
+                    "motivo": "causalidade sem fonte, sem conectivo lexical explicito",
+                }
+            ],
+            source="fake",
+        )
+        assert "causalidade_indevida" in BLOCKING_CATEGORIES
+        policies = [item["policy"] for item in verdict.violations()]
+        assert policies == ["evidence_binding"]
+        assert verdict.violations()[0]["type"] == "revisao_semantica:causalidade_indevida"
+
     def test_todas_as_categorias_tem_politica(self):
         from src.guardrails.policies import ALL_POLICIES
 
@@ -216,6 +234,49 @@ class TestIntegracaoNoGrafo:
         assert state["interpretation"] == TEXTO_LASTREADO
         assert any("Revisao semantica" in aviso for aviso in state["warnings"])
         assert state["guardrail_report"]["revisao_semantica"]["erro"] is not None
+
+    def test_falha_do_revisor_fica_no_evento_de_auditoria_formal(
+        self, synthetic_database, sem_noticias, monkeypatch
+    ):
+        """Lacuna do auditor: o erro nao pode aparecer so em `warnings`."""
+        import json
+        from pathlib import Path
+
+        judge = FakeJudge(error="TimeoutError: sem resposta")
+        state = _run(monkeypatch, FakeInterpreter(TEXTO_LASTREADO), judge)
+
+        eventos = [
+            json.loads(linha)
+            for linha in Path(state["audit_summary"]["audit_file"])
+            .read_text(encoding="utf-8")
+            .splitlines()
+        ]
+        evento = next(e for e in eventos if e["node"] == "apply_output_guardrails")
+        assert evento["error"] is not None
+        assert "TimeoutError" in evento["error"]
+
+    def test_achado_de_causalidade_indevida_bloqueia_e_cai_na_via_deterministica(
+        self, synthetic_database, sem_noticias, monkeypatch
+    ):
+        texto = (
+            "A letalidade foi de 25.0%. A queda na cobertura vacinal explica o "
+            "aumento de casos observado no periodo."
+        )
+        judge = FakeJudge(
+            findings=[
+                {
+                    "categoria": "causalidade_indevida",
+                    "trecho": "a queda na cobertura vacinal explica o aumento de casos",
+                    "motivo": "causalidade sem fonte, sem conectivo lexical explicito",
+                }
+            ]
+        )
+        state = _run(monkeypatch, FakeInterpreter(texto), judge)
+        assert state["interpretation_source"].startswith("deterministic-template")
+        assert "explica o aumento" not in state["interpretation"]
+        assert "evidence_binding" in state["guardrail_report"]["resultado"]["blocked_by"]
+        violation = state["guardrail_report"]["resultado"]["violations"][0]
+        assert violation["type"] == "revisao_semantica:causalidade_indevida"
 
     def test_texto_reprovado_lexicalmente_nao_chega_ao_revisor(
         self, synthetic_database, sem_noticias, monkeypatch

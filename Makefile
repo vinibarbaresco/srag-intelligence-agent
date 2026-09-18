@@ -7,18 +7,26 @@
 #   make run           relatorio com LLM (exige OPENAI_API_KEY no .env)
 #   make test | lint | docs | api | docker-build | docker-demo
 #   make venv          ambiente isolado nas versoes fixadas (reproduz o CI)
+#   make lock          regenera requirements*.lock.txt a partir dos .txt fonte
 #
 # No Windows sem `make`, use `.\run_demo.ps1` (mesmos passos).
+#
+# `install` e `venv` instalam a partir dos `.lock.txt` (fixados e verificados
+# por hash, direta e transitivamente -- ver `make lock`), nunca direto dos
+# `requirements*.txt` de faixa aberta: o CI e o Docker fazem o mesmo, e assim
+# os tres reproduzem exatamente o mesmo conjunto de pacotes.
 
 PYTHON ?= python
 
 # Ambiente de verificacao local.
 #
-# O CI instala exatamente o que `requirements.txt` fixa. Um interpretador de
-# sistema com versao fora dessa faixa -- pandas 3.x, por exemplo, quando o
-# pino e `>=2.2,<3` -- roda a suite contra uma configuracao que o projeto nao
-# suporta, e o defeito so aparece no CI. `make venv` cria o ambiente certo, e
-# os demais alvos aceitam `PYTHON=` para usa-lo:
+# O CI instala exatamente o que `requirements-dev.lock.txt` fixa -- a mesma
+# versao exata de cada pacote, direto e transitivo, verificada por hash. Um
+# interpretador de sistema com uma versao de pacote fora do lock -- pandas 3.x
+# instalado a mao, por exemplo, quando o lock fixa 2.x -- roda a suite contra
+# uma configuracao que o projeto nao trava, e o defeito so aparece no CI.
+# `make venv` cria o ambiente certo, e os demais alvos aceitam `PYTHON=` para
+# usa-lo:
 #
 #   make venv
 #   make check PYTHON=$(VENV_PY)
@@ -36,10 +44,20 @@ UF     ?=
 UF_FLAG := $(if $(UF),--uf $(UF),)
 SETUP   := $(if $(CSV),--setup --csv $(CSV),--setup --years $(YEARS))
 
-.PHONY: install venv demo run setup setup-completo referencias test lint format docs check api docker-build docker-demo clean
+.PHONY: install venv lock demo run setup setup-completo referencias test lint format docs check api docker-build docker-demo clean
 
 install:
-	$(PYTHON) -m pip install -r requirements-dev.txt
+	$(PYTHON) -m pip install --require-hashes -r requirements-dev.lock.txt
+
+# Regenera os lockfiles com hash a partir de requirements.txt e
+# requirements-dev.txt. Exige `uv` (https://astral.sh/uv), ferramenta externa
+# ao ambiente do projeto -- regenerar o lock nunca instala nada na dependencia
+# de producao. `--universal` resolve para todos os SO/arquitetura suportados
+# (desenvolvimento em Windows, CI e Docker em Linux) e `--generate-hashes`
+# fixa por hash tambem as dependencias transitivas.
+lock:
+	uv pip compile requirements.txt --universal --python-version 3.12 --generate-hashes -o requirements.lock.txt
+	uv pip compile requirements-dev.txt --universal --python-version 3.12 --generate-hashes -o requirements-dev.lock.txt
 
 # Nao entra em `install`: criar meio giga de ambiente e uma decisao de quem
 # desenvolve, nao um efeito colateral de instalar dependencias. O diretorio
@@ -47,7 +65,7 @@ install:
 venv:
 	$(PYTHON) -m venv $(VENV)
 	$(VENV_PY) -m pip install --upgrade pip
-	$(VENV_PY) -m pip install -r requirements-dev.txt
+	$(VENV_PY) -m pip install --require-hashes -r requirements-dev.lock.txt
 	@$(VENV_PY) -c "import pandas; print('pandas instalado:', pandas.__version__)"
 	@echo "Ambiente pronto. Rode o mesmo gate do CI com:"
 	@echo "    make check PYTHON=$(VENV_PY)"

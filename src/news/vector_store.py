@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS {TABLE_ARTICLES} (
     published_at     TIMESTAMP NOT NULL,          -- UTC, sem fuso (ver _as_naive_utc)
     url              VARCHAR NOT NULL,
     query            VARCHAR,
+    snippet          VARCHAR,
     embedding        DOUBLE[],
     embedding_backend VARCHAR,
     ingested_at      TIMESTAMP NOT NULL           -- UTC, sem fuso
@@ -352,6 +353,7 @@ _ARTICLE_COLUMNS: Final[tuple[str, ...]] = (
     "published_at",
     "url",
     "query",
+    "snippet",
     "embedding",
     "embedding_backend",
     "ingested_at",
@@ -423,6 +425,7 @@ def upsert_articles(
             _as_naive_utc(datetime.fromisoformat(article.published_at)),
             article.url,
             article.query,
+            article.snippet,
             vector,
             embedder.backend,
             now,
@@ -435,7 +438,8 @@ def upsert_articles(
     report = report or AccessReport(operacao="ingestao")
 
     previous = _existing_rows(store_path, report)
-    existing_backends = {row[7] for row in previous if row[7] is not None}
+    # Indice 8 = embedding_backend, na ordem de _ARTICLE_COLUMNS.
+    existing_backends = {row[8] for row in previous if row[8] is not None}
     if existing_backends and existing_backends != {embedder.backend}:
         # Vetores de modelos diferentes nao compartilham o mesmo espaco (e
         # frequentemente nem a mesma dimensao). Uma reingestao com outro
@@ -565,7 +569,7 @@ def search(
     with connect(read_only=True, path=path, report=report) as connection:
         rows = connection.execute(
             f"""
-            SELECT title, source, published_at, url, embedding_backend, ingested_at,
+            SELECT title, source, published_at, url, snippet, embedding_backend, ingested_at,
                    list_cosine_similarity(embedding, ?) AS similaridade
             FROM {TABLE_ARTICLES}
             WHERE {" AND ".join(predicates)}
@@ -582,11 +586,12 @@ def search(
             "data": published.date().isoformat(),
             "publication_date": published.replace(tzinfo=UTC).isoformat(),
             "url": url,
+            "snippet": snippet or "",
             "retrieved_at": ingested.replace(tzinfo=UTC).isoformat(),
             "similaridade": round(float(score), 4) if score is not None else None,
             "embedding_backend": backend,
         }
-        for title, source, published, url, backend, ingested, score in rows
+        for title, source, published, url, snippet, backend, ingested, score in rows
     ]
 
 
