@@ -1,0 +1,1491 @@
+<!--
+  Certificação AI Engineering - Vinícius Barbaresco -- Arquivo entregue: docs/exemplo_relatorio.html
+  Exemplo de relatorio (dashboard executivo) gerado por `python main.py --no-llm`, via deterministica.
+  Regere com `make demo`; o conteudo muda a cada republicacao da fonte.
+-->
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SRAG Intelligence Report - aad7a556-7561-495a-a2ba-d8cf6f364580</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap">
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+<style>
+:root {
+  color-scheme: light;
+  --canvas: #F1F3F5;
+  --surface: #FFFFFF;
+  --surface-2: #F7F8FA;
+  --ink: #111827;
+  --ink-soft: #374151;
+  --muted: #6B7280;
+  --line: #E3E7EB;
+  --line-soft: #EDF0F3;
+  --accent: #0F6B62;
+  --accent-soft: #E6F1EF;
+  --bad: #C2521B;
+  --bad-soft: #FBEDE4;
+  --bad-line: #F0CBB2;
+  --warn: #B5822A;
+  --context-bg: #FCF8F0;
+  --context-line: #EDE0C8;
+  --chip-bg: #F1F3F5;
+  --shadow: 0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.06);
+  --radius: 14px;
+  --radius-sm: 10px;
+  --topbar-h: 62px;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  color-scheme: dark;
+  --canvas: #0D1117;
+  --surface: #171C24;
+  --surface-2: #1E242E;
+  --ink: #E6EDF3;
+  --ink-soft: #C7D0DA;
+  --muted: #98A2B3;
+  --line: #2A313C;
+  --line-soft: #232A34;
+  --accent: #4FD1C0;
+  --accent-soft: #14312E;
+  --bad: #F59356;
+  --bad-soft: #2E1D14;
+  --bad-line: #4A2E1D;
+  --warn: #E0B65C;
+  --context-bg: #241E14;
+  --context-line: #3D3320;
+  --chip-bg: #212836;
+  --shadow: 0 1px 2px rgba(0,0,0,.4);
+} }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #0D1117;
+  --surface: #171C24;
+  --surface-2: #1E242E;
+  --ink: #E6EDF3;
+  --ink-soft: #C7D0DA;
+  --muted: #98A2B3;
+  --line: #2A313C;
+  --line-soft: #232A34;
+  --accent: #4FD1C0;
+  --accent-soft: #14312E;
+  --bad: #F59356;
+  --bad-soft: #2E1D14;
+  --bad-line: #4A2E1D;
+  --warn: #E0B65C;
+  --context-bg: #241E14;
+  --context-line: #3D3320;
+  --chip-bg: #212836;
+  --shadow: 0 1px 2px rgba(0,0,0,.4);
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  color: var(--ink);
+  background: var(--canvas);
+  margin: 0;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent); }
+
+/* ---- Barra fixa -------------------------------------------------------- */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+.topbar-inner {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: .55rem 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  min-height: var(--topbar-h);
+}
+.brand { display: flex; align-items: center; gap: .65rem; text-decoration: none; color: inherit; }
+.brand-mark {
+  width: 34px; height: 34px; border-radius: 9px;
+  background: var(--accent); color: #fff;
+  display: grid; place-items: center;
+  font-size: .6rem; font-weight: 800; letter-spacing: .04em;
+}
+.brand-text { display: flex; flex-direction: column; line-height: 1.2; }
+.brand-text b { font-size: .92rem; font-weight: 700; }
+.brand-text small { font-size: .72rem; color: var(--muted); }
+.navlinks { display: flex; gap: .15rem; flex: 1; flex-wrap: wrap; }
+.nav-link {
+  font-size: .82rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-decoration: none;
+  padding: .4rem .7rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.nav-link:hover { color: var(--ink); background: var(--surface-2); }
+.nav-link.is-active { color: var(--accent); background: var(--accent-soft); }
+.topbar-actions { display: flex; align-items: center; gap: .5rem; }
+.btn {
+  display: inline-flex; align-items: center; gap: .4rem;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: .45rem 1rem;
+  font-size: .8rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.icon-btn {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  border-radius: 999px;
+  width: 34px; height: 34px;
+  display: grid; place-items: center;
+  cursor: pointer;
+  font-size: .95rem;
+  line-height: 1;
+  font-family: inherit;
+}
+.icon-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ---- Grade da pagina --------------------------------------------------- */
+.report-shell { max-width: 1240px; margin: 0 auto; padding: 1.5rem 1.25rem 4rem; }
+section[id], details[id] { scroll-margin-top: calc(var(--topbar-h) + 14px); }
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: .09em;
+  font-size: .7rem;
+  font-weight: 700;
+  color: var(--accent);
+  margin: 0 0 .35rem;
+}
+.block {
+  margin-top: 1.1rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1.5rem 1.6rem;
+}
+.block-bare { background: none; border: 0; box-shadow: none; padding: 0; margin-top: 1.9rem; }
+.block-headline {
+  font-size: 1.24rem; font-weight: 700; margin: 0 0 .25rem; letter-spacing: -.01em;
+}
+.panel-head { margin-bottom: 1rem; }
+
+/* ---- Capa -------------------------------------------------------------- */
+.report-header {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1.6rem 1.7rem;
+  margin-top: 1.5rem;
+}
+.report-header h1 {
+  font-size: 1.72rem; margin: 0 0 1rem; letter-spacing: -.02em; line-height: 1.22;
+}
+.delivery-label {
+  margin: 0 0 .55rem;
+  font-size: .74rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: var(--ink);
+}
+.report-footer .delivery-label { margin: 0 0 .5rem; color: var(--ink); }
+.hero-chips { display: flex; flex-wrap: wrap; gap: .5rem; margin: 0; padding: 0; list-style: none; }
+.chip {
+  display: inline-flex; align-items: baseline; gap: .4rem;
+  background: var(--chip-bg);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: .32rem .8rem;
+  font-size: .78rem;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+.chip b { font-weight: 700; color: var(--ink); }
+.chip-key {
+  color: var(--muted); font-size: .68rem; text-transform: uppercase; letter-spacing: .06em;
+}
+.chip-accent { background: var(--accent-soft); color: var(--accent); }
+.chip-accent .chip-key, .chip-accent b { color: var(--accent); }
+.chip-warn { background: var(--bad-soft); border-color: var(--bad-line); color: var(--bad); }
+
+/* ---- Resumo executivo e status ----------------------------------------- */
+.exec-summary { background: var(--accent-soft); border-color: transparent; }
+.exec-summary .block-headline { color: var(--ink); }
+.exec-list { list-style: none; margin: 1rem 0 0; padding: 0; display: grid; gap: .55rem; }
+.exec-list li { display: flex; gap: .6rem; align-items: baseline; font-size: .94rem; }
+.tag {
+  font-size: .62rem;
+  font-weight: 800;
+  letter-spacing: .06em;
+  padding: .14rem .45rem;
+  border-radius: 5px;
+  flex: 0 0 auto;
+}
+.tag-dado { background: var(--accent); color: #fff; }
+.tag-contexto { background: var(--warn); color: #fff; }
+
+.status-strip {
+  margin-top: 1.1rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 5px solid var(--muted);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1.1rem 1.35rem;
+}
+.status-normal { border-left-color: var(--accent); }
+.status-warn { border-left-color: var(--warn); }
+.status-bad { border-left-color: var(--bad); }
+.status-head { display: flex; align-items: baseline; gap: .75rem; flex-wrap: wrap; }
+.status-badge {
+  font-size: .66rem;
+  font-weight: 800;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.status-summary { margin: 0; font-size: .9rem; color: var(--ink); }
+.status-list { margin: .6rem 0 0; padding-left: 1.1rem; font-size: .86rem; }
+.status-history { margin: .55rem 0 0; font-size: .78rem; color: var(--muted); }
+
+/* ---- Indicadores ------------------------------------------------------- */
+.context-label { margin: 1.4rem 0 .6rem; font-size: .78rem; color: var(--muted); }
+.kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: .9rem; margin-top: .9rem; }
+.kpi-grid-context { grid-template-columns: repeat(2, 1fr); margin-top: 0; }
+.kpi-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1.15rem 1.25rem;
+  background: var(--surface);
+}
+.kpi-compact { background: var(--surface-2); box-shadow: none; padding: .95rem 1.1rem; }
+.kpi-compact .kpi-value { font-size: 1.3rem; }
+.kpi-compact .kpi-label { font-size: .7rem; }
+.kpi-empty { background: var(--surface-2); box-shadow: none; }
+.kpi-label {
+  font-size: .71rem;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  margin-bottom: .5rem;
+}
+.kpi-value { font-size: 2rem; font-weight: 800; letter-spacing: -.025em; line-height: 1.1; }
+.kpi-unit {
+  display: block;
+  font-size: .72rem;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0;
+  margin-top: .15rem;
+}
+.kpi-muted { color: var(--muted); font-size: 1.1rem; font-weight: 700; }
+.kpi-comparison { font-size: .8rem; color: var(--muted); margin-top: .4rem; min-height: 1.1em; }
+.kpi-note {
+  font-size: .73rem;
+  color: var(--muted);
+  margin-top: .6rem;
+  border-top: 1px solid var(--line-soft);
+  padding-top: .55rem;
+}
+.kpi-warning { font-size: .73rem; color: var(--bad); margin-top: .4rem; }
+.kpi-trend { font-weight: 800; }
+.trend-bad { color: var(--bad); }
+.trend-good { color: var(--accent); }
+.trend-neutral { color: var(--muted); }
+
+/* ---- Comparador de indicadores ----------------------------------------- */
+.cmp-wrap { margin-top: 1rem; overflow-x: auto; }
+.cmp-wrap table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: .86rem; }
+.cmp-wrap thead th {
+  text-align: left;
+  font-size: .68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  padding: 0 .7rem .5rem;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+.cmp-wrap thead th.cmp-num { text-align: right; }
+.cmp-sortable button {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+.cmp-sortable button::after { content: " ↕"; opacity: .35; }
+.cmp-sortable[aria-sort="ascending"] button,
+.cmp-sortable[aria-sort="descending"] button { color: var(--accent); }
+.cmp-sortable[aria-sort="ascending"] button::after { content: " ↑"; opacity: 1; }
+.cmp-sortable[aria-sort="descending"] button::after { content: " ↓"; opacity: 1; }
+
+.cmp-row { cursor: pointer; }
+.cmp-row td {
+  padding: .7rem;
+  border-bottom: 1px solid var(--line-soft);
+  vertical-align: top;
+}
+.cmp-row:hover td { background: var(--surface-2); }
+.cmp-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.cmp-num { text-align: right; font-variant-numeric: tabular-nums; }
+.cmp-value { font-weight: 700; font-size: 1rem; white-space: nowrap; }
+.cmp-unit { display: block; font-size: .66rem; font-weight: 600; color: var(--muted); }
+.cmp-null { color: var(--muted); font-weight: 400; }
+
+.cmp-name { min-width: 190px; display: flex; align-items: flex-start; gap: .55rem; }
+.cmp-dot {
+  flex: 0 0 auto;
+  width: 9px; height: 9px; border-radius: 50%;
+  margin-top: .38rem; background: var(--muted);
+}
+.cmp-dot-0 { background: #0F6B62; }
+.cmp-dot-1 { background: #C2521B; }
+.cmp-dot-2 { background: #3B6FB6; }
+.cmp-dot-3 { background: #7A5AA6; }
+.cmp-dot-4 { background: #4B7B2E; }
+.cmp-dot-5 { background: #B5822A; }
+.cmp-dot-6 { background: #A33B5E; }
+.cmp-name-text { display: inline-block; font-weight: 600; }
+.cmp-name-text small {
+  display: block;
+  font-size: .66rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+}
+.cmp-bar {
+  display: block;
+  height: 4px;
+  margin-top: .35rem;
+  border-radius: 999px;
+  background: var(--line-soft);
+  overflow: hidden;
+}
+.cmp-bar i { display: block; height: 100%; background: var(--accent); opacity: .75; }
+.cmp-tag {
+  display: inline-block;
+  font-size: .66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  padding: .18rem .5rem;
+  border-radius: 999px;
+}
+.cmp-tag-ok { background: var(--accent-soft); color: var(--accent); }
+.cmp-tag-off { background: var(--bad-soft); color: var(--bad); }
+
+.cmp-detail td { padding: 0 .7rem 1.1rem; border-bottom: 1px solid var(--line-soft); }
+.cmp-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: .9rem 1.5rem;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  padding: 1rem 1.2rem;
+}
+.cmp-detail-wide { grid-column: 1 / -1; }
+.cmp-detail-key {
+  display: block;
+  font-size: .66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+  margin-bottom: .2rem;
+}
+.cmp-detail-grid p { margin: 0; font-size: .84rem; }
+.cmp-detail-grid ul { margin: .2rem 0 0; padding-left: 1.1rem; font-size: .84rem; }
+.cmp-detail-grid li { margin-bottom: .25rem; }
+.cmp-warning { color: var(--bad); font-size: .82rem; margin-top: .5rem !important; }
+
+/* ---- Graficos ---------------------------------------------------------- */
+.chart-wrap {
+  margin-top: 1rem;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: .75rem .9rem .9rem;
+}
+.chart-interactive { width: 100%; min-height: 370px; }
+.chart-print-only { display: none; width: 100%; border-radius: 6px; }
+.chart-empty { color: var(--muted); font-size: .9rem; }
+
+.insights-box {
+  margin-top: 1rem;
+  padding: 1rem 1.2rem;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+}
+.insights-title {
+  font-weight: 700;
+  font-size: .71rem;
+  margin: 0 0 .5rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.insights-box ul { margin: 0; padding-left: 1.1rem; font-size: .88rem; color: var(--ink); }
+.insights-box li { margin-bottom: .3rem; }
+
+/* ---- Contexto externo --------------------------------------------------- */
+.news-intro { color: var(--muted); font-size: .87rem; margin: .1rem 0 0; }
+.news-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: .9rem;
+  margin-top: 1.2rem;
+}
+.news-card {
+  background: var(--context-bg);
+  border: 1px solid var(--context-line);
+  border-radius: var(--radius-sm);
+  padding: 1rem 1.1rem;
+}
+.news-title { font-weight: 700; font-size: .89rem; margin: 0 0 .5rem; }
+.news-meta { font-size: .75rem; color: var(--muted); margin: 0 0 .6rem; }
+.news-link { font-size: .78rem; font-weight: 700; color: var(--accent); text-decoration: none; }
+.news-link-disabled { color: var(--muted); }
+.news-empty { color: var(--muted); font-size: .9rem; }
+
+/* ---- Interpretacao e transparencia -------------------------------------- */
+.interpretation {
+  background: var(--surface-2);
+  border-left: 4px solid var(--accent);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: 1.2rem 1.4rem;
+  margin-top: 1.2rem;
+}
+.interpretation p { margin: 0 0 .8rem; }
+.interpretation p:last-child { margin-bottom: 0; }
+.interpretation h4 { font-size: .92rem; color: var(--accent); margin: 1.1rem 0 .4rem; }
+.interpretation h4:first-child { margin-top: 0; }
+.interpretation ul { margin: 0 0 .8rem; padding-left: 1.2rem; }
+.interpretation li { margin-bottom: .3rem; }
+.interpretation-note {
+  font-size: .78rem;
+  color: var(--muted);
+  margin-bottom: 1rem !important;
+  font-style: italic;
+}
+
+.callout {
+  border-radius: var(--radius-sm);
+  padding: 1rem 1.2rem;
+  margin-top: 1rem;
+  background: var(--bad-soft);
+  border: 1px solid var(--bad-line);
+}
+.callout-neutral { background: var(--surface-2); border-color: var(--line); }
+.callout-bad { background: var(--bad-soft); border-color: var(--bad-line); }
+.callout-title { font-weight: 700; font-size: .85rem; margin: 0 0 .35rem; }
+.callout p { font-size: .87rem; margin: 0; }
+.callout ul { margin: .3rem 0 0; padding-left: 1.1rem; font-size: .85rem; }
+
+.methodology {
+  margin-top: 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 1rem 1.2rem;
+}
+.methodology summary { cursor: pointer; font-weight: 700; font-size: .9rem; }
+.methodology table { width: 100%; border-collapse: collapse; margin-top: .9rem; font-size: .85rem; }
+.methodology table td {
+  padding: .4rem 0; border-bottom: 1px solid var(--line-soft); vertical-align: top;
+}
+.meta-key { color: var(--muted); width: 40%; }
+
+/* ---- Anexo tecnico ------------------------------------------------------ */
+.technical-appendix { margin-top: 1.1rem; }
+.technical-appendix summary {
+  cursor: pointer; font-weight: 700; font-size: 1rem; color: var(--ink);
+}
+.technical-appendix-body { margin-top: 1.2rem; }
+.technical-appendix-body h1 { display: none; }
+.technical-appendix-body h2 {
+  font-size: 1.04rem;
+  color: var(--ink);
+  border-bottom: 1px solid var(--line);
+  padding-bottom: .35rem;
+  margin-top: 2rem;
+}
+.technical-appendix-body h3 { font-size: .95rem; color: var(--accent); margin-top: 1.5rem; }
+.technical-appendix-body table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  margin: .9rem 0;
+  display: block;
+  overflow-x: auto;
+  font-size: .84rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.technical-appendix-body th, .technical-appendix-body td {
+  border-bottom: 1px solid var(--line-soft);
+  padding: .5rem .7rem;
+  text-align: left;
+  vertical-align: top;
+}
+.technical-appendix-body tr:last-child td { border-bottom: 0; }
+.technical-appendix-body th {
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: .72rem;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  white-space: nowrap;
+}
+.technical-appendix-body tbody tr:hover td { background: var(--surface-2); }
+.technical-appendix-body blockquote {
+  border-left: 3px solid var(--accent);
+  margin: .8rem 0;
+  padding: .5rem .9rem;
+  background: var(--surface-2);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.technical-appendix-body img {
+  max-width: 100%; border: 1px solid var(--line); border-radius: 8px;
+}
+.technical-appendix-body code {
+  background: var(--surface-2); padding: .1rem .3rem; border-radius: 4px; font-size: .88em;
+}
+
+.report-footer {
+  margin-top: 1.5rem;
+  padding: 1.2rem 1.6rem;
+  border-top: 1px solid var(--line);
+  font-size: .78rem;
+  color: var(--muted);
+}
+.report-footer .disclaimer { margin-top: .4rem; font-style: italic; }
+
+@media (max-width: 1080px) { .navlinks { display: none; } }
+@media (max-width: 860px) {
+  .kpi-grid, .kpi-grid-context { grid-template-columns: repeat(2, 1fr); }
+  .block { padding: 1.2rem 1.1rem; }
+  .report-header { padding: 1.3rem 1.2rem; }
+}
+@media print {
+  :root, :root[data-theme="dark"], :root[data-theme="light"] {
+  color-scheme: light;
+  --canvas: #FFFFFF;
+  --surface: #FFFFFF;
+  --surface-2: #F7F8FA;
+  --ink: #111827;
+  --ink-soft: #374151;
+  --muted: #5B6675;
+  --line: #D9DEE4;
+  --line-soft: #EDF0F3;
+  --accent: #0F6B62;
+  --accent-soft: #E6F1EF;
+  --bad: #A8451A;
+  --bad-soft: #FBEDE4;
+  --bad-line: #F0CBB2;
+  --warn: #8A6318;
+  --context-bg: #FCF8F0;
+  --context-line: #EDE0C8;
+  --chip-bg: #F1F3F5;
+  --shadow: none;
+}
+  .no-print, .topbar { display: none !important; }
+  body { background: #fff; }
+  .report-shell { max-width: none; padding: 0; }
+  .chart-interactive { display: none !important; }
+  .chart-print-only { display: block !important; }
+  /* So o que fica ilegivel partido ao meio e que nao pode quebrar. Aplicar
+     isso a `.block` inteiro empurrava a secao seguinte para a proxima folha e
+     deixava um terco de pagina em branco a cada corte. */
+  .report-header, .status-strip, .chart-wrap, .insights-box { page-break-inside: avoid; }
+  /* Titulo nunca fica sozinho no pe da folha nem partido ao meio. O
+     `break-after` sozinho nao basta: quando o que vem depois e uma caixa
+     indivisivel que nao cabe no resto da folha, o navegador ignora a regra --
+     por isso os dois paineis de grafico sao indivisiveis por inteiro. */
+  .panel-head, .block-headline, .eyebrow { page-break-after: avoid; break-after: avoid; }
+  .block-headline { break-inside: avoid; }
+  #series, #series-mensal { page-break-inside: avoid; }
+  .callout, .kpi-card, .news-card, .cmp-row, .cmp-detail { break-inside: avoid; }
+  .cmp-sortable button::after { content: "" !important; }
+  .cmp-wrap { overflow-x: visible; }
+  .cmp-hint { display: none; }
+}
+</style>
+
+<script>
+(function () {
+  try {
+    var saved = localStorage.getItem("srag-theme");
+    if (saved === "dark" || saved === "light") {
+      document.documentElement.setAttribute("data-theme", saved);
+    }
+  } catch (error) {
+    /* armazenamento bloqueado: segue a preferencia do sistema */
+  }
+})();
+</script>
+
+</head>
+<body>
+
+
+<nav class="topbar no-print">
+  <div class="topbar-inner">
+    <a class="brand" href="#topo">
+      <span class="brand-mark">SRAG</span>
+      <span class="brand-text">
+        <b>SRAG Intelligence Agent</b>
+        <small>Relatório epidemiológico</small>
+      </span>
+    </a>
+    <div class="navlinks"><a class="nav-link" href="#resumo">Resumo</a><a class="nav-link" href="#indicadores">Indicadores</a><a class="nav-link" href="#series">Séries</a><a class="nav-link" href="#contexto">Contexto externo</a><a class="nav-link" href="#interpretacao">Interpretação</a><a class="nav-link" href="#transparencia">Transparência</a></div>
+    <div class="topbar-actions">
+      <a class="btn" href="#anexo-tecnico">Rastreabilidade</a>
+      <button class="icon-btn" type="button" id="print-button"
+              aria-label="Imprimir ou exportar em PDF">&#x2399;</button>
+      <button class="icon-btn" type="button" id="theme-toggle"
+              aria-label="Alternar tema">&#x263E;</button>
+    </div>
+  </div>
+</nav>
+
+<div class="report-shell">
+  
+<header class="report-header" id="topo">
+  <p class="delivery-label">Certificação AI Engineering - Vinícius Barbaresco</p>
+  <p class="eyebrow">SRAG Intelligence Report · Open DATASUS / SIVEP-Gripe (SRAG 2019-2026)</p>
+  <h1>Monitoramento de Síndrome Respiratória Aguda Grave</h1>
+  <ul class="hero-chips"><li class="chip chip-accent"><span class="chip-key">run</span><b>aad7a556</b></li><li class="chip"><span class="chip-key">recorte</span><b>BR (nacional) · todas as classificações finais</b></li><li class="chip"><span class="chip-key">corte analítico</span><b>2026-08-23</b></li><li class="chip"><span class="chip-key">base atualizada</span><b>2026-09-16 20:37</b></li><li class="chip"><span class="chip-key">gerado em</span><b>17/09/2026 22:33</b></li><li class="chip"><span class="chip-key">via</span><b>deterministic-template</b></li><li class="chip chip-warn"><span class="chip-key">PoC</span><b>não é conduta clínica</b></li></ul>
+</header>
+
+
+  <section class="block exec-summary" id="resumo">
+    <p class="eyebrow">Resumo executivo</p>
+    <h2 class="block-headline">Casos recuam 33,22% em relação à janela anterior, enquanto letalidade em 5,33% entre os casos encerrados.</h2>
+    <ul class="exec-list">
+      <li><span class="tag tag-dado">DADO</span><span>Casos: -33,22% frente à janela anterior (19.336 vs 28.955 casos).</span></li><li><span class="tag tag-dado">DADO</span><span>Letalidade entre casos encerrados: 5,33% (715 óbitos em 13.404 casos encerrados).</span></li><li><span class="tag tag-dado">DADO</span><span>UTI: 28,64% dos hospitalizados foram admitidos em UTI (não equivale a ocupação de leitos).</span></li><li><span class="tag tag-dado">DADO</span><span>Ocupação de UTI: 7,7% da capacidade do CNES ocupada por pacientes de SRAG — é um PISO da ocupação real (outros quadros também usam esses leitos); valor baixo não indica rede com folga.</span></li><li><span class="tag tag-dado">DADO</span><span>Vacinação: 39,93% de cobertura declarada entre os casos notificados (covid-19).</span></li><li><span class="tag tag-contexto">CONTEXTO</span><span>12 notícia(s) recente(s) monitorada(s); destaque: &quot;Gripe, rinovírus e VSR puxam alta de casos de síndrome respiratória grave - Estadão&quot; (Estadão).</span></li>
+    </ul>
+  </section>
+
+  
+<section class="status-strip status-normal">
+  <div class="status-head">
+    <span class="status-badge">Situação dentro dos limiares</span>
+    <p class="status-summary">Nenhuma regra de alerta disparada; indicadores dentro dos limiares configurados.</p>
+  </div>
+  
+  <p class="status-history">Sem variação frente à execução anterior do mesmo recorte.</p>
+</section>
+
+
+  <section class="block block-bare" id="indicadores">
+    <p class="eyebrow">Indicadores principais</p>
+    <div class="kpi-grid">
+      <div class="kpi-card"><div class="kpi-label">Taxa de aumento de casos</div><div class="kpi-value">-33,22%</div><div class="kpi-comparison"><span class="kpi-trend trend-good">▼</span> 19.336 vs 28.955 casos na janela anterior</div><div class="kpi-note">Variação frente à janela anterior de mesmo tamanho.</div></div><div class="kpi-card"><div class="kpi-label">Letalidade (casos encerrados)</div><div class="kpi-value">5,33%</div><div class="kpi-comparison">715 óbitos em 13.404 casos encerrados</div><div class="kpi-note">Letalidade entre casos encerrados (óbito ou cura já definidos).</div></div><div class="kpi-card"><div class="kpi-label">Indicador de UTI</div><div class="kpi-value">28,64%</div><div class="kpi-comparison">4.912 em UTI em 17.151 internados com UTI informado</div><div class="kpi-note">Admissão em UTI entre hospitalizados — mede severidade, não ocupação. A ocupação de leitos é o indicador 3b, com denominador do CNES.</div></div><div class="kpi-card"><div class="kpi-label">Indicador de vacinação</div><div class="kpi-value">39,93%</div><div class="kpi-comparison">7.636 vacinados em 19.124 casos com informação vacinal</div><div class="kpi-note">Cobertura declarada entre casos notificados — não é cobertura da população.</div></div>
+    </div>
+    <p class="context-label">Indicadores de contexto — situam os quatro acima no padrão
+    histórico e no tamanho da população</p>
+    <div class="kpi-grid kpi-grid-context">
+      <div class="kpi-card kpi-compact"><div class="kpi-label">Ocupação de leitos de UTI</div><div class="kpi-value">7,7%</div><div class="kpi-comparison">3.988 pacientes de SRAG em 51.774 leitos de UTI existentes (CNES)</div><div class="kpi-note">PISO da ocupação real: mede só pacientes de SRAG sobre a capacidade do CNES, em janela deslocada para trás (não coincide com a dos demais indicadores). Valor baixo NÃO indica rede com folga.</div></div><div class="kpi-card kpi-compact"><div class="kpi-label">Excesso sobre o padrão sazonal</div><div class="kpi-value">-12,08%</div><div class="kpi-comparison">19.336 casos vs mediana de 21.993 no baseline</div><div class="kpi-note">Janela atual contra a mediana da mesma época nos anos de referência.</div></div><div class="kpi-card kpi-compact"><div class="kpi-label">Incidência por 100 mil hab.</div><div class="kpi-value">9,03<span class="kpi-unit">por 100 mil hab. no periodo</span></div><div class="kpi-comparison">19.336 casos em 214.211.951 habitantes</div><div class="kpi-note">Casos notificados sobre a população residente (IBGE), no período.</div></div>
+    </div>
+  </section>
+
+  
+<section class="block" id="comparador">
+  <div class="panel-head">
+    <p class="eyebrow">Comparação</p>
+    <h2 class="block-headline">Os 7 indicadores lado a lado</h2>
+    <p class="news-intro cmp-hint">Clique num cabeçalho para ordenar; clique numa linha para abrir a
+    definição, o período, a fonte e as limitações declaradas daquele indicador. As barras
+    comparam contagens de registros entre as linhas — a coluna Valor não tem barra porque
+    mistura porcentagem e taxa por 100 mil habitantes.</p>
+  </div>
+  <div class="cmp-wrap">
+    <table>
+      <thead><tr><th class="cmp-sortable" data-type="text" aria-sort="none"><button type="button">Indicador</button></th><th class="cmp-sortable cmp-num" data-type="number" aria-sort="none"><button type="button">Valor</button></th><th class="cmp-sortable cmp-num" data-type="number" aria-sort="none" title="Casos que entram no numerador do indicador"><button type="button">Numerador</button></th><th class="cmp-sortable cmp-num" data-type="number" aria-sort="none" title="Base elegivel contra a qual o numerador e comparado"><button type="button">Denominador</button></th><th class="cmp-sortable cmp-num" data-type="number" aria-sort="none" title="Registros lidos para calcular o indicador"><button type="button">Registros na base</button></th><th class="cmp-sortable" data-type="text" aria-sort="none"><button type="button">Status</button></th></tr></thead>
+      <tbody><tr class="cmp-row" data-key="case_growth_rate" tabindex="0" aria-expanded="false"><td class="cmp-name" data-sort="Taxa de aumento de casos"><span class="cmp-dot cmp-dot-0"></span><span class="cmp-name-text">Taxa de aumento de casos<small>exigido</small></span></td><td class="cmp-num cmp-value" data-sort="-33.22">-33,22%</td><td class="cmp-num" data-sort="-9619">-9.619<span class="cmp-bar"><i style="width:49.7%"></i></span></td><td class="cmp-num" data-sort="28955">28.955<span class="cmp-bar"><i style="width:0.0%"></i></span></td><td class="cmp-num" data-sort="48291">48.291<span class="cmp-bar"><i style="width:43.4%"></i></span></td><td data-sort="calculado"><span class="cmp-tag cmp-tag-ok">calculado</span></td></tr><tr class="cmp-detail" data-detail-for="case_growth_rate" hidden><td colspan="6"><div class="cmp-detail-grid"><div><span class="cmp-detail-key">Definição</span><p>Variacao percentual do numero de casos de SRAG entre duas janelas consecutivas de mesmo tamanho, medidas pela data dos primeiros sintomas: (casos_periodo_atual - casos_periodo_anterior) / casos_periodo_anterior x 100.</p></div><div><span class="cmp-detail-key">Período</span><p>2026-06-25 a 2026-08-23 — janela atual 2026-07-25 a 2026-08-23 comparada a 2026-06-25 a 2026-07-24</p></div><div><span class="cmp-detail-key">Fonte</span><p>Open DATASUS / SIVEP-Gripe (SRAG 2019-2026)</p></div><div><span class="cmp-detail-key">Leitura</span><p>Variação frente à janela anterior de mesmo tamanho.</p></div><div class="cmp-detail-wide"><span class="cmp-detail-key">Limitações declaradas</span><ul><li>A serie recente e incompleta por atraso de notificacao: casos com sintomas nos ultimos dias ainda nao foram digitados. As janelas excluem os dias mais recentes (REPORTING_LAG_DAYS) e usam como referencia a maior data de digitacao da base, nunca a data de hoje.</li><li>As duas janelas sao comparadas com maturidade simetrica: cada uma e contada como era conhecida REPORTING_LAG_DAYS dias apos o proprio fechamento. Sem isso a janela atual teria menos tempo de digitacao que a anterior e o crescimento sairia subestimado de forma sistematica. As contagens sem censura ficam publicadas ao lado, nos componentes.</li><li>Mede variacao de casos notificados, nao incidencia populacional: nao ha denominador populacional no dataset.</li><li>Quando a janela anterior tem zero casos, a variacao percentual e indefinida e o indicador retorna valor nulo.</li><li>O SIVEP-Gripe registra casos de SRAG notificados, majoritariamente hospitalizados. Nenhum indicador aqui representa a populacao geral.</li></ul></div></div></td></tr><tr class="cmp-row" data-key="mortality_rate" tabindex="0" aria-expanded="false"><td class="cmp-name" data-sort="Letalidade (casos encerrados)"><span class="cmp-dot cmp-dot-1"></span><span class="cmp-name-text">Letalidade (casos encerrados)<small>exigido</small></span></td><td class="cmp-num cmp-value" data-sort="5.33">5,33%</td><td class="cmp-num" data-sort="715">715<span class="cmp-bar"><i style="width:3.7%"></i></span></td><td class="cmp-num" data-sort="13404">13.404<span class="cmp-bar"><i style="width:0.0%"></i></span></td><td class="cmp-num" data-sort="19336">19.336<span class="cmp-bar"><i style="width:17.4%"></i></span></td><td data-sort="calculado"><span class="cmp-tag cmp-tag-ok">calculado</span></td></tr><tr class="cmp-detail" data-detail-for="mortality_rate" hidden><td colspan="6"><div class="cmp-detail-grid"><div><span class="cmp-detail-key">Definição</span><p>Proporcao de obitos por SRAG entre os casos encerrados elegiveis: obitos (EVOLUCAO = 2) / casos encerrados (EVOLUCAO em 1, 2 ou 3) x 100.</p></div><div><span class="cmp-detail-key">Período</span><p>2026-07-25 a 2026-08-23 — ultimos 30 dias ate a data de corte analitica</p></div><div><span class="cmp-detail-key">Fonte</span><p>Open DATASUS / SIVEP-Gripe (SRAG 2019-2026)</p></div><div><span class="cmp-detail-key">Leitura</span><p>Letalidade entre casos encerrados (óbito ou cura já definidos).</p></div><div class="cmp-detail-wide"><span class="cmp-detail-key">Limitações declaradas</span><ul><li>Trata-se de letalidade (case fatality ratio) entre casos notificados de SRAG, nao de mortalidade populacional por SRAG.</li><li>Casos recentes ainda sem encerramento ficam fora do denominador. Como obitos costumam ser encerrados antes das curas, a letalidade da janela recente tende a ser SUPERESTIMADA; o percentual de casos em aberto e o percentual encerrado sao publicados junto do indicador para dimensionar esse vies.</li><li>Duas janelas com percentuais de encerramento diferentes NAO sao diretamente comparaveis: a variacao entre elas pode ser artefato de maturacao, e nao mudanca real de gravidade. Por isso o indicador publica em `coorte_madura` a mesma taxa sobre uma janela deslocada o tempo tipico ate o encerramento (percentil 90 medido na propria base), com o percentual encerrado das duas. Na base de referencia a janela recente marca 7,86% com 68,8% encerrado, contra 6,04% com 85,5% na coorte madura -- a diferenca e maturacao, nao gravidade.</li><li>EVOLUCAO = 3 (obito por outras causas) entra no denominador como caso encerrado, mas nao no numerador.</li><li>A serie recente e incompleta por atraso de notificacao: casos com sintomas nos ultimos dias ainda nao foram digitados. As janelas excluem os dias mais recentes (REPORTING_LAG_DAYS) e usam como referencia a maior data de digitacao da base, nunca a data de hoje.</li><li>O SIVEP-Gripe registra casos de SRAG notificados, majoritariamente hospitalizados. Nenhum indicador aqui representa a populacao geral.</li></ul></div></div></td></tr><tr class="cmp-row" data-key="icu_admission_rate" tabindex="0" aria-expanded="false"><td class="cmp-name" data-sort="Indicador de UTI"><span class="cmp-dot cmp-dot-2"></span><span class="cmp-name-text">Indicador de UTI<small>exigido</small></span></td><td class="cmp-num cmp-value" data-sort="28.64">28,64%</td><td class="cmp-num" data-sort="4912">4.912<span class="cmp-bar"><i style="width:25.4%"></i></span></td><td class="cmp-num" data-sort="17151">17.151<span class="cmp-bar"><i style="width:0.0%"></i></span></td><td class="cmp-num" data-sort="19045">19.045<span class="cmp-bar"><i style="width:17.1%"></i></span></td><td data-sort="calculado"><span class="cmp-tag cmp-tag-ok">calculado</span></td></tr><tr class="cmp-detail" data-detail-for="icu_admission_rate" hidden><td colspan="6"><div class="cmp-detail-grid"><div><span class="cmp-detail-key">Definição</span><p>Proporcao de pacientes internados por SRAG que foram admitidos em UTI: UTI = 1 / (UTI em 1 ou 2), restrito a internados. Um caso e considerado internado quando HOSPITAL = 1 **ou** quando ha admissao em UTI declarada (UTI = 1).</p></div><div><span class="cmp-detail-key">Período</span><p>2026-07-25 a 2026-08-23 — ultimos 30 dias ate a data de corte analitica</p></div><div><span class="cmp-detail-key">Fonte</span><p>Open DATASUS / SIVEP-Gripe (SRAG 2019-2026)</p></div><div><span class="cmp-detail-key">Leitura</span><p>Admissão em UTI entre hospitalizados — mede severidade, não ocupação. A ocupação de leitos é o indicador 3b, com denominador do CNES.</p></div><div class="cmp-detail-wide"><span class="cmp-detail-key">Limitações declaradas</span><ul><li>ATENCAO: este indicador NAO e taxa de ocupacao de leitos de UTI. O campo 53 do SIVEP-Gripe (&#x27;Internado em UTI?&#x27;) registra se houve admissao em UTI, nao a ocupacao da capacidade instalada.</li><li>Mede severidade clinica dos casos notificados, nao pressao sobre a rede hospitalar.</li><li>A serie recente e incompleta por atraso de notificacao: casos com sintomas nos ultimos dias ainda nao foram digitados. As janelas excluem os dias mais recentes (REPORTING_LAG_DAYS) e usam como referencia a maior data de digitacao da base, nunca a data de hoje.</li><li>O SIVEP-Gripe registra casos de SRAG notificados, majoritariamente hospitalizados. Nenhum indicador aqui representa a populacao geral.</li></ul></div></div></td></tr><tr class="cmp-row" data-key="vaccination_coverage_among_cases" tabindex="0" aria-expanded="false"><td class="cmp-name" data-sort="Indicador de vacinação"><span class="cmp-dot cmp-dot-3"></span><span class="cmp-name-text">Indicador de vacinação<small>exigido</small></span></td><td class="cmp-num cmp-value" data-sort="39.93">39,93%</td><td class="cmp-num" data-sort="7636">7.636<span class="cmp-bar"><i style="width:39.5%"></i></span></td><td class="cmp-num" data-sort="19124">19.124<span class="cmp-bar"><i style="width:0.0%"></i></span></td><td class="cmp-num" data-sort="19336">19.336<span class="cmp-bar"><i style="width:17.4%"></i></span></td><td data-sort="calculado"><span class="cmp-tag cmp-tag-ok">calculado</span></td></tr><tr class="cmp-detail" data-detail-for="vaccination_coverage_among_cases" hidden><td colspan="6"><div class="cmp-detail-grid"><div><span class="cmp-detail-key">Definição</span><p>Proporcao de casos notificados de SRAG com vacinacao declarada: VACINA_COV = 1 / (VACINA_COV em 1 ou 2) para covid-19, e VACINA = 1 / (VACINA em 1 ou 2) para influenza.</p></div><div><span class="cmp-detail-key">Período</span><p>2026-07-25 a 2026-08-23 — ultimos 30 dias ate a data de corte analitica</p></div><div><span class="cmp-detail-key">Fonte</span><p>Open DATASUS / SIVEP-Gripe (SRAG 2019-2026)</p></div><div><span class="cmp-detail-key">Leitura</span><p>Cobertura declarada entre casos notificados — não é cobertura da população.</p></div><div class="cmp-detail-wide"><span class="cmp-detail-key">Limitações declaradas</span><ul><li>ATENCAO: este indicador NAO e taxa de vacinacao da populacao. O denominador sao casos notificados de SRAG (majoritariamente hospitalizados), um grupo com perfil de risco distinto da populacao geral -- ha vies de selecao por definicao.</li><li>A informacao e declarada no momento da notificacao e depende da apresentacao da caderneta; a subnotificacao de doses e conhecida.</li><li>A cobertura vacinal populacional e um indicador SEPARADO (`population_vaccination_coverage`), com numerador do SI-PNI e denominador demografico. Esta metrica nunca deve ser lida no lugar dela, nem usada como aproximacao dela.</li><li>O SIVEP-Gripe registra casos de SRAG notificados, majoritariamente hospitalizados. Nenhum indicador aqui representa a populacao geral.</li></ul></div></div></td></tr><tr class="cmp-row" data-key="icu_bed_occupancy_rate" tabindex="0" aria-expanded="false"><td class="cmp-name" data-sort="Ocupação de leitos de UTI"><span class="cmp-dot cmp-dot-4"></span><span class="cmp-name-text">Ocupação de leitos de UTI<small>complementar</small></span></td><td class="cmp-num cmp-value" data-sort="7.7">7,7%</td><td class="cmp-num" data-sort="3988">3.988<span class="cmp-bar"><i style="width:20.6%"></i></span></td><td class="cmp-num" data-sort="51774">51.774<span class="cmp-bar"><i style="width:0.0%"></i></span></td><td class="cmp-num" data-sort="111298">111.298<span class="cmp-bar"><i style="width:100.0%"></i></span></td><td data-sort="calculado"><span class="cmp-tag cmp-tag-ok">calculado</span></td></tr><tr class="cmp-detail" data-detail-for="icu_bed_occupancy_rate" hidden><td colspan="6"><div class="cmp-detail-grid"><div><span class="cmp-detail-key">Definição</span><p>Proporcao da capacidade instalada de UTI ocupada por pacientes de SRAG em um dia: pacientes_srag_em_uti_no_dia / leitos_uti_disponiveis_no_dia x 100. O numerador vem do censo diario calculado sobre o SIVEP-Gripe; o denominador vem da capacidade instalada publicada pelo CNES para a UF e a competencia compativel com a janela analisada.</p></div><div><span class="cmp-detail-key">Período</span><p>2026-06-24 a 2026-07-23 — 30 dias encerrados 31 dias antes da data de corte analitica, para que as saidas de UTI ja estejam digitadas</p></div><div><span class="cmp-detail-key">Fonte</span><p>Open DATASUS / SIVEP-Gripe (SRAG 2019-2026) (pacientes) e CNES / Dados Abertos do SUS (leitos)</p></div><div><span class="cmp-detail-key">Leitura</span><p>PISO da ocupação real: mede só pacientes de SRAG sobre a capacidade do CNES, em janela deslocada para trás (não coincide com a dos demais indicadores). Valor baixo NÃO indica rede com folga.</p></div><div class="cmp-detail-wide"><span class="cmp-detail-key">Limitações declaradas</span><ul><li>MEDE APENAS A PARCELA DE SRAG. O numerador conta pacientes de SRAG notificados em UTI; os leitos do denominador tambem atendem pacientes sem SRAG (trauma, pos-operatorio, sepse de outras causas). O valor e portanto um PISO da ocupacao total de UTI, nao a ocupacao total. Um valor baixo NAO significa rede com folga.</li><li>O numerador depende da imputacao de permanencia das estadias sem data de saida registrada; o percentual imputado no dia publicado acompanha o indicador.</li><li>A capacidade do CNES e o cadastro de leitos, nao leitos operacionais no dia: leito cadastrado pode estar bloqueado por falta de equipe. O denominador tende a superestimar a capacidade efetiva e, com isso, a subestimar a ocupacao.</li><li>Numerador e denominador tem defasagens diferentes e competencias distintas; a competencia usada e a distancia dela ate a janela sao publicadas com o valor.</li><li>O recorte geografico e a UF de NOTIFICACAO, nao a de residencia: o leito e ocupado onde o paciente foi internado.</li><li>Leitos de UTI neonatal, de queimados e coronariana ficam fora do denominador: sao unidades fechadas para outras condicoes e nao estao disponiveis para o paciente de SRAG. Os quantitativos continuam na referencia e podem ser auditados.</li><li>A serie recente e incompleta por atraso de notificacao: casos com sintomas nos ultimos dias ainda nao foram digitados. As janelas excluem os dias mais recentes (REPORTING_LAG_DAYS) e usam como referencia a maior data de digitacao da base, nunca a data de hoje.</li></ul></div></div></td></tr><tr class="cmp-row" data-key="seasonal_excess" tabindex="0" aria-expanded="false"><td class="cmp-name" data-sort="Excesso sobre o padrão sazonal"><span class="cmp-dot cmp-dot-5"></span><span class="cmp-name-text">Excesso sobre o padrão sazonal<small>complementar</small></span></td><td class="cmp-num cmp-value" data-sort="-12.08">-12,08%</td><td class="cmp-num" data-sort="-2657">-2.657<span class="cmp-bar"><i style="width:13.7%"></i></span></td><td class="cmp-num" data-sort="21993">21.993<span class="cmp-bar"><i style="width:0.0%"></i></span></td><td class="cmp-num" data-sort="88774">88.774<span class="cmp-bar"><i style="width:79.8%"></i></span></td><td data-sort="calculado"><span class="cmp-tag cmp-tag-ok">calculado</span></td></tr><tr class="cmp-detail" data-detail-for="seasonal_excess" hidden><td colspan="6"><div class="cmp-detail-grid"><div><span class="cmp-detail-key">Definição</span><p>Variacao percentual dos casos da janela atual em relacao a MEDIANA dos casos observados na mesma janela de calendario nos anos de baseline: (casos_atuais - mediana_baseline) / mediana_baseline x 100.</p></div><div><span class="cmp-detail-key">Período</span><p>2026-07-25 a 2026-08-23 — janela atual de 30 dias comparada a mesma janela de calendario em 3 ano(s) de baseline</p></div><div><span class="cmp-detail-key">Fonte</span><p>Open DATASUS / SIVEP-Gripe (SRAG 2019-2026)</p></div><div><span class="cmp-detail-key">Leitura</span><p>Janela atual contra a mediana da mesma época nos anos de referência.</p></div><div class="cmp-detail-wide"><span class="cmp-detail-key">Limitações declaradas</span><ul><li>2020 e 2021 ficam fora do baseline por padrao: a pandemia de covid-19 multiplicou as notificacoes de SRAG e um baseline que os incluisse rotularia qualquer ano normal como &#x27;abaixo do esperado&#x27;.</li><li>Mede se a janela atual esta acima ou abaixo do padrao historico da mesma epoca do ano -- e o que distingue surto de sazonalidade. A taxa de aumento de casos, que compara janelas consecutivas, nao faz essa distincao.</li><li>Mudancas de criterio de notificacao e de cobertura da vigilancia entre os anos afetam a comparacao; os anos efetivamente usados sao publicados.</li><li>A serie recente e incompleta por atraso de notificacao: casos com sintomas nos ultimos dias ainda nao foram digitados. As janelas excluem os dias mais recentes (REPORTING_LAG_DAYS) e usam como referencia a maior data de digitacao da base, nunca a data de hoje.</li></ul></div></div></td></tr><tr class="cmp-row" data-key="incidence_rate" tabindex="0" aria-expanded="false"><td class="cmp-name" data-sort="Incidência por 100 mil hab."><span class="cmp-dot cmp-dot-6"></span><span class="cmp-name-text">Incidência por 100 mil hab.<small>complementar</small></span></td><td class="cmp-num cmp-value" data-sort="9.03">9,03<span class="cmp-unit">por 100 mil hab. no periodo</span></td><td class="cmp-num" data-sort="19336">19.336<span class="cmp-bar"><i style="width:100.0%"></i></span></td><td class="cmp-num" data-sort="214211951">214.211.951<span class="cmp-bar"><i style="width:100.0%"></i></span></td><td class="cmp-num" data-sort="19336">19.336<span class="cmp-bar"><i style="width:17.4%"></i></span></td><td data-sort="calculado"><span class="cmp-tag cmp-tag-ok">calculado</span></td></tr><tr class="cmp-detail" data-detail-for="incidence_rate" hidden><td colspan="6"><div class="cmp-detail-grid"><div><span class="cmp-detail-key">Definição</span><p>Casos de SRAG com primeiros sintomas na janela analisada, por 100 mil habitantes: casos / populacao residente estimada (IBGE) x 100.000.</p></div><div><span class="cmp-detail-key">Período</span><p>2026-07-25 a 2026-08-23 — ultimos 30 dias ate a data de corte analitica</p></div><div><span class="cmp-detail-key">Fonte</span><p>Open DATASUS / SIVEP-Gripe (SRAG 2019-2026) (casos) e IBGE (populacao)</p></div><div><span class="cmp-detail-key">Leitura</span><p>Casos notificados sobre a população residente (IBGE), no período.</p></div><div class="cmp-detail-wide"><span class="cmp-detail-key">Limitações declaradas</span><ul><li>Incidencia de casos NOTIFICADOS de SRAG (majoritariamente hospitalizados), nao de infeccao respiratoria na populacao.</li><li>O recorte geografico e a UF de RESIDENCIA, para casar com o denominador residente do IBGE. Os indicadores de carga assistencial (UTI, ventilacao, censo) usam a UF de NOTIFICACAO, porque o leito e ocupado onde o paciente foi internado. As duas dimensoes nao sao intercambiaveis e nunca devem ser cruzadas numa mesma tabela.</li><li>A populacao e a estimativa anual do IBGE mais proxima da data de corte; o ano usado e publicado junto do indicador.</li><li>Permite comparar UFs de tamanhos diferentes, o que a contagem absoluta nao permite.</li><li>A serie recente e incompleta por atraso de notificacao: casos com sintomas nos ultimos dias ainda nao foram digitados. As janelas excluem os dias mais recentes (REPORTING_LAG_DAYS) e usam como referencia a maior data de digitacao da base, nunca a data de hoje.</li></ul></div></div></td></tr></tbody>
+    </table>
+  </div>
+</section>
+
+
+  
+<section class="block" id="series">
+  <div class="panel-head">
+    <p class="eyebrow">Evolução recente — últimos 30 dias</p>
+    <h2 class="block-headline">Casos diários estáveis nas duas últimas semanas</h2>
+  </div>
+  <div class="chart-wrap">
+    <div class="chart-interactive" id="chart-daily"></div>
+<script>
+(function () {
+  var id = "chart-daily";
+  window.__sragCharts = window.__sragCharts || {};
+  window.__sragCharts[id] = {"light": {"layout": {"paper_bgcolor": "#FFFFFF", "plot_bgcolor": "#FFFFFF", "font.color": "#1A2331", "hoverlabel.bgcolor": "#FFFFFF", "hoverlabel.bordercolor": "#D7DBE0", "hoverlabel.font.color": "#1A2331", "legend.font.color": "#6B7280", "xaxis.linecolor": "#D7DBE0", "yaxis.gridcolor": "#EEF0F2"}, "traces": [[0, {"line.color": "#B8C0CC", "fillcolor": "rgba(15,107,98,0.08)"}], [1, {"line.color": "#0F6B62"}], [2, {"marker.color": "#C2521B", "textfont.color": "#C2521B"}], [3, {"marker.color": "#1A2331", "textfont.color": "#1A2331"}]]}, "dark": {"layout": {"paper_bgcolor": "#171C24", "plot_bgcolor": "#171C24", "font.color": "#E6EDF3", "hoverlabel.bgcolor": "#171C24", "hoverlabel.bordercolor": "#39424F", "hoverlabel.font.color": "#E6EDF3", "legend.font.color": "#9AA4B2", "xaxis.linecolor": "#39424F", "yaxis.gridcolor": "#262D38"}, "traces": [[0, {"line.color": "#5A6678", "fillcolor": "rgba(79,209,192,0.12)"}], [1, {"line.color": "#4FD1C0"}], [2, {"marker.color": "#F59356", "textfont.color": "#F59356"}], [3, {"marker.color": "#E6EDF3", "textfont.color": "#E6EDF3"}]]}};
+  if (typeof Plotly === 'undefined') { return; }
+  Plotly.newPlot(id, [{"type": "scatter", "mode": "lines", "name": "Casos por dia", "x": ["2026-07-25", "2026-07-26", "2026-07-27", "2026-07-28", "2026-07-29", "2026-07-30", "2026-07-31", "2026-08-01", "2026-08-02", "2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06", "2026-08-07", "2026-08-08", "2026-08-09", "2026-08-10", "2026-08-11", "2026-08-12", "2026-08-13", "2026-08-14", "2026-08-15", "2026-08-16", "2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21", "2026-08-22", "2026-08-23"], "y": [691, 675, 733, 698, 593, 563, 631, 823, 661, 681, 612, 582, 596, 706, 619, 644, 794, 573, 572, 580, 620, 655, 654, 659, 621, 591, 753, 578, 575, 603], "line": {"color": "#B8C0CC", "width": 1.4}, "fill": "tozeroy", "fillcolor": "rgba(15,107,98,0.08)", "hovertemplate": "%{x|%d/%m/%Y}<br>Casos: %{y}<extra></extra>"}, {"type": "scatter", "mode": "lines", "name": "M\u00e9dia m\u00f3vel de 7 dias", "x": ["2026-07-25", "2026-07-26", "2026-07-27", "2026-07-28", "2026-07-29", "2026-07-30", "2026-07-31", "2026-08-01", "2026-08-02", "2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06", "2026-08-07", "2026-08-08", "2026-08-09", "2026-08-10", "2026-08-11", "2026-08-12", "2026-08-13", "2026-08-14", "2026-08-15", "2026-08-16", "2026-08-17", "2026-08-18", "2026-08-19", "2026-08-20", "2026-08-21", "2026-08-22", "2026-08-23"], "y": [691.0, 683.0, 699.67, 699.25, 678.0, 658.83, 654.86, 673.71, 671.71, 664.29, 652.0, 650.43, 655.14, 665.86, 636.71, 634.29, 650.43, 644.86, 643.43, 641.14, 628.86, 634.0, 635.43, 616.14, 623.0, 625.71, 650.43, 644.43, 633.0, 625.71], "line": {"color": "#0F6B62", "width": 3}, "hovertemplate": "%{x|%d/%m/%Y}<br>M\u00e9dia 7d: %{y:.1f}<extra></extra>"}, {"type": "scatter", "mode": "markers+text", "name": "Pico", "x": ["2026-08-01"], "y": [823], "marker": {"color": "#C2521B", "size": 10}, "text": ["pico: 823"], "textposition": "top center", "textfont": {"color": "#C2521B", "size": 11}, "hovertemplate": "%{x|%d/%m/%Y}<br>Pico: %{y}<extra></extra>", "showlegend": false}, {"type": "scatter", "mode": "markers+text", "name": "\u00daltimo valor", "x": ["2026-08-23"], "y": [603], "marker": {"color": "#1A2331", "size": 9}, "text": ["\u00faltimo: 603"], "textposition": "bottom center", "textfont": {"color": "#1A2331", "size": 11}, "hovertemplate": "%{x|%d/%m/%Y}<br>\u00daltimo valor: %{y}<extra></extra>", "showlegend": false}], {"font": {"family": "'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif", "color": "#1A2331"}, "margin": {"l": 52, "r": 18, "t": 16, "b": 44}, "plot_bgcolor": "#FFFFFF", "paper_bgcolor": "#FFFFFF", "hovermode": "x unified", "hoverlabel": {"bgcolor": "#FFFFFF", "bordercolor": "#D7DBE0", "font": {"color": "#1A2331"}}, "modebar": {"orientation": "v", "color": "#6B7280"}, "legend": {"orientation": "h", "y": -0.18, "yanchor": "top", "x": 0, "font": {"size": 12, "color": "#6B7280"}}, "xaxis": {"showgrid": false, "showline": true, "linecolor": "#D7DBE0", "tickfont": {"size": 11}, "automargin": true, "type": "date"}, "yaxis": {"showgrid": true, "gridcolor": "#EEF0F2", "zeroline": false, "tickfont": {"size": 11}, "separatethousands": true}}, {"displayModeBar": "hover", "displaylogo": false, "modeBarButtonsToRemove": ["select2d", "lasso2d", "autoScale2d", "hoverCompareCartesian", "toggleSpikelines"], "responsive": true, "locale": "pt-br"});
+  if (window.__sragPaintCharts) { window.__sragPaintCharts(); }
+})();
+</script>
+    <img class="chart-print-only" src="charts/casos_diarios.png"
+         alt="Casos diários estáveis nas duas últimas semanas">
+  </div>
+  <div class="insights-box">
+    <p class="insights-title">Principais leituras</p>
+    <ul><li>Pico de 823 caso(s) em 01/08/26.</li><li>Último dia analisável (23/08/26): 603 caso(s); média dos últimos 7 dias em 625.7.</li><li>Média dos 7 dias anteriores: 635.4 — variação de -2% na comparação semanal.</li></ul>
+  </div>
+</section>
+
+  
+<section class="block" id="series-mensal">
+  <div class="panel-head">
+    <p class="eyebrow">Visão estrutural — últimos 12 meses</p>
+    <h2 class="block-headline">Casos mensais em trajetória de alta no último ano, com pico em mai/26</h2>
+  </div>
+  <div class="chart-wrap">
+    <div class="chart-interactive" id="chart-monthly"></div>
+<script>
+(function () {
+  var id = "chart-monthly";
+  window.__sragCharts = window.__sragCharts || {};
+  window.__sragCharts[id] = {"light": {"layout": {"paper_bgcolor": "#FFFFFF", "plot_bgcolor": "#FFFFFF", "font.color": "#1A2331", "hoverlabel.bgcolor": "#FFFFFF", "hoverlabel.bordercolor": "#D7DBE0", "hoverlabel.font.color": "#1A2331", "legend.font.color": "#6B7280", "xaxis.linecolor": "#D7DBE0", "yaxis.gridcolor": "#EEF0F2"}, "traces": [[0, {"marker.color": ["#0F6B62", "#0F6B62", "#0F6B62", "#0F6B62", "#0F6B62", "#0F6B62", "#0F6B62", "#0F6B62", "#C2521B", "#0F6B62", "#0F6B62", "#B8C0CC"], "textfont.color": "#6B7280"}], [1, {"marker.color": "#0F6B62"}], [2, {"marker.color": "#C2521B"}], [3, {"marker.color": "#B8C0CC"}]]}, "dark": {"layout": {"paper_bgcolor": "#171C24", "plot_bgcolor": "#171C24", "font.color": "#E6EDF3", "hoverlabel.bgcolor": "#171C24", "hoverlabel.bordercolor": "#39424F", "hoverlabel.font.color": "#E6EDF3", "legend.font.color": "#9AA4B2", "xaxis.linecolor": "#39424F", "yaxis.gridcolor": "#262D38"}, "traces": [[0, {"marker.color": ["#4FD1C0", "#4FD1C0", "#4FD1C0", "#4FD1C0", "#4FD1C0", "#4FD1C0", "#4FD1C0", "#4FD1C0", "#F59356", "#4FD1C0", "#4FD1C0", "#5A6678"], "textfont.color": "#9AA4B2"}], [1, {"marker.color": "#4FD1C0"}], [2, {"marker.color": "#F59356"}], [3, {"marker.color": "#5A6678"}]]}};
+  if (typeof Plotly === 'undefined') { return; }
+  Plotly.newPlot(id, [{"type": "bar", "name": "Casos por m\u00eas", "x": ["set/25", "out/25", "nov/25", "dez/25", "jan/26", "fev/26", "mar/26", "abr/26", "mai/26", "jun/26", "jul/26", "ago/26"], "y": [24341, 24030, 21011, 16349, 12824, 15912, 27092, 31530, 39321, 37384, 27541, 14752], "marker": {"color": ["#0F6B62", "#0F6B62", "#0F6B62", "#0F6B62", "#0F6B62", "#0F6B62", "#0F6B62", "#0F6B62", "#C2521B", "#0F6B62", "#0F6B62", "#B8C0CC"]}, "text": ["24.341", "24.030", "21.011", "16.349", "12.824", "15.912", "27.092", "31.530", "39.321", "37.384", "27.541", "14.752"], "textposition": "outside", "textfont": {"size": 10.5, "color": "#6B7280"}, "hovertemplate": "%{x}<br>Casos: %{y}<extra></extra>", "showlegend": false}, {"type": "bar", "name": "Casos por m\u00eas", "x": [null], "y": [null], "marker": {"color": "#0F6B62"}, "showlegend": true}, {"type": "bar", "name": "M\u00eas de pico", "x": [null], "y": [null], "marker": {"color": "#C2521B"}, "showlegend": true}, {"type": "bar", "name": "M\u00eas parcial", "x": [null], "y": [null], "marker": {"color": "#B8C0CC"}, "showlegend": true}], {"font": {"family": "'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif", "color": "#1A2331"}, "margin": {"l": 52, "r": 18, "t": 16, "b": 44}, "plot_bgcolor": "#FFFFFF", "paper_bgcolor": "#FFFFFF", "hovermode": "x unified", "hoverlabel": {"bgcolor": "#FFFFFF", "bordercolor": "#D7DBE0", "font": {"color": "#1A2331"}}, "modebar": {"orientation": "v", "color": "#6B7280"}, "legend": {"orientation": "h", "y": -0.18, "yanchor": "top", "x": 0, "font": {"size": 12, "color": "#6B7280"}}, "xaxis": {"showgrid": false, "showline": true, "linecolor": "#D7DBE0", "tickfont": {"size": 11}, "automargin": true}, "yaxis": {"showgrid": true, "gridcolor": "#EEF0F2", "zeroline": false, "tickfont": {"size": 11}, "separatethousands": true, "rangemode": "tozero"}}, {"displayModeBar": "hover", "displaylogo": false, "modeBarButtonsToRemove": ["select2d", "lasso2d", "autoScale2d", "hoverCompareCartesian", "toggleSpikelines"], "responsive": true, "locale": "pt-br"});
+  if (window.__sragPaintCharts) { window.__sragPaintCharts(); }
+})();
+</script>
+    <img class="chart-print-only" src="charts/casos_mensais.png"
+         alt="Casos mensais em trajetória de alta no último ano, com pico em mai/26">
+  </div>
+  <div class="insights-box">
+    <p class="insights-title">Principais leituras</p>
+    <ul><li>Pico de 39321 casos em mai/26.</li><li>Total de 292087 casos nos 12 meses exibidos.</li><li>O último mês (ago/26) está parcial: a janela analisável termina antes do fim do mês.</li></ul>
+  </div>
+</section>
+
+
+  <section class="block" id="contexto">
+    <div class="panel-head">
+      <p class="eyebrow">Contexto externo</p>
+      <h2 class="block-headline">Notícias recentes sobre SRAG</h2>
+      <p class="news-intro">Evidência contextual (notícias) — nunca altera, corrige ou substitui os
+      indicadores calculados sobre os dados oficiais do DATASUS (evidência epidemiológica).</p>
+    </div>
+    <div class="news-grid"><article class="news-card"><p class="news-title">Gripe, rinovírus e VSR puxam alta de casos de síndrome respiratória grave - Estadão</p><p class="news-meta">Estadão · 2026-03-27</p><a class="news-link" href="https://news.google.com/rss/articles/CBMiygFBVV95cUxQa1VNUDVrZEVRNEFMdWtkVlFGMHg1WTJoSEctYi1hcVZxSWZNVkpBczlqR0htSEJ1TkR6dGYxQjFZYnQ4REtCOHpFcS16eHZ5YTE4Z3pLR1FVT3FFaFhLdldwLXFwR3JZX3p4d05PbnpHVWMyLWc1LWF5MGlZODdwakIxeEhiVjhCZWhLdnN2S0FVbU5aeVpGT1B1QmVrTzExcGRRVkhibXVzVjlHTUVhVGxKM3lsY0VMMnlTZ3NfRG5XMlU1Ykt1S2pR0gHPAUFVX3lxTE01RWFTdzJEenltelVHOU1RZFdTMFV0S0Z5WEdqQ3NEaG9VcDAyRFhmMnhObXREWGNVUGsxak1DRnBwS0w1dTk2eXVLZHJ5OXZmX2xXYWlRVUhvZHFoOVU2RGtWYVNKUUxza0xackpvcUw4cTZmTnZqWVBJekc1SjVEc3JFbVJrTk9XRl9hWmVYTnM0UDFoMW1XN2R3eEs5czJuOVU1SVU0b1lRd01HLURtVjd6cW5tZG9IOTZWQS1nSFRWTHFPUEpSaWkwVU1zWQ?oc=5" target="_blank" rel="noopener noreferrer">Ler notícia ↗</a></article><article class="news-card"><p class="news-title">Síndrome Respiratória Aguda Grave - SRAG - Prefeitura</p><p class="news-meta">Prefeitura · 2026-08-14</p><a class="news-link" href="https://news.google.com/rss/articles/CBMiigFBVV95cUxPRUxMeU9PR2dFMloyNG1qNVo2eHo4Q0RjVEV1akRmbGgwaXhLdUN2M3RlcHdMcHNzd240MDRkWVJXY1g1RVlWam5xMjQ3dWdPand2UUh4MHRxWlBzZjVNMWVCTE1Hd1dUN2JZUkxpM3hMcUJvblEwc2hMTXJGVUNndGNFSGs4NzRjTGc?oc=5" target="_blank" rel="noopener noreferrer">Ler notícia ↗</a></article><article class="news-card"><p class="news-title">RS e SC registram aumento de casos de SRAG por vírus respiratórios - cnnbrasil.com.br</p><p class="news-meta">cnnbrasil.com.br · 2026-08-03</p><a class="news-link" href="https://news.google.com/rss/articles/CBMipAFBVV95cUxPTC1tN09NenpNR1NZX3F6Z2VEU3Q4Yzg5RG1VTkF4d0JPQkppZWtvbFgtWXEweTlRVjFMMi1qVERHdWtrZ203Qm9vTTBzdzNBR2tWa0NEdVY0Y0NiT0NxdDlnMnRYYmtuQVdZeV8xMS1yRFVIMWhLOUR5ZHFId0Z6VXR2ZnlEVWxJekkteVNyMktjUmhNZ3JfbjhIRUdzeWlwYWcwRw?oc=5" target="_blank" rel="noopener noreferrer">Ler notícia ↗</a></article><article class="news-card"><p class="news-title">RS e SC registram aumento de casos de SRAG por vírus respiratórios - CNN Brasil</p><p class="news-meta">CNN Brasil · 2026-08-03</p><a class="news-link" href="https://news.google.com/rss/articles/CBMipAFBVV95cUxPTC1tN09NenpNR1NZX3F6Z2VEU3Q4Yzg5RG1VTkF4d0JPQkppZWtvbFgtWXEweTlRVjFMMi1qVERHdWtrZ203Qm9vTTBzdzNBR2tWa0NEdVY0Y0NiT0NxdDlnMnRYYmtuQVdZeV8xMS1yRFVIMWhLOUR5ZHFId0Z6VXR2ZnlEVWxJekkteVNyMktjUmhNZ3JfbjhIRUdzeWlwYWcwRw?oc=5" target="_blank" rel="noopener noreferrer">Ler notícia ↗</a></article><article class="news-card"><p class="news-title">Casos de síndrome respiratória aguda grave voltam a crescer no Brasil - Estadão</p><p class="news-meta">Estadão · 2026-03-06</p><a class="news-link" href="https://news.google.com/rss/articles/CBMixgFBVV95cUxPRE9QLXoxaWtsZzdaaUIyczJrRndWbmlvMzhYd3lKeEw4eXQxRXdQNGZBV0xIT21DeEdKSXBWTndkSGh2V2RZS1U5Q0RHWnZJRV9PRjF3NHktMF9PSW5CVXVrVUppXy1JU2oyZGVVM2xjSXhjd0JWVTlIM0hodTlzNndPWUtMZjRtUTAybVlub1NJWkZGenE5SXh4UTI3cHJsSmpLLS1ZaHRXbkVkS3h1ZURkNndNZmZwTHFiSzBPZEFqN19qV0HSAcsBQVVfeXFMTnFaUUVwM1c4WktxaFhEQTBwaE1nSWFlV2hkTm5RWlZ1X2Q3c2JfaUwzTzFfV3FjQ25qOUdSMkUxbUJjb3Z0eXlOLVV3VUEzdm9ZZ05uU1EzajFFRzY5M2R2R3M4QU5VNDdXLUZObTh6aDduVUo1QnM1c2FQemVtVUxfaDUyU3dFRTVTVkd5OGFjbXdMcF9veUVwX01EMHMyd1JmdVZMVzR1aWFtNjlkS1lDbVZPc3hKT2lEcVFYZFVoOHhScG1PZ0EzTm8?oc=5" target="_blank" rel="noopener noreferrer">Ler notícia ↗</a></article></div>
+  </section>
+
+  <section class="block" id="interpretacao">
+    <div class="panel-head">
+      <p class="eyebrow">Interpretação</p>
+      <h2 class="block-headline">Interpretação do cenário</h2>
+    </div>
+    <div class="interpretation">
+      <p class="interpretation-note">Texto produzido por
+      <code>deterministic-template</code> exclusivamente a
+      partir dos resultados das tools acima, validado pelo guardrail de evidência.</p>
+      <h4>1. Panorama geral</h4><p>A comparacao entre janelas consecutivas de 30 dias indica reducao de 33.22% no numero de casos de SRAG: 19336 casos na janela atual contra 28955 na anterior. No acumulado dos ultimos 12 meses foram 292087 casos notificados.</p><p>Isso corresponde a 9.03 casos notificados por 100 mil habitantes (populacao IBGE de 2026). Frente ao baseline sazonal, a janela esta 12.08% abaixo da mediana da mesma epoca em 3 anos de referencia (21993 casos), o que e compativel com a sazonalidade esperada.</p><h4>2. Severidade e pressao assistencial</h4><p>A letalidade entre casos encerrados foi de 5.33%: 715 obitos por SRAG em 13404 casos encerrados. Havia ainda 5437 casos sem encerramento no periodo, o que torna o indicador instavel na janela mais recente.</p><p>Entre os hospitalizados por SRAG, 28.64% foram internados em UTI (4912 de 17151 com a informacao preenchida). O censo diario de pacientes de SRAG em UTI atingiu pico de 0 pacientes no periodo. Este indicador mede admissao em UTI -- severidade dos casos notificados --, e nao ocupacao de leitos, que e publicada a parte.</p><p>Pacientes de SRAG ocupavam 7.7% da capacidade instalada de UTI no dia de maior censo da janela apurada (3988 pacientes sobre 51774 leitos de UTI adulto e pediatrica, competencia 2026-07 do CNES); a media da janela foi de 7.17%. O valor e um piso da ocupacao total, porque os mesmos leitos atendem pacientes sem SRAG, e um percentual baixo nao indica rede com folga. A janela vai de 2026-06-24 a 2026-07-23 e nao coincide com a dos demais indicadores.</p><h4>3. Cobertura vacinal declarada</h4><p>Entre os casos notificados com a informacao preenchida, 39.93% declararam vacinacao contra covid-19 (completude de 98.9%) e 35.48% contra influenza (completude de 94.64%). Trata-se de cobertura entre pessoas que adoeceram e foram notificadas, nao da cobertura vacinal da populacao.</p><h4>4. Leitura do contexto externo</h4><p>Foram recuperadas 12 noticias de fontes confiaveis no periodo. Entre elas: &quot;Gripe, rinovírus e VSR puxam alta de casos de síndrome respiratória grave - Estadão&quot; (Estadão, 2026-03-27); &quot;Síndrome Respiratória Aguda Grave - SRAG - Prefeitura&quot; (Prefeitura, 2026-08-14); &quot;RS e SC registram aumento de casos de SRAG por vírus respiratórios - cnnbrasil.com.br&quot; (cnnbrasil.com.br, 2026-08-03). Esse material e contexto externo e nao altera nenhum dos indicadores calculados sobre os dados do DATASUS.</p><p>Este relatório apresenta análise epidemiológica agregada de dados públicos de vigilância. Não constitui diagnóstico, prescrição, recomendação terapêutica nem orientação de conduta clínica individual.</p>
+    </div>
+  </section>
+
+  <section class="block" id="transparencia">
+    <div class="panel-head">
+      <p class="eyebrow">Transparência</p>
+      <h2 class="block-headline">Limitações e notas metodológicas</h2>
+    </div>
+    <div class="callout"><p class="callout-title">ℹ Nota metodológica — UTI</p><p>Este indicador representa admissão em UTI entre pacientes de SRAG hospitalizados. A ocupação de leitos de UTI por pacientes de SRAG É calculada nesta execução (ver seção 3b/indicador de contexto), com denominador do CNES -- nunca a partir deste indicador de admissão.</p></div><div class="callout"><p class="callout-title">ℹ Nota metodológica — Vacinação</p><p>Este indicador representa cobertura vacinal declarada entre casos notificados de SRAG, não a cobertura vacinal da população. O SIVEP-Gripe so contem informacao vacinal de pessoas notificadas com SRAG, o que nao representa a populacao geral.</p></div>
+    
+<details class="methodology">
+  <summary>Metodologia e limitações gerais</summary>
+  <table><tr><td class="meta-key">Fonte dos dados</td><td>Open DATASUS / SIVEP-Gripe (SRAG 2019-2026)</td></tr><tr><td class="meta-key">Dataset</td><td><a href="https://dadosabertos.saude.gov.br/dataset/srag-2019-a-2026">https://dadosabertos.saude.gov.br/dataset/srag-2019-a-2026</a></td></tr><tr><td class="meta-key">Registros processados na carga</td><td>1.705.626</td></tr><tr><td class="meta-key">Registros descartados</td><td>0 (nada é removido silenciosamente)</td></tr><tr><td class="meta-key">Via de interpretação</td><td>deterministic-template</td></tr></table>
+  <p>Definição completa de cada indicador (numerador, denominador, campos, tratamento de
+  ausência e limitações), o contrato de colunas e o relatório de qualidade da carga estão no
+  <a href="#anexo-tecnico">anexo técnico</a>, abaixo.</p>
+</details>
+
+  </section>
+
+  <details class="block technical-appendix" id="anexo-tecnico">
+    <summary>Anexo técnico completo (indicadores detalhados, séries, qualidade dos dados,
+    governança e auditoria)</summary>
+    <div class="technical-appendix-body"><h1>Relatorio epidemiologico de SRAG</h1>
+<blockquote><strong>Certificação AI Engineering - Vinícius Barbaresco</strong></blockquote>
+<ul>
+<li><strong>Execucao (run_id):</strong> <code>aad7a556-7561-495a-a2ba-d8cf6f364580</code></li>
+<li><strong>Gerado em:</strong> 2026-09-17 22:33 Hora oficial do Brasil</li>
+<li><strong>Solicitacao:</strong> Gere o relatorio de monitoramento de SRAG com os indicadores de aumento de casos, letalidade entre casos encerrados, UTI (admissao e ocupacao de leitos) e vacinacao, as series diaria e mensal, e o contexto de noticias recentes.</li>
+<li><strong>Recorte:</strong> BR (nacional) | todas as classificações finais</li>
+<li><strong>Fonte dos dados:</strong> Open DATASUS / SIVEP-Gripe (SRAG 2019-2026) (<a href="https://dadosabertos.saude.gov.br/dataset/srag-2019-a-2026">dataset</a>)</li>
+<li><strong>Via de interpretacao:</strong> <code>deterministic-template</code></li>
+</ul>
+<blockquote>Este relatório apresenta análise epidemiológica agregada de dados públicos de vigilância. Não constitui diagnóstico, prescrição, recomendação terapêutica nem orientação de conduta clínica individual.</blockquote>
+<h2>Resumo dos indicadores</h2>
+<table>
+<tr><th>#</th><th>Indicador</th><th>Valor</th><th>Numerador</th><th>Denominador</th><th>Status</th></tr>
+<tr><td>1</td><td>case_growth_rate</td><td>-33.22%</td><td>-9619</td><td>28955</td><td>calculado</td></tr>
+<tr><td>2</td><td>mortality_rate</td><td>5.33%</td><td>715</td><td>13404</td><td>calculado</td></tr>
+<tr><td>3</td><td>icu_admission_rate</td><td>28.64%</td><td>4912</td><td>17151</td><td>calculado</td></tr>
+<tr><td>4</td><td>icu_bed_occupancy_rate [*]</td><td>7.7%</td><td>3988</td><td>51774</td><td>calculado</td></tr>
+<tr><td>5</td><td>vaccination_coverage_among_cases</td><td>39.93%</td><td>7636</td><td>19124</td><td>calculado</td></tr>
+<tr><td>6</td><td>incidence_rate</td><td>9.03 por 100 mil hab. no periodo</td><td>19336</td><td>214211951</td><td>calculado</td></tr>
+<tr><td>7</td><td>seasonal_excess</td><td>-12.08%</td><td>-2657</td><td>21993</td><td>calculado</td></tr>
+</table>
+<p><code>[*]</code> mede so a parcela ocupada por pacientes de SRAG (piso da ocupacao real, nao a ocupacao total) e cobre uma janela deslocada para tras em relacao aos demais indicadores -- ver secao 3b para o periodo exato.</p>
+<h2>DADO - Alertas e acompanhamento</h2>
+<p><strong>Nivel consolidado: NORMAL.</strong> Nenhuma regra de alerta disparada; indicadores dentro dos limiares configurados.</p>
+<table>
+<tr><th>Regra</th><th>Indicador</th><th>Observado</th><th>Limiar</th><th>Disparada</th></tr>
+<tr><td>crescimento_de_casos</td><td>case_growth_rate</td><td>-33.22%</td><td>20.0%</td><td>nao</td></tr>
+<tr><td>letalidade</td><td>mortality_rate</td><td>5.33%</td><td>10.0%</td><td>nao</td></tr>
+<tr><td>excesso_sazonal</td><td>seasonal_excess</td><td>-12.08%</td><td>50.0%</td><td>nao</td></tr>
+</table>
+<h3>Variacao desde a execucao anterior</h3>
+<ul>
+<li><strong>Execucao anterior:</strong> <code>4736ecfb-1a11-428e-bd9a-6bd663c641bb</code> (gerada em 2026-09-18T01:23:50, corte 2026-08-23; corte atual 2026-08-23)</li>
+</ul>
+<table>
+<tr><th>Indicador</th><th>Anterior</th><th>Atual</th><th>Variacao</th></tr>
+<tr><td>case_growth_rate</td><td>-33.22</td><td>-33.22</td><td>0.0</td></tr>
+<tr><td>mortality_rate</td><td>5.33</td><td>5.33</td><td>0.0</td></tr>
+<tr><td>icu_admission_rate</td><td>28.64</td><td>28.64</td><td>0.0</td></tr>
+<tr><td>vaccination_coverage_among_cases</td><td>39.93</td><td>39.93</td><td>0.0</td></tr>
+<tr><td>incidence_rate</td><td>9.03</td><td>9.03</td><td>0.0</td></tr>
+<tr><td>seasonal_excess</td><td>-12.08</td><td>-12.08</td><td>0.0</td></tr>
+</table>
+<p><em>As duas execucoes usam a mesma data de corte analitica: a variacao reflete atualizacao da base pela fonte, nao passagem do tempo.</em></p>
+<h2>DADO - Indicadores epidemiologicos</h2>
+<h3>1. Taxa de aumento de casos</h3>
+<p><strong>Valor:</strong> -33.22%</p>
+<ul>
+<li><strong>Definicao:</strong> Variacao percentual do numero de casos de SRAG entre duas janelas consecutivas de mesmo tamanho, medidas pela data dos primeiros sintomas: (casos_periodo_atual - casos_periodo_anterior) / casos_periodo_anterior x 100.</li>
+<li><strong>Numerador:</strong> -9619</li>
+<li><strong>Denominador:</strong> 28955</li>
+<li><strong>Registros na base do calculo:</strong> 48291</li>
+<li><strong>Periodo:</strong> 2026-06-25 a 2026-08-23 (janela atual 2026-07-25 a 2026-08-23 comparada a 2026-06-25 a 2026-07-24)</li>
+<li><strong>Fonte:</strong> Open DATASUS / SIVEP-Gripe (SRAG 2019-2026)</li>
+<li><strong>Casos na janela atual:</strong> 19336</li>
+<li><strong>Casos na janela anterior:</strong> 28955</li>
+<li><strong>Data de corte analitica:</strong> 2026-08-23 (atraso mediano observado: 7.0 dias, p90: 27.0 dias)</li>
+</ul>
+<details><summary>Limitacoes declaradas</summary>
+<ul>
+<li>A serie recente e incompleta por atraso de notificacao: casos com sintomas nos ultimos dias ainda nao foram digitados. As janelas excluem os dias mais recentes (REPORTING_LAG_DAYS) e usam como referencia a maior data de digitacao da base, nunca a data de hoje.</li>
+<li>As duas janelas sao comparadas com maturidade simetrica: cada uma e contada como era conhecida REPORTING_LAG_DAYS dias apos o proprio fechamento. Sem isso a janela atual teria menos tempo de digitacao que a anterior e o crescimento sairia subestimado de forma sistematica. As contagens sem censura ficam publicadas ao lado, nos componentes.</li>
+<li>Mede variacao de casos notificados, nao incidencia populacional: nao ha denominador populacional no dataset.</li>
+<li>Quando a janela anterior tem zero casos, a variacao percentual e indefinida e o indicador retorna valor nulo.</li>
+<li>O SIVEP-Gripe registra casos de SRAG notificados, majoritariamente hospitalizados. Nenhum indicador aqui representa a populacao geral.</li>
+</ul>
+</details>
+<h3>2. Letalidade entre casos encerrados</h3>
+<p><strong>Valor:</strong> 5.33%</p>
+<ul>
+<li><strong>Definicao:</strong> Proporcao de obitos por SRAG entre os casos encerrados elegiveis: obitos (EVOLUCAO = 2) / casos encerrados (EVOLUCAO em 1, 2 ou 3) x 100.</li>
+<li><strong>Numerador:</strong> 715</li>
+<li><strong>Denominador:</strong> 13404</li>
+<li><strong>Registros na base do calculo:</strong> 19336</li>
+<li><strong>Periodo:</strong> 2026-07-25 a 2026-08-23 (ultimos 30 dias ate a data de corte analitica)</li>
+<li><strong>Fonte:</strong> Open DATASUS / SIVEP-Gripe (SRAG 2019-2026)</li>
+<li><strong>Casos no periodo:</strong> 19336</li>
+<li><strong>Obitos por SRAG:</strong> 715</li>
+<li><strong>Obitos por outras causas:</strong> 371</li>
+<li><strong>Casos ainda em aberto:</strong> 5437</li>
+<li><strong>Evolucao ignorada (codigo 9):</strong> 495</li>
+</ul>
+<details><summary>Limitacoes declaradas</summary>
+<ul>
+<li>Trata-se de letalidade (case fatality ratio) entre casos notificados de SRAG, nao de mortalidade populacional por SRAG.</li>
+<li>Casos recentes ainda sem encerramento ficam fora do denominador. Como obitos costumam ser encerrados antes das curas, a letalidade da janela recente tende a ser SUPERESTIMADA; o percentual de casos em aberto e o percentual encerrado sao publicados junto do indicador para dimensionar esse vies.</li>
+<li>Duas janelas com percentuais de encerramento diferentes NAO sao diretamente comparaveis: a variacao entre elas pode ser artefato de maturacao, e nao mudanca real de gravidade. Por isso o indicador publica em <code>coorte_madura</code> a mesma taxa sobre uma janela deslocada o tempo tipico ate o encerramento (percentil 90 medido na propria base), com o percentual encerrado das duas. Na base de referencia a janela recente marca 7,86% com 68,8% encerrado, contra 6,04% com 85,5% na coorte madura -- a diferenca e maturacao, nao gravidade.</li>
+<li>EVOLUCAO = 3 (obito por outras causas) entra no denominador como caso encerrado, mas nao no numerador.</li>
+<li>A serie recente e incompleta por atraso de notificacao: casos com sintomas nos ultimos dias ainda nao foram digitados. As janelas excluem os dias mais recentes (REPORTING_LAG_DAYS) e usam como referencia a maior data de digitacao da base, nunca a data de hoje.</li>
+<li>O SIVEP-Gripe registra casos de SRAG notificados, majoritariamente hospitalizados. Nenhum indicador aqui representa a populacao geral.</li>
+</ul>
+</details>
+<h3>3. UTI (admissao e censo)</h3>
+<p><strong>Valor:</strong> 28.64%</p>
+<ul>
+<li><strong>Definicao:</strong> Proporcao de pacientes internados por SRAG que foram admitidos em UTI: UTI = 1 / (UTI em 1 ou 2), restrito a internados. Um caso e considerado internado quando HOSPITAL = 1 <strong>ou</strong> quando ha admissao em UTI declarada (UTI = 1).</li>
+<li><strong>Numerador:</strong> 4912</li>
+<li><strong>Denominador:</strong> 17151</li>
+<li><strong>Registros na base do calculo:</strong> 19045</li>
+<li><strong>Periodo:</strong> 2026-07-25 a 2026-08-23 (ultimos 30 dias ate a data de corte analitica)</li>
+<li><strong>Fonte:</strong> Open DATASUS / SIVEP-Gripe (SRAG 2019-2026)</li>
+<li><strong>Internados no periodo:</strong> 19045</li>
+<li><strong>Admitidos em UTI:</strong> 4912</li>
+<li><strong>UTI ignorado (codigo 9):</strong> 199</li>
+<li><strong>Pico do censo diario em UTI:</strong> 0 pacientes em None (None% desse valor depende de imputacao de permanencia)</li>
+<li><strong>Com UTI informado e sem HOSPITAL=&#x27;Sim&#x27;:</strong> ausente 135, ignorado 0 (contam como internados nos dois bracos: a base e de SRAG hospitalizada e ausencia nao e lida como &#x27;Nao&#x27;)</li>
+<li><strong>Admitidos em UTI com internacao negada:</strong> 0 (contradicao no registro; nao sao resgatados)</li>
+</ul>
+<p><strong>Qualidade da permanencia em UTI usada no censo</strong> (estadias em UTI que intersectam a janela do censo):</p>
+<ul>
+<li>Estadias no censo: 7918</li>
+<li>Com data de saida registrada: 3121 (39.42%)</li>
+<li>Permanencia imputada pela data de evolucao: 1960</li>
+<li><strong>Permanencia imputada em aberto: 2837 (35.83%)</strong></li>
+<li>Estadias imputadas truncadas pelo teto de 31 dias (percentil 95% da permanencia das 261831 estadias com saida registrada): 1471 -- o teto limita tanto a imputacao pela data de evolucao quanto a imputacao em aberto</li>
+<li>Estadias sem data de saida nem de evolucao sao tratadas como em curso ate o teto de permanencia. Sem o teto, pacientes admitidos meses antes contavam como internados ate a data de corte e inflavam o censo em ordem de grandeza.</li>
+</ul>
+<blockquote><strong>Este indicador nao e ocupacao de leitos.</strong> Indicador distinto, calculado a parte com a capacidade instalada do CNES. A taxa de admissao acima NAO e ocupacao: ela mede severidade dos casos notificados, nao pressao sobre a capacidade instalada. A ocupacao e publicada em separado como <code>icu_bed_occupancy_rate</code>.</blockquote>
+<details><summary>Limitacoes declaradas</summary>
+<ul>
+<li>ATENCAO: este indicador NAO e taxa de ocupacao de leitos de UTI. O campo 53 do SIVEP-Gripe (&#x27;Internado em UTI?&#x27;) registra se houve admissao em UTI, nao a ocupacao da capacidade instalada.</li>
+<li>Mede severidade clinica dos casos notificados, nao pressao sobre a rede hospitalar.</li>
+<li>A serie recente e incompleta por atraso de notificacao: casos com sintomas nos ultimos dias ainda nao foram digitados. As janelas excluem os dias mais recentes (REPORTING_LAG_DAYS) e usam como referencia a maior data de digitacao da base, nunca a data de hoje.</li>
+<li>O SIVEP-Gripe registra casos de SRAG notificados, majoritariamente hospitalizados. Nenhum indicador aqui representa a populacao geral.</li>
+</ul>
+</details>
+<h3>3b. Ocupacao de leitos de UTI por pacientes de SRAG</h3>
+<p><strong>Valor:</strong> 7.7%</p>
+<ul>
+<li><strong>Definicao:</strong> Proporcao da capacidade instalada de UTI ocupada por pacientes de SRAG em um dia: pacientes_srag_em_uti_no_dia / leitos_uti_disponiveis_no_dia x 100. O numerador vem do censo diario calculado sobre o SIVEP-Gripe; o denominador vem da capacidade instalada publicada pelo CNES para a UF e a competencia compativel com a janela analisada.</li>
+<li><strong>Numerador:</strong> 3988</li>
+<li><strong>Denominador:</strong> 51774</li>
+<li><strong>Registros na base do calculo:</strong> 111298</li>
+<li><strong>Periodo:</strong> 2026-06-24 a 2026-07-23 (30 dias encerrados 31 dias antes da data de corte analitica, para que as saidas de UTI ja estejam digitadas)</li>
+<li><strong>Fonte:</strong> Open DATASUS / SIVEP-Gripe (SRAG 2019-2026) (pacientes) e CNES / Dados Abertos do SUS (leitos)</li>
+<li><strong>Formula:</strong> <code>pacientes_srag_em_uti_no_dia / leitos_uti_disponiveis_no_dia * 100</code></li>
+<li><strong>Dia publicado:</strong> 2026-06-24 (dia de pico do censo dentro da janela madura deslocada)</li>
+<li><strong>Janela madura:</strong> 2026-06-24 a 2026-07-23 -- deslocada 31 dias para tras porque a cauda recente do censo depende de saidas ainda nao digitadas; o teto de permanencia medido (31 dias) e o tempo necessario para que a estadia ja esteja encerrada no registro</li>
+<li><strong>Numerador (pacientes de SRAG em UTI no dia):</strong> 3988 (63.26% depende de imputacao de permanencia)</li>
+<li><strong>Denominador (leitos de UTI existentes):</strong> 51774 (dos quais 26149 destinados ao SUS)</li>
+<li><strong>Competencia do CNES usada:</strong> 2026-07 (1 mes(es) de distancia da data de corte analitica; limite configurado: ICU_CAPACITY_MAX_LAG_MONTHS)</li>
+<li><strong>Cobertura geografica da capacidade:</strong> 27 UF(s), exigidas 27</li>
+<li><strong>Tipos de leito no denominador:</strong> UTI_ADULTO, UTI_PEDIATRICA</li>
+<li><strong>Ocupacao media na janela madura:</strong> 7.17% (minimo 6.49%, 30 dias apurados)</li>
+<li><strong>Fonte da capacidade:</strong> CNES / Portal de Dados Abertos do SUS - Hospitais e Leitos (CGHID/MS), capacidade instalada por competencia (extraida em 2026-09-17)</li>
+</ul>
+<blockquote><strong>Alcance:</strong> parcela da capacidade de UTI ocupada por pacientes de SRAG notificados; e um piso da ocupacao total, que inclui pacientes sem SRAG. Um valor baixo <strong>nao</strong> significa rede com folga.</blockquote>
+<blockquote><strong>Periodo distinto.</strong> este periodo NAO coincide com o dos demais indicadores, que vao ate 2026-08-23. Comparar a ocupacao com eles exige levar o deslocamento em conta</blockquote>
+<details><summary>Limitacoes declaradas</summary>
+<ul>
+<li>MEDE APENAS A PARCELA DE SRAG. O numerador conta pacientes de SRAG notificados em UTI; os leitos do denominador tambem atendem pacientes sem SRAG (trauma, pos-operatorio, sepse de outras causas). O valor e portanto um PISO da ocupacao total de UTI, nao a ocupacao total. Um valor baixo NAO significa rede com folga.</li>
+<li>O numerador depende da imputacao de permanencia das estadias sem data de saida registrada; o percentual imputado no dia publicado acompanha o indicador.</li>
+<li>A capacidade do CNES e o cadastro de leitos, nao leitos operacionais no dia: leito cadastrado pode estar bloqueado por falta de equipe. O denominador tende a superestimar a capacidade efetiva e, com isso, a subestimar a ocupacao.</li>
+<li>Numerador e denominador tem defasagens diferentes e competencias distintas; a competencia usada e a distancia dela ate a janela sao publicadas com o valor.</li>
+<li>O recorte geografico e a UF de NOTIFICACAO, nao a de residencia: o leito e ocupado onde o paciente foi internado.</li>
+<li>Leitos de UTI neonatal, de queimados e coronariana ficam fora do denominador: sao unidades fechadas para outras condicoes e nao estao disponiveis para o paciente de SRAG. Os quantitativos continuam na referencia e podem ser auditados.</li>
+<li>A serie recente e incompleta por atraso de notificacao: casos com sintomas nos ultimos dias ainda nao foram digitados. As janelas excluem os dias mais recentes (REPORTING_LAG_DAYS) e usam como referencia a maior data de digitacao da base, nunca a data de hoje.</li>
+</ul>
+</details>
+<h3>4. Cobertura vacinal</h3>
+<p><strong>Valor:</strong> 39.93%</p>
+<ul>
+<li><strong>Definicao:</strong> Proporcao de casos notificados de SRAG com vacinacao declarada: VACINA_COV = 1 / (VACINA_COV em 1 ou 2) para covid-19, e VACINA = 1 / (VACINA em 1 ou 2) para influenza.</li>
+<li><strong>Numerador:</strong> 7636</li>
+<li><strong>Denominador:</strong> 19124</li>
+<li><strong>Registros na base do calculo:</strong> 19336</li>
+<li><strong>Periodo:</strong> 2026-07-25 a 2026-08-23 (ultimos 30 dias ate a data de corte analitica)</li>
+<li><strong>Fonte:</strong> Open DATASUS / SIVEP-Gripe (SRAG 2019-2026)</li>
+<li><strong>Covid-19:</strong> 39.93% (7636 de 19124), completude da informacao 98.9%</li>
+<li><strong>Influenza:</strong> 35.48% (6492 de 18300), completude da informacao 94.64%</li>
+</ul>
+<p><strong>Taxa de vacinacao da populacao</strong> (referencia externa, ano 2026):</p>
+<ul>
+<li><strong>covid19:</strong> 0.2% (427874 doses sobre 214211951, populacao residente total (IBGE 2026); fonte: SI-PNI / Portal de Dados Abertos do SUS - doses aplicadas pelo Programa Nacional de Imunizacoes, agregadas por UF, campanha e ano)</li>
+<li><strong>influenza:</strong> 0.19% (403884 doses sobre 214211951, populacao residente total (IBGE 2026); fonte: SI-PNI / Portal de Dados Abertos do SUS - doses aplicadas pelo Programa Nacional de Imunizacoes, agregadas por UF, campanha e ano)</li>
+</ul>
+<details><summary>Limitacoes declaradas</summary>
+<ul>
+<li>ATENCAO: este indicador NAO e taxa de vacinacao da populacao. O denominador sao casos notificados de SRAG (majoritariamente hospitalizados), um grupo com perfil de risco distinto da populacao geral -- ha vies de selecao por definicao.</li>
+<li>A informacao e declarada no momento da notificacao e depende da apresentacao da caderneta; a subnotificacao de doses e conhecida.</li>
+<li>A cobertura vacinal populacional e um indicador SEPARADO (<code>population_vaccination_coverage</code>), com numerador do SI-PNI e denominador demografico. Esta metrica nunca deve ser lida no lugar dela, nem usada como aproximacao dela.</li>
+<li>O SIVEP-Gripe registra casos de SRAG notificados, majoritariamente hospitalizados. Nenhum indicador aqui representa a populacao geral.</li>
+</ul>
+</details>
+<h3>5. Incidencia por 100 mil habitantes (complementar)</h3>
+<p><strong>Valor:</strong> 9.03 por 100 mil hab. no periodo</p>
+<ul>
+<li><strong>Definicao:</strong> Casos de SRAG com primeiros sintomas na janela analisada, por 100 mil habitantes: casos / populacao residente estimada (IBGE) x 100.000.</li>
+<li><strong>Numerador:</strong> 19336</li>
+<li><strong>Denominador:</strong> 214211951</li>
+<li><strong>Registros na base do calculo:</strong> 19336</li>
+<li><strong>Periodo:</strong> 2026-07-25 a 2026-08-23 (ultimos 30 dias ate a data de corte analitica)</li>
+<li><strong>Fonte:</strong> Open DATASUS / SIVEP-Gripe (SRAG 2019-2026) (casos) e IBGE (populacao)</li>
+<li><strong>Casos na janela:</strong> 19336</li>
+<li><strong>Populacao de referencia:</strong> 214211951 (IBGE - populacao residente estimada (tabela 6579), estimativa de 2026)</li>
+</ul>
+<details><summary>Limitacoes declaradas</summary>
+<ul>
+<li>Incidencia de casos NOTIFICADOS de SRAG (majoritariamente hospitalizados), nao de infeccao respiratoria na populacao.</li>
+<li>O recorte geografico e a UF de RESIDENCIA, para casar com o denominador residente do IBGE. Os indicadores de carga assistencial (UTI, ventilacao, censo) usam a UF de NOTIFICACAO, porque o leito e ocupado onde o paciente foi internado. As duas dimensoes nao sao intercambiaveis e nunca devem ser cruzadas numa mesma tabela.</li>
+<li>A populacao e a estimativa anual do IBGE mais proxima da data de corte; o ano usado e publicado junto do indicador.</li>
+<li>Permite comparar UFs de tamanhos diferentes, o que a contagem absoluta nao permite.</li>
+<li>A serie recente e incompleta por atraso de notificacao: casos com sintomas nos ultimos dias ainda nao foram digitados. As janelas excluem os dias mais recentes (REPORTING_LAG_DAYS) e usam como referencia a maior data de digitacao da base, nunca a data de hoje.</li>
+</ul>
+</details>
+<h3>6. Excesso sobre o baseline sazonal (complementar)</h3>
+<p><strong>Valor:</strong> -12.08%</p>
+<ul>
+<li><strong>Definicao:</strong> Variacao percentual dos casos da janela atual em relacao a MEDIANA dos casos observados na mesma janela de calendario nos anos de baseline: (casos_atuais - mediana_baseline) / mediana_baseline x 100.</li>
+<li><strong>Numerador:</strong> -2657</li>
+<li><strong>Denominador:</strong> 21993</li>
+<li><strong>Registros na base do calculo:</strong> 88774</li>
+<li><strong>Periodo:</strong> 2026-07-25 a 2026-08-23 (janela atual de 30 dias comparada a mesma janela de calendario em 3 ano(s) de baseline)</li>
+<li><strong>Fonte:</strong> Open DATASUS / SIVEP-Gripe (SRAG 2019-2026)</li>
+<li><strong>Casos na janela atual:</strong> 19336</li>
+<li><strong>Mediana do baseline:</strong> 21993 (media: 23146.0)</li>
+<li><strong>Anos considerados:</strong> [2022, 2023, 2024] (configurados: [2022, 2023, 2024]; ausentes na base: [])</li>
+<li><strong>Anos excluidos por definicao:</strong> [2020, 2021] -- anos pandemicos de covid-19: volume de SRAG fora de qualquer padrao sazonal, incompativel com um baseline</li>
+</ul>
+<table>
+<tr><th>Ano</th><th>Janela comparada</th><th>Casos</th></tr>
+<tr><td>2022</td><td>2022-07-25 a 2022-08-23</td><td>28680</td></tr>
+<tr><td>2023</td><td>2023-07-25 a 2023-08-23</td><td>18765</td></tr>
+<tr><td>2024</td><td>2024-07-25 a 2024-08-23</td><td>21993</td></tr>
+</table>
+<details><summary>Limitacoes declaradas</summary>
+<ul>
+<li>2020 e 2021 ficam fora do baseline por padrao: a pandemia de covid-19 multiplicou as notificacoes de SRAG e um baseline que os incluisse rotularia qualquer ano normal como &#x27;abaixo do esperado&#x27;.</li>
+<li>Mede se a janela atual esta acima ou abaixo do padrao historico da mesma epoca do ano -- e o que distingue surto de sazonalidade. A taxa de aumento de casos, que compara janelas consecutivas, nao faz essa distincao.</li>
+<li>Mudancas de criterio de notificacao e de cobertura da vigilancia entre os anos afetam a comparacao; os anos efetivamente usados sao publicados.</li>
+<li>A serie recente e incompleta por atraso de notificacao: casos com sintomas nos ultimos dias ainda nao foram digitados. As janelas excluem os dias mais recentes (REPORTING_LAG_DAYS) e usam como referencia a maior data de digitacao da base, nunca a data de hoje.</li>
+</ul>
+</details>
+<h2>DADO - Series temporais</h2>
+<h3>Casos diarios (2026-07-25 a 2026-08-23)</h3>
+<ul>
+<li>Total no periodo: <strong>19336</strong> casos</li>
+<li>Media diaria: 644.53 | maximo: 823 | minimo: 563</li>
+</ul>
+<h3>Casos mensais (2025-09-01 a 2026-08-23)</h3>
+<ul>
+<li>Total no periodo: <strong>292087</strong> casos</li>
+</ul>
+<table>
+<tr><th>Mes</th><th>Casos</th><th>Observacao</th></tr>
+<tr><td>2025-09</td><td>24341</td><td></td></tr>
+<tr><td>2025-10</td><td>24030</td><td></td></tr>
+<tr><td>2025-11</td><td>21011</td><td></td></tr>
+<tr><td>2025-12</td><td>16349</td><td></td></tr>
+<tr><td>2026-01</td><td>12824</td><td></td></tr>
+<tr><td>2026-02</td><td>15912</td><td></td></tr>
+<tr><td>2026-03</td><td>27092</td><td></td></tr>
+<tr><td>2026-04</td><td>31530</td><td></td></tr>
+<tr><td>2026-05</td><td>39321</td><td></td></tr>
+<tr><td>2026-06</td><td>37384</td><td></td></tr>
+<tr><td>2026-07</td><td>27541</td><td></td></tr>
+<tr><td>2026-08</td><td>14752</td><td>mes parcial</td></tr>
+</table>
+<h2>Visualizacoes</h2>
+<h3>Numero diario de casos de SRAG - ultimos 30 dias</h3>
+<p><img src="charts/casos_diarios.png" alt="Numero diario de casos de SRAG - ultimos 30 dias"></p>
+<p>Arquivo: <code>C:\Github\Certificacao\outputs\charts\casos_diarios.png</code></p>
+<h3>Numero mensal de casos de SRAG - ultimos 12 meses</h3>
+<p><img src="charts/casos_mensais.png" alt="Numero mensal de casos de SRAG - ultimos 12 meses"></p>
+<p>Arquivo: <code>C:\Github\Certificacao\outputs\charts\casos_mensais.png</code></p>
+<h2>DADO - Atualidade da base e datas de referencia</h2>
+<table>
+<tr><th>Data</th><th>Valor</th><th>O que e</th></tr>
+<tr><td>Data atual do sistema</td><td>2026-09-18</td><td>dia em que o relatorio foi executado. NAO e a data ate a qual ha dado disponivel.</td></tr>
+<tr><td>Sintomas mais recentes na base</td><td>2026-09-13</td><td>ha fichas com sintomas depois da data de corte; elas existem, mas a janela nao as usa porque a digitacao delas ainda esta incompleta</td></tr>
+<tr><td>Digitacao mais recente na base</td><td>2026-09-13</td><td>ultima ficha digitada presente no arquivo publicado pelo DATASUS; e a ancora de todas as janelas, no lugar de hoje</td></tr>
+<tr><td><strong>Corte epidemiologico</strong></td><td><strong>2026-08-23</strong></td><td>ultimo dia considerado confiavel: a data de digitacao menos o atraso de notificacao configurado. Todo indicador termina aqui</td></tr>
+</table>
+<ul>
+<li><strong>Atraso de notificacao configurado:</strong> 21 dias (<code>REPORTING_LAG_DAYS</code>)</li>
+<li><strong>Defasagem entre hoje e a ultima digitacao:</strong> 5 dias</li>
+<li><strong>Defasagem entre hoje e o corte epidemiologico:</strong> 26 dias</li>
+<li><strong>Arquivo bruto obtido da fonte em:</strong> 2026-09-14T04:09:57 (anos 2019, 2022, 2023, 2024, 2025, 2026) -- data em que o arquivo foi baixado do Open DATASUS, nao a data de publicacao da safra pela fonte</li>
+</ul>
+<blockquote>A data de execucao <strong>nao</strong> e a data ate a qual ha dado. O DATASUS publica com defasagem, e o sistema ainda desconta o atraso de notificacao para nao ler digitacao pendente como queda de casos.</blockquote>
+<h2>DADO - Sensibilidade a linhas identicas</h2>
+<ul>
+<li><strong>Criterio:</strong> linhas identicas em todas as colunas persistidas, exceto <code>ajustes_aplicados</code>, que descreve o tratamento e nao o conteudo</li>
+<li><strong>Casos na janela:</strong> 19336 (seriam 19300 se colapsadas)</li>
+<li><strong>Linhas identicas excedentes:</strong> 36 (0.19% da janela)</li>
+</ul>
+<table>
+<tr><th>Indicador</th><th>Publicado</th><th>Se deduplicado</th><th>Diferenca</th></tr>
+<tr><td>letalidade entre casos encerrados</td><td>5.33%</td><td>5.34%</td><td>0.01 p.p.</td></tr>
+<tr><td>taxa de admissao em UTI entre internados</td><td>28.64%</td><td>28.65%</td><td>0.01 p.p.</td></tr>
+<tr><td>cobertura vacinal declarada (covid-19) entre casos</td><td>39.93%</td><td>39.97%</td><td>0.04 p.p.</td></tr>
+</table>
+<p><strong>Veredito:</strong> Nenhum indicador se desloca mais que 0.5 ponto percentual quando as linhas identicas sao colapsadas: a duplicidade nao e fonte relevante de erro nesta janela, diante das incertezas ja declaradas.</p>
+<blockquote><strong>Decisao de tratamento.</strong> A contagem principal NAO e deduplicada. Sem o identificador da notificacao -- negado por minimizacao -- nao ha como distinguir duplicata real de dois pacientes distintos com os mesmos atributos agregados, e os erros nao sao simetricos: deduplicar remove casos reais de forma irreversivel, enquanto nao deduplicar mantem um excedente pequeno e mensuravel, quantificado aqui.</blockquote>
+<blockquote><strong>Pseudonimizacao.</strong> Pseudonimizacao irreversivel do identificador da notificacao foi avaliada e RECUSADA: o pseudonimo continua sendo dado pessoal (identificador direto e estavel de uma notificacao), reverter um hash sobre um espaco pequeno e viavel, e o ganho seria desproporcional -- a fonte tem zero NU_NOTIFIC repetido e zero linhas identicas nas 194 colunas brutas.</blockquote>
+<h2>Qualidade e tratamento dos dados</h2>
+<ul>
+<li><strong>Carga (run_id):</strong> <code>5303787c-c8c3-46f7-bcbf-20925d056f98</code></li>
+<li><strong>Processada em:</strong> 2026-09-16T20:37:29</li>
+<li><strong>Arquivos de origem:</strong> INFLUD19-23-03-2026.csv, INFLUD22-23-03-2026.csv, INFLUD23-23-03-2026.csv, INFLUD24-23-03-2026.csv, INFLUD25-14-09-2026.csv, INFLUD26-14-09-2026.csv</li>
+<li><strong>Registros lidos:</strong> 1.705.626</li>
+<li><strong>Registros descartados:</strong> 0 (nenhum registro e removido silenciosamente)</li>
+<li><strong>Registros com valor alterado:</strong> 45</li>
+<li><strong>Linhas identicas nas colunas lidas:</strong> None (contadas, nao deduplicadas: sem o identificador da notificacao, excluido por minimizacao, nao ha como distinguir duplicata de pacientes distintos com os mesmos atributos agregados)</li>
+<li><strong>Codigos fora do dominio do dicionario:</strong> nenhum (contados, nao anulados; a camada de metricas so reconhece codigos validos)</li>
+</ul>
+<h3>Proveniencia dos dados</h3>
+<table>
+<tr><th>Ano</th><th>Arquivo</th><th>sha256</th><th>Origem</th></tr>
+<tr><td>2019</td><td><code>INFLUD19-23-03-2026.csv</code></td><td><code>f6de547c1234e2de...</code></td><td>download do Open DATASUS</td></tr>
+<tr><td>2022</td><td><code>INFLUD22-23-03-2026.csv</code></td><td><code>57250ce92b916b4f...</code></td><td>download do Open DATASUS</td></tr>
+<tr><td>2023</td><td><code>INFLUD23-23-03-2026.csv</code></td><td><code>639b748fb2838336...</code></td><td>download do Open DATASUS</td></tr>
+<tr><td>2024</td><td><code>INFLUD24-23-03-2026.csv</code></td><td><code>b516f6eae61203da...</code></td><td>download do Open DATASUS</td></tr>
+<tr><td>2025</td><td><code>INFLUD25-14-09-2026.csv</code></td><td><code>a507a213d043d5aa...</code></td><td>download do Open DATASUS</td></tr>
+<tr><td>2026</td><td><code>INFLUD26-14-09-2026.csv</code></td><td><code>333afa53758437ed...</code></td><td>download do Open DATASUS</td></tr>
+</table>
+<h3>Alteracoes de valor aplicadas</h3>
+<p>Toda alteracao e registrada no proprio registro, na coluna <code>ajustes_aplicados</code>. Os registros afetados podem ser localizados individualmente: <code>SELECT * FROM srag_cases WHERE ajustes_aplicados &lt;&gt; &#x27;&#x27;</code>.</p>
+<table>
+<tr><th>Codigo</th><th>Registros</th><th>Significado</th></tr>
+<tr><td><code>idade_anulada</code></td><td>7</td><td>idade normalizada fora do intervalo plausivel [0, 120] anos; substituida por nulo</td></tr>
+<tr><td><code>idade_unidade_implausivel</code></td><td>38</td><td>NU_IDADE_N fora do dominio aceito para a unidade em TP_IDADE (1-dia admite 0 a 30; 2-mes admite 0 a 11); a idade derivada foi anulada. A unidade NAO e reinterpretada: nao ha como saber se o erro esta no numero ou na unidade, e escolher um dos dois seria inventar dado. O piso zero para meses diverge do dicionario, que declara 1 a 11: ver AGE_UNIT_DOMAIN. Foram medidos 5 registros na safra de referencia (-9, -1, 13, 37 e 63 meses)</td></tr>
+</table>
+<h3>Flags de coerencia</h3>
+<p>Marcadas por dimensao, nao como um unico veredito. Apenas a flag do eixo temporal exclui o registro da camada analitica; as demais sao respeitadas somente pelas metricas que dependem daquela dimensao.</p>
+<table>
+<tr><th>Flag</th><th>Registros</th><th>%</th><th>Exclui da analise</th><th>Significado</th></tr>
+<tr><td><code>flag_data_invalida</code></td><td>573</td><td>0.034%</td><td>sim</td><td>eixo temporal primario inutilizavel: DT_SIN_PRI ausente, anterior ao inicio da serie ou posterior a data de digitacao. Unica flag que exclui o registro da view analitica, porque sem ela nenhuma metrica pode situar o caso no tempo.</td></tr>
+<tr><td><code>flag_internacao_inconsistente</code></td><td>23482</td><td>1.377%</td><td>nao</td><td>DT_INTERNA anterior aos primeiros sintomas, ou HOSPITAL=1 sem data de internacao. Afeta apenas indicadores que dependem da internacao.</td></tr>
+<tr><td><code>flag_uti_inconsistente</code></td><td>15233</td><td>0.893%</td><td>nao</td><td>DT_ENTUTI anterior aos primeiros sintomas, DT_SAIDUTI anterior a DT_ENTUTI, ou UTI=1 sem data de entrada. Afeta o censo de UTI, que depende da permanencia.</td></tr>
+<tr><td><code>flag_evolucao_inconsistente</code></td><td>91081</td><td>5.34%</td><td>nao</td><td>DT_EVOLUCA anterior aos primeiros sintomas, ou caso encerrado (EVOLUCAO em 1,2,3) sem data de evolucao. Nao afeta a taxa de mortalidade, que usa o codigo e nao a data, mas afeta a imputacao de permanencia em UTI.</td></tr>
+<tr><td><code>flag_data_implausivel</code></td><td>7724</td><td>0.453%</td><td>nao</td><td>alguma coluna de data traz um valor fora do intervalo fisicamente possivel -- anterior ao inicio da serie SIVEP-Gripe ou posterior a data de execucao da carga. Captura erros de digitacao de ano (1695, 2202, 5202, 8202 foram medidos na fonte) que nenhuma comparacao entre datas detecta, porque a ordem relativa continua correta. Nao exclui o registro: marca e conta.</td></tr>
+</table>
+<h3>Codigo 9 (Ignorado) nos campos usados pelos indicadores</h3>
+<p>Preservado como esta e excluido de numeradores e denominadores; nunca convertido em <code>Nao</code> nem em zero.</p>
+<table>
+<tr><th>Campo</th><th>Registros com codigo 9</th></tr>
+<tr><td><code>HOSPITAL</code></td><td>2762</td></tr>
+<tr><td><code>UTI</code></td><td>19461</td></tr>
+<tr><td><code>EVOLUCAO</code></td><td>36181</td></tr>
+<tr><td><code>VACINA</code></td><td>289365</td></tr>
+<tr><td><code>VACINA_COV</code></td><td>31606</td></tr>
+</table>
+<h2>DADO - Analises adicionais escolhidas pelo modelo</h2>
+<ul>
+<li><strong>Modo:</strong> <code>deterministico</code> (planejador: <code>deterministic-template</code>)</li>
+<li><strong>Contrato obrigatorio:</strong> os indicadores exigidos, as duas series e os dois graficos sao executados sempre, fora do alcance do modelo</li>
+<li><strong>Tools que o modelo pode acionar:</strong> 12 operacoes de leitura, com parametros validados contra dominios fechados</li>
+<li><strong>Iteracoes de tool calling:</strong> 0</li>
+</ul>
+<p>Nenhuma analise adicional foi acionada: a solicitacao ja estava inteiramente atendida pelos indicadores do contrato.</p>
+<blockquote>A via de interpretacao em uso nao faz tool calling; apenas o contrato obrigatorio foi executado.</blockquote>
+<h2>INFERENCIA - Interpretacao do cenario</h2>
+<p><em>Texto produzido por <code>deterministic-template</code> a partir exclusivamente dos resultados das tools, validado pelo guardrail de evidencia.</em></p>
+<h3>1. Panorama geral</h3>
+<p>A comparacao entre janelas consecutivas de 30 dias indica reducao de 33.22% no numero de casos de SRAG: 19336 casos na janela atual contra 28955 na anterior. No acumulado dos ultimos 12 meses foram 292087 casos notificados.</p>
+<p>Isso corresponde a 9.03 casos notificados por 100 mil habitantes (populacao IBGE de 2026). Frente ao baseline sazonal, a janela esta 12.08% abaixo da mediana da mesma epoca em 3 anos de referencia (21993 casos), o que e compativel com a sazonalidade esperada.</p>
+<h3>2. Severidade e pressao assistencial</h3>
+<p>A letalidade entre casos encerrados foi de 5.33%: 715 obitos por SRAG em 13404 casos encerrados. Havia ainda 5437 casos sem encerramento no periodo, o que torna o indicador instavel na janela mais recente.</p>
+<p>Entre os hospitalizados por SRAG, 28.64% foram internados em UTI (4912 de 17151 com a informacao preenchida). O censo diario de pacientes de SRAG em UTI atingiu pico de 0 pacientes no periodo. Este indicador mede admissao em UTI -- severidade dos casos notificados --, e nao ocupacao de leitos, que e publicada a parte.</p>
+<p>Pacientes de SRAG ocupavam 7.7% da capacidade instalada de UTI no dia de maior censo da janela apurada (3988 pacientes sobre 51774 leitos de UTI adulto e pediatrica, competencia 2026-07 do CNES); a media da janela foi de 7.17%. O valor e um piso da ocupacao total, porque os mesmos leitos atendem pacientes sem SRAG, e um percentual baixo nao indica rede com folga. A janela vai de 2026-06-24 a 2026-07-23 e nao coincide com a dos demais indicadores.</p>
+<h3>3. Cobertura vacinal declarada</h3>
+<p>Entre os casos notificados com a informacao preenchida, 39.93% declararam vacinacao contra covid-19 (completude de 98.9%) e 35.48% contra influenza (completude de 94.64%). Trata-se de cobertura entre pessoas que adoeceram e foram notificadas, nao da cobertura vacinal da populacao.</p>
+<h3>4. Leitura do contexto externo</h3>
+<p>Foram recuperadas 12 noticias de fontes confiaveis no periodo. Entre elas: &quot;Gripe, rinovírus e VSR puxam alta de casos de síndrome respiratória grave - Estadão&quot; (Estadão, 2026-03-27); &quot;Síndrome Respiratória Aguda Grave - SRAG - Prefeitura&quot; (Prefeitura, 2026-08-14); &quot;RS e SC registram aumento de casos de SRAG por vírus respiratórios - cnnbrasil.com.br&quot; (cnnbrasil.com.br, 2026-08-03). Esse material e contexto externo e nao altera nenhum dos indicadores calculados sobre os dados do DATASUS.</p>
+<p>Este relatório apresenta análise epidemiológica agregada de dados públicos de vigilância. Não constitui diagnóstico, prescrição, recomendação terapêutica nem orientação de conduta clínica individual.</p>
+<h2>CONTEXTO EXTERNO - Noticias recentes</h2>
+<blockquote>Noticias complementam a leitura do cenario. Elas <strong>nao</strong> alteram, corrigem nem substituem os indicadores calculados sobre os dados do DATASUS. Janela configurada: ate 365 dias antes da execucao.</blockquote>
+<table>
+<tr><th>Publicada em</th><th>Fonte</th><th>Titulo</th><th>URL</th><th>Recuperada em</th></tr>
+<tr><td>2026-03-27</td><td>Estadão</td><td>Gripe, rinovírus e VSR puxam alta de casos de síndrome respiratória grave - Estadão</td><td><a href="https://news.google.com/rss/articles/CBMiygFBVV95cUxQa1VNUDVrZEVRNEFMdWtkVlFGMHg1WTJoSEctYi1hcVZxSWZNVkpBczlqR0htSEJ1TkR6dGYxQjFZYnQ4REtCOHpFcS16eHZ5YTE4Z3pLR1FVT3FFaFhLdldwLXFwR3JZX3p4d05PbnpHVWMyLWc1LWF5MGlZODdwakIxeEhiVjhCZWhLdnN2S0FVbU5aeVpGT1B1QmVrTzExcGRRVkhibXVzVjlHTUVhVGxKM3lsY0VMMnlTZ3NfRG5XMlU1Ykt1S2pR0gHPAUFVX3lxTE01RWFTdzJEenltelVHOU1RZFdTMFV0S0Z5WEdqQ3NEaG9VcDAyRFhmMnhObXREWGNVUGsxak1DRnBwS0w1dTk2eXVLZHJ5OXZmX2xXYWlRVUhvZHFoOVU2RGtWYVNKUUxza0xackpvcUw4cTZmTnZqWVBJekc1SjVEc3JFbVJrTk9XRl9hWmVYTnM0UDFoMW1XN2R3eEs5czJuOVU1SVU0b1lRd01HLURtVjd6cW5tZG9IOTZWQS1nSFRWTHFPUEpSaWkwVU1zWQ?oc=5">link</a></td><td>2026-09-18T01:33:16.250314+00:00</td></tr>
+<tr><td>2026-08-14</td><td>Prefeitura</td><td>Síndrome Respiratória Aguda Grave - SRAG - Prefeitura</td><td><a href="https://news.google.com/rss/articles/CBMiigFBVV95cUxPRUxMeU9PR2dFMloyNG1qNVo2eHo4Q0RjVEV1akRmbGgwaXhLdUN2M3RlcHdMcHNzd240MDRkWVJXY1g1RVlWam5xMjQ3dWdPand2UUh4MHRxWlBzZjVNMWVCTE1Hd1dUN2JZUkxpM3hMcUJvblEwc2hMTXJGVUNndGNFSGs4NzRjTGc?oc=5">link</a></td><td>2026-09-18T01:33:16.250314+00:00</td></tr>
+<tr><td>2026-08-03</td><td>cnnbrasil.com.br</td><td>RS e SC registram aumento de casos de SRAG por vírus respiratórios - cnnbrasil.com.br</td><td><a href="https://news.google.com/rss/articles/CBMipAFBVV95cUxPTC1tN09NenpNR1NZX3F6Z2VEU3Q4Yzg5RG1VTkF4d0JPQkppZWtvbFgtWXEweTlRVjFMMi1qVERHdWtrZ203Qm9vTTBzdzNBR2tWa0NEdVY0Y0NiT0NxdDlnMnRYYmtuQVdZeV8xMS1yRFVIMWhLOUR5ZHFId0Z6VXR2ZnlEVWxJekkteVNyMktjUmhNZ3JfbjhIRUdzeWlwYWcwRw?oc=5">link</a></td><td>2026-09-18T00:36:22.694344+00:00</td></tr>
+<tr><td>2026-08-03</td><td>CNN Brasil</td><td>RS e SC registram aumento de casos de SRAG por vírus respiratórios - CNN Brasil</td><td><a href="https://news.google.com/rss/articles/CBMipAFBVV95cUxPTC1tN09NenpNR1NZX3F6Z2VEU3Q4Yzg5RG1VTkF4d0JPQkppZWtvbFgtWXEweTlRVjFMMi1qVERHdWtrZ203Qm9vTTBzdzNBR2tWa0NEdVY0Y0NiT0NxdDlnMnRYYmtuQVdZeV8xMS1yRFVIMWhLOUR5ZHFId0Z6VXR2ZnlEVWxJekkteVNyMktjUmhNZ3JfbjhIRUdzeWlwYWcwRw?oc=5">link</a></td><td>2026-09-18T01:33:16.250314+00:00</td></tr>
+<tr><td>2026-03-06</td><td>Estadão</td><td>Casos de síndrome respiratória aguda grave voltam a crescer no Brasil - Estadão</td><td><a href="https://news.google.com/rss/articles/CBMixgFBVV95cUxPRE9QLXoxaWtsZzdaaUIyczJrRndWbmlvMzhYd3lKeEw4eXQxRXdQNGZBV0xIT21DeEdKSXBWTndkSGh2V2RZS1U5Q0RHWnZJRV9PRjF3NHktMF9PSW5CVXVrVUppXy1JU2oyZGVVM2xjSXhjd0JWVTlIM0hodTlzNndPWUtMZjRtUTAybVlub1NJWkZGenE5SXh4UTI3cHJsSmpLLS1ZaHRXbkVkS3h1ZURkNndNZmZwTHFiSzBPZEFqN19qV0HSAcsBQVVfeXFMTnFaUUVwM1c4WktxaFhEQTBwaE1nSWFlV2hkTm5RWlZ1X2Q3c2JfaUwzTzFfV3FjQ25qOUdSMkUxbUJjb3Z0eXlOLVV3VUEzdm9ZZ05uU1EzajFFRzY5M2R2R3M4QU5VNDdXLUZObTh6aDduVUo1QnM1c2FQemVtVUxfaDUyU3dFRTVTVkd5OGFjbXdMcF9veUVwX01EMHMyd1JmdVZMVzR1aWFtNjlkS1lDbVZPc3hKT2lEcVFYZFVoOHhScG1PZ0EzTm8?oc=5">link</a></td><td>2026-09-18T01:33:16.250314+00:00</td></tr>
+<tr><td>2026-06-18</td><td>Correio Braziliense</td><td>Casos de Síndrome Respiratória Aguda Grave voltam a crescer, diz Fiocruz - Correio Braziliense</td><td><a href="https://news.google.com/rss/articles/CBMiwwFBVV95cUxPUmZtSE1JVVVsNUU3NmxhN0JYcWk5c3J0eXJHRW5XaVB6U3h5TXZ5Wmo3TTV0ZGFzZXUxMnJ2a1Z5MW4zR0xhMWVFR1k3QlkyRFdfaWRRRTRmSXhILWMzeTVERHlzSHItOS1QY2E1Tl9qSHozcXgyUW4za1lGSjh6elp2WDB6cXA1NjZGMk5mTHlTX0d3RHFYRnNneWN1ZURDbUpLcVpOMlF0TC1Nbm4xeE8zMF9KT0cwV1gwSGY2SnVBNlnSAcgBQVVfeXFMT0ZNZVo0V19QMWNUeFRjb1lHdDVLWlFyMGhXbXNYWWdocnlpbFh5MUd3dHB5bHBCOFZXR3R3MXUyNTFMbFQ1M2NvQXdPUTZmMGNqaGM5WS16YXB1TVFnNVY2MHIzTW1uRjVUdVZfa05BYXpsUkJBc0FYcGwweXFTY3QxUGZZamYxMndZS091M3k4RmNQNG9kdXRhdWJxd0tvODBNY2RjeGdsTWE0WFdVYXZocHQyQXBxYVBoaTc5UG9BWjlid1RrZDc?oc=5">link</a></td><td>2026-09-18T01:33:16.250314+00:00</td></tr>
+<tr><td>2026-06-03</td><td>cnnbrasil.com.br</td><td>Casos de Síndrome Respiratória Aguda Grave crescem em todos os estados - cnnbrasil.com.br</td><td><a href="https://news.google.com/rss/articles/CBMiqgFBVV95cUxPdk9wQTdBSHQybWpzMUpFQ0tsVHNhRmdQTHFEaEtSZ1lHS2pvU1ZJMzJkVG1OMjJXWXJXTGNseVJ3RmVabUl6YlMxUnU4ZjlyWnR2ZXhJYjBQQzFGaUFXVXRfSTh6Wlp3YjM4LTU1VzlZcnJZTjNnMzZkaml6N0FpT0p0ME53WHlzZ0d1MkhBWlZTQUxYVkZCZmcyMUFKY0Fxa1FBazVnT3FtZw?oc=5">link</a></td><td>2026-09-18T00:36:22.694344+00:00</td></tr>
+<tr><td>2026-06-03</td><td>CNN Brasil</td><td>Casos de Síndrome Respiratória Aguda Grave crescem em todos os estados - CNN Brasil</td><td><a href="https://news.google.com/rss/articles/CBMiqgFBVV95cUxPdk9wQTdBSHQybWpzMUpFQ0tsVHNhRmdQTHFEaEtSZ1lHS2pvU1ZJMzJkVG1OMjJXWXJXTGNseVJ3RmVabUl6YlMxUnU4ZjlyWnR2ZXhJYjBQQzFGaUFXVXRfSTh6Wlp3YjM4LTU1VzlZcnJZTjNnMzZkaml6N0FpT0p0ME53WHlzZ0d1MkhBWlZTQUxYVkZCZmcyMUFKY0Fxa1FBazVnT3FtZw?oc=5">link</a></td><td>2026-09-18T01:33:16.250314+00:00</td></tr>
+<tr><td>2026-04-30</td><td>Estadão</td><td>VSR e gripe puxam crescimento dos casos de síndrome respiratória grave na maior parte do Brasil - Estadão</td><td><a href="https://news.google.com/rss/articles/CBMi6AFBVV95cUxOaUtTdmdvZG85SkU0R2VqZ1laUlBibGhqZTc4aElfeDJoSUFWYW5ZU3k0NVRtQ1FuMkNJNnhjaTJ1OEQtQmxEWmZxZC1vTF9uSFRibWdSd1BtanZsdGRDU2g5M09hU3kyVU9KLU9aeXNhVjNVaFZkUV92SllYTjN5d0pRbDVDMnM4R2t5QlktN3N1eXgtVkptMlNINnVRYi1XNUZockQ3aDFDTFVxUV9fdjM0U0VMSWVwS3d2ZGF3bzJVdUxuWlpLZloxN3JJVl9mMEFTZWFDdmJkU3BZU0txemprTk1ERDRQ0gHuAUFVX3lxTFBOUnd3RzFXMGxibkxGUnJKWXdiVVdfTEVoenRjcWhJdWdXcVlsdlIwb25LdDlDR0RuQUdXNndLUVZMa083TU1ueUY3M09PTWE0NW1jNG04QnZTSURCVVkzaldnS1N4SEV1QXR6Y2NQcU90WmFKY1hCVXJobWhVd3V0STZFOWZrSVZaVGlHOWxiQV85cU5XanV2QzRJV2xnZjd6QzJLR3E0WFRnR3J5eGFqSlBuNHAwZ0RxNm93RXd6Q3gzVWI3eEVsZXJpU0NqVHo4aTBiZWN3ZEI5S2MtS0hzV0hEanZBLW1BOGhfM1E?oc=5">link</a></td><td>2026-09-18T01:33:16.250314+00:00</td></tr>
+<tr><td>2026-05-28</td><td>Agencia Brasil</td><td>Casos de síndrome respiratória grave continuam aumentando no país - Agencia Brasil</td><td><a href="https://news.google.com/rss/articles/CBMi-gFBVV95cUxNQVR1LUJfem9aVFg5WmVTZGdNSVRkdDNwekJ6YmF1MWh3RjV4dE9Fc2QycDR4cmRNZG9tMm5nLUhob1VCVVZIbVV2aHh1MjUwOUtmM09SQ3ZfQmdBZk1NT0xoNmhTdmlrYUhOOF9WRy1NdlY0ODdZd1dfczBkRlN4WHRyRi1fNjdEQVJGN0JFU0dCd2pYYmpSUHBDQkdLZzQtWXBucTZLREVyUVVQQjZmT0Fvdml6bWhLbDRKR3o0X0U5YXlVMHF5NzZTUkM0TXFZemEteGVqYzVjc25MWXc1alJ1dWVSSFBUNlNzOWFWZjdycGdTV2I3VmdB?oc=5">link</a></td><td>2026-09-18T01:33:16.250314+00:00</td></tr>
+<tr><td>2026-04-09</td><td>Agencia Brasil</td><td>Fiocruz mantém alerta para síndrome respiratória grave - Agencia Brasil</td><td><a href="https://news.google.com/rss/articles/CBMirgFBVV95cUxNTXJNVmFkMHBfemwwWkp6ank2MEluSGhiVEdYbEpvZlpORFBEcXhFZmdTOFRyZ3RKUEN3ZDFjLUM5am0yTk9YNmF0ck9FbHFMWWZUdFJBdzMxOEF4NHFGSkk5eGZQYy1qYzlCNGhGeWUwWmFaYWRyRW55UTJJSkg5d29lZFVueHpSLVA0b19kZ3ZjX0xsMVlfa3ZRbFhvb09INUdDM0EtLS1jTTZ5Zmc?oc=5">link</a></td><td>2026-09-18T01:33:16.250314+00:00</td></tr>
+<tr><td>2025-10-24</td><td>cnnbrasil.com.br</td><td>Casos de síndrome respiratória grave atingem nível de alerta em São Paulo - cnnbrasil.com.br</td><td><a href="https://news.google.com/rss/articles/CBMiwAFBVV95cUxQZUNTeURONHU1Sl9zZ1NobEtRN09OOUlUVUZxSDZ0ZGd5b1EwLTVibk0wMDIxaTNDZ1ZGT3gxOW5wUjMzZjdQcDFrWWY1UFRrdUhpNjJoN19IX252SXdIVjZGWmhKVVhwWFlqZUI2MHZ0UkRkWThoUnptZnNpQVVydVRrYlc0S0Z2anFwdmh3RjdqdkJIbmMwVVlzMXFoNy0zNVdEYmNNcGJpX1luX1RoUjVUWmU5S2NNN3dOempJS0I?oc=5">link</a></td><td>2026-09-18T00:36:22.694344+00:00</td></tr>
+</table>
+<p><em>Noticia mais recente: 2026-09-15; mais antiga dentro da janela: 2025-10-22.</em></p>
+<p><em>Acervo consultado: 141 noticias no Vector DB (backend de embedding: <code>openai:text-embedding-3-small</code>); ultima ingestao em 2026-09-18T01:33:16.250314.</em></p>
+<h2>Limitacoes conhecidas</h2>
+<ul>
+<li><strong>Tres indicadores distintos de UTI, nunca intercambiaveis</strong>: a <em>taxa de admissao</em> mede severidade dos casos notificados; o <em>censo diario</em> conta pacientes; a <em>taxa de ocupacao</em> divide o censo pela capacidade instalada do CNES. So a terceira e ocupacao, e ela depende de uma referencia externa -- sem capacidade compativel em UF e competencia, ela e declarada indisponivel, e nunca aproximada pelas outras duas.</li>
+<li><strong>A ocupacao publicada e a parcela ocupada por pacientes de SRAG</strong>, um piso da ocupacao total: os mesmos leitos atendem pacientes sem SRAG. Valor baixo nao significa rede com folga.</li>
+<li><strong>Taxa de vacinacao da populacao depende de fonte externa</strong> (SI-PNI para as doses, populacao-alvo da campanha ou IBGE para o denominador). O SIVEP-Gripe so tem informacao vacinal de pessoas notificadas com SRAG, um grupo com vies de selecao, e essa cobertura entre casos e publicada como indicador proprio -- nunca no lugar da populacional. Sem a referencia, a populacional fica indisponivel.</li>
+<li><strong>Atraso de notificacao</strong>: a janela recente e incompleta; as analises descontam os dias mais recentes e ancoram o periodo na maior data de digitacao da base, nao na data de hoje.</li>
+<li><strong>Escopo</strong>: o SIVEP-Gripe cobre casos de SRAG notificados, majoritariamente hospitalizados; nenhum indicador representa a populacao geral.</li>
+</ul>
+<h2>Governanca, auditoria e guardrails</h2>
+<h3>Trilha de auditoria</h3>
+<ul>
+<li><strong>run_id:</strong> <code>aad7a556-7561-495a-a2ba-d8cf6f364580</code></li>
+<li><strong>Eventos registrados:</strong> 25</li>
+<li><strong>Duracao total:</strong> 7242.34 ms</li>
+<li><strong>Status dos eventos:</strong> {&quot;ok&quot;: 25}</li>
+<li><strong>Arquivo:</strong> <code>C:\Github\Certificacao\outputs\audit\aad7a556-7561-495a-a2ba-d8cf6f364580.jsonl</code></li>
+</ul>
+<p>Consulta por SQL, sobre todas as execucoes: <code>SELECT * FROM audit_events WHERE run_id = &#x27;&lt;run_id&gt;&#x27; ORDER BY seq;</code> no banco analitico. Ou, no terminal: <code>python main.py --audit aad7a556-7561-495a-a2ba-d8cf6f364580</code>.</p>
+<h3>Planejamento</h3>
+<ul>
+<li><strong>Planejador:</strong> <code>deterministic-template</code></li>
+<li><strong>Tools no plano efetivo:</strong> get_case_growth_rate, get_daily_cases, get_duplicate_sensitivity, get_icu_bed_occupancy, get_icu_metrics, get_incidence_rate, get_monthly_cases, get_mortality_rate, get_notification_completeness, get_seasonal_baseline, get_vaccination_metrics, render_daily_cases_chart, render_monthly_cases_chart, search_srag_news</li>
+</ul>
+<h3>Observabilidade da execucao</h3>
+<p><strong>Versao dos dados e proveniencia</strong></p>
+<ul>
+<li><strong>Carga de origem (run_id):</strong> <code>5303787c-c8c3-46f7-bcbf-20925d056f98</code></li>
+<li><strong>Arquivos de origem:</strong> INFLUD19-23-03-2026.csv, INFLUD22-23-03-2026.csv, INFLUD23-23-03-2026.csv, INFLUD24-23-03-2026.csv, INFLUD25-14-09-2026.csv, INFLUD26-14-09-2026.csv</li>
+<li><strong>2019:</strong> <code>INFLUD19-23-03-2026.csv</code> (sha256 <code>f6de547c1234e2de...</code>, download do Open DATASUS)</li>
+<li><strong>2022:</strong> <code>INFLUD22-23-03-2026.csv</code> (sha256 <code>57250ce92b916b4f...</code>, download do Open DATASUS)</li>
+<li><strong>2023:</strong> <code>INFLUD23-23-03-2026.csv</code> (sha256 <code>639b748fb2838336...</code>, download do Open DATASUS)</li>
+<li><strong>2024:</strong> <code>INFLUD24-23-03-2026.csv</code> (sha256 <code>b516f6eae61203da...</code>, download do Open DATASUS)</li>
+<li><strong>2025:</strong> <code>INFLUD25-14-09-2026.csv</code> (sha256 <code>a507a213d043d5aa...</code>, download do Open DATASUS)</li>
+<li><strong>2026:</strong> <code>INFLUD26-14-09-2026.csv</code> (sha256 <code>333afa53758437ed...</code>, download do Open DATASUS)</li>
+<li><strong>Corte epidemiologico:</strong> 2026-08-23 (digitacao mais recente 2026-09-13, atraso configurado 21 dias)</li>
+</ul>
+<p><strong>Referencias externas usadas</strong></p>
+<table>
+<tr><th>Referencia</th><th>Disponivel</th><th>Obtida em</th><th>sha256</th><th>Linhas</th></tr>
+<tr><td>Populacao residente (IBGE)</td><td>sim</td><td>2026-09-14T04:15:04</td><td><code>8ab1e5d02523cfc8...</code></td><td>81</td></tr>
+<tr><td>Doses aplicadas (SI-PNI)</td><td>sim</td><td>2026-09-17T23:30:04</td><td><code>d4c5f1fe3b8a30bf...</code></td><td>54</td></tr>
+<tr><td>Leitos de UTI (CNES)</td><td>sim</td><td>2026-09-17T13:55:39</td><td><code>c7d4b229cd38f7a0...</code></td><td>854</td></tr>
+</table>
+<p><strong>Indicadores indisponiveis e causa</strong></p>
+<ul>
+<li>Nenhum: todos os indicadores do contrato foram calculados.</li>
+</ul>
+<p><strong>Camada de agente e modelo</strong></p>
+<ul>
+<li><strong>Modo de selecao de tools:</strong> <code>deterministico</code> (planejador <code>deterministic-template</code>, 0 aceita(s), 0 recusada(s))</li>
+<li><strong>Via de interpretacao:</strong> <code>deterministic-template</code></li>
+<li>Nenhuma chamada a modelo nesta execucao (via deterministica).</li>
+</ul>
+<p><strong>Contexto externo e resiliencia</strong></p>
+<ul>
+<li><strong>Backend de embedding:</strong> <code>openai:text-embedding-3-small</code></li>
+<li><strong>Acervo consultado:</strong> 141 noticias (ultima ingestao 2026-09-18T01:33:16.250314)</li>
+<li><strong>Acesso ao acervo:</strong> ok, 6 tentativa(s), 0 retentativa(s)</li>
+</ul>
+<h3>Verificacao de evidencia</h3>
+<ul>
+<li><strong>Valores lastreados pelas tools:</strong> 409</li>
+<li><strong>Indicadores calculados:</strong> 7</li>
+<li><strong>Indicadores indisponiveis:</strong> 0</li>
+</ul>
+<h3>Guardrails ativos</h3>
+<table>
+<tr><th>Politica</th><th>Verificada em</th><th>Descricao</th></tr>
+<tr><td>Sem diagnóstico ou conduta clínica</td><td>validate_request (entrada) e generate_interpretation, passo apply_output_guardrails (saída)</td><td>O sistema produz análise epidemiológica agregada. Não emite diagnóstico, prescrição, recomendação terapêutica nem orientação de conduta clínica individual.</td></tr>
+<tr><td>Proteção de dados pessoais</td><td>schema de ingestão, regra de célula pequena nas tools, auditoria, generate_interpretation (varredura da saída) e generate_report (cabeçalho)</td><td>Colunas identificáveis nunca são lidas do dataset; toda saída passa por varredura de identificadores (CPF, CNS, e-mail, telefone). O agente consulta apenas agregados por período, UF e classificação; não existe tool para recuperar registros individuais.</td></tr>
+<tr><td>Toda afirmação quantitativa precisa de evidência</td><td>validate_evidence e generate_interpretation, passo apply_output_guardrails</td><td>Números presentes na interpretação são confrontados com os valores efetivamente retornados pelas tools. Valor sem lastro bloqueia a publicação do relatório.</td></tr>
+<tr><td>Sem SQL arbitrário gerado pelo modelo</td><td>camada de tools e conexão DuckDB</td><td>Não existe tool que execute consulta livre. O modelo escolhe tools e preenche parâmetros tipados, validados contra domínios fechados; o SQL é literal no código e recebe valores por binding. O banco é aberto em modo somente leitura.</td></tr>
+<tr><td>Notícias não sobrescrevem dados oficiais</td><td>estado do grafo e renderização do relatório</td><td>Notícias circulam em campo próprio do estado e entram no relatório apenas sob o rótulo CONTEXTO EXTERNO. Nenhum indicador é calculado, ajustado ou corrigido a partir de conteúdo jornalístico.</td></tr>
+<tr><td>Declarar indisponibilidade em vez de extrapolar</td><td>camada de métricas e generate_report</td><td>Quando uma métrica não pode ser calculada com segurança, o sistema declara a indisponibilidade e o motivo. Nunca substitui ausência por zero, média ou estimativa.</td></tr>
+<tr><td>Revisão semântica independente da saída</td><td>generate_interpretation, passo apply_output_guardrails, após as verificações lexicais; somente sobre texto produzido por modelo</td><td>Depois das verificações lexicais, o texto do modelo é entregue a um revisor independente (outra chamada de modelo, prompt próprio, sem acesso ao pedido original) que procura conduta clínica parafraseada e dado individual -- achados bloqueantes -- e, em caráter consultivo, obediência a instruções vindas de notícias e extrapolação de indicador indisponível, que viram aviso. Indisponibilidade do revisor é declarada no relatório e a camada lexical permanece (fail-open).</td></tr>
+<tr><td>Instrução do sistema não é reescrita pela solicitação</td><td>validate_request (classificação e recusa), select_optional_tools (allowlist e schemas) e generate_interpretation (sanitização do contexto externo)</td><td>A solicitação é classificada em risco de prompt injection antes de qualquer consulta. Risco alto -- sobrescrever instruções, assumir outro papel, extrair o prompt ou credenciais, executar SQL ou código, arbitrar o valor de um indicador, suprimir limitações -- é recusado, e o motivo vai para a trilha de auditoria. Risco médio segue com aviso registrado. Conteúdo externo (títulos, fontes, URLs e mensagens de erro) é sanitizado antes de entrar no contexto do modelo, e a solicitação do usuário circula rotulada como dado, nunca como instrução.</td></tr>
+</table>
+<p><strong>Resultado da validacao de saida:</strong> aprovada</p>
+<p><strong>Revisao semantica independente:</strong> nao aplicavel: texto produzido pela via deterministica, sem modelo.</p>
+<h3>Consumo do modelo de linguagem</h3>
+<p>Nenhuma chamada a modelo nesta execucao (via deterministica).</p></div>
+  </details>
+
+  
+<footer class="report-footer">
+  <p class="delivery-label">Certificação AI Engineering - Vinícius Barbaresco</p>
+  <p>Fonte: Open DATASUS / SIVEP-Gripe (SRAG 2019-2026) &middot;
+  <a href="https://dadosabertos.saude.gov.br/dataset/srag-2019-a-2026">dataset</a> &middot; gerado em 2026-09-17 22:33 Hora oficial do Brasil
+  &middot; run_id aad7a556-7561-495a-a2ba-d8cf6f364580 &middot;
+  SRAG Intelligence Agent — Prova de Conceito (PoC), Indicium HealthCare.</p>
+  <p class="disclaimer">Este relatório apresenta análise epidemiológica agregada de dados públicos de vigilância. Não constitui diagnóstico, prescrição, recomendação terapêutica nem orientação de conduta clínica individual.</p>
+</footer>
+
+</div>
+
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var query = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
+
+  function currentTheme() {
+    return root.getAttribute("data-theme") || (query && query.matches ? "dark" : "light");
+  }
+
+  // Um SVG do Plotly nao herda cor de CSS: cada grafico registra o ajuste das
+  // duas paletas e a troca de tema reaplica o do tema corrente.
+  window.__sragPaintCharts = function () {
+    if (typeof Plotly === "undefined") { return; }
+    var registry = window.__sragCharts || {};
+    var theme = currentTheme();
+    Object.keys(registry).forEach(function (id) {
+      var element = document.getElementById(id);
+      var spec = registry[id][theme];
+      if (!element || !element.data || !spec) { return; }
+      Plotly.relayout(element, spec.layout);
+      (spec.traces || []).forEach(function (patch) {
+        // Cada valor vai embrulhado numa lista de um item: e assim que o
+        // restyle diz "este valor e do trace tal". Sem o embrulho, uma cor que
+        // ja e lista -- as barras do grafico mensal, uma cor por mes -- seria
+        // lida como uma cor por TRACE, e o mes de pico perdia o destaque.
+        var update = {};
+        Object.keys(patch[1]).forEach(function (key) { update[key] = [patch[1][key]]; });
+        Plotly.restyle(element, update, [patch[0]]);
+      });
+    });
+  };
+
+  function syncToggle() {
+    var button = document.getElementById("theme-toggle");
+    if (!button) { return; }
+    var dark = currentTheme() === "dark";
+    button.innerHTML = dark ? "&#x2600;" : "&#x263E;";
+    button.setAttribute("aria-label", dark ? "Usar tema claro" : "Usar tema escuro");
+  }
+
+  function applyTheme(theme) {
+    root.setAttribute("data-theme", theme);
+    try { localStorage.setItem("srag-theme", theme); } catch (error) { /* sem storage */ }
+    syncToggle();
+    window.__sragPaintCharts();
+  }
+
+  document.addEventListener("click", function (event) {
+    var target = event.target;
+    if (!target || !target.closest) { return; }
+    if (target.closest("#theme-toggle")) {
+      applyTheme(currentTheme() === "dark" ? "light" : "dark");
+      return;
+    }
+    if (target.closest("#print-button")) {
+      window.print();
+      return;
+    }
+    // O anexo tecnico e recolhido: o link de rastreabilidade tem de abri-lo,
+    // senao a ancora leva para um titulo fechado.
+    if (target.closest('a[href="#anexo-tecnico"]')) {
+      var appendix = document.getElementById("anexo-tecnico");
+      if (appendix) { appendix.open = true; }
+    }
+  });
+
+  if (query && query.addEventListener) {
+    query.addEventListener("change", function () {
+      if (!root.getAttribute("data-theme")) { syncToggle(); window.__sragPaintCharts(); }
+    });
+  }
+
+  // Tabela comparativa: ordenacao por coluna e detalhe por linha.
+  //
+  // Cada linha de dado vem seguida da sua linha de detalhe; ordenar move o par
+  // junto, senao o detalhe de um indicador apareceria sob outro. Celula sem
+  // valor (`data-sort` vazio) vai sempre para o fim, nas duas direcoes: um
+  // indicador indisponivel nao "vale zero", ele nao tem valor.
+  (function () {
+    var table = document.querySelector(".cmp-wrap table");
+    if (!table) { return; }
+    var body = table.tBodies[0];
+
+    function pares() {
+      return Array.prototype.map.call(body.querySelectorAll(".cmp-row"), function (linha) {
+        return [linha, body.querySelector('[data-detail-for="' + linha.dataset.key + '"]')];
+      });
+    }
+
+    function ordenar(indice, tipo, crescente) {
+      var linhas = pares();
+      linhas.sort(function (a, b) {
+        var ta = a[0].cells[indice].getAttribute("data-sort") || "";
+        var tb = b[0].cells[indice].getAttribute("data-sort") || "";
+        if (ta === "" || tb === "") { return ta === tb ? 0 : (ta === "" ? 1 : -1); }
+        if (tipo === "number") {
+          return (crescente ? 1 : -1) * (parseFloat(ta) - parseFloat(tb));
+        }
+        return (crescente ? 1 : -1) * ta.localeCompare(tb, "pt-BR");
+      });
+      linhas.forEach(function (par) {
+        body.appendChild(par[0]);
+        if (par[1]) { body.appendChild(par[1]); }
+      });
+    }
+
+    Array.prototype.forEach.call(table.querySelectorAll("th.cmp-sortable"), function (th, indice) {
+      th.addEventListener("click", function () {
+        var crescente = th.getAttribute("aria-sort") !== "ascending";
+        Array.prototype.forEach.call(table.querySelectorAll("th"), function (outro) {
+          outro.setAttribute("aria-sort", "none");
+        });
+        th.setAttribute("aria-sort", crescente ? "ascending" : "descending");
+        ordenar(indice, th.getAttribute("data-type"), crescente);
+      });
+    });
+
+    function alternar(linha) {
+      var detalhe = body.querySelector('[data-detail-for="' + linha.dataset.key + '"]');
+      if (!detalhe) { return; }
+      var aberto = !detalhe.hidden;
+      detalhe.hidden = aberto;
+      linha.setAttribute("aria-expanded", String(!aberto));
+    }
+
+    body.addEventListener("click", function (evento) {
+      var linha = evento.target.closest ? evento.target.closest(".cmp-row") : null;
+      if (linha) { alternar(linha); }
+    });
+    body.addEventListener("keydown", function (evento) {
+      if (evento.key !== "Enter" && evento.key !== " ") { return; }
+      var linha = evento.target.closest ? evento.target.closest(".cmp-row") : null;
+      if (linha) { evento.preventDefault(); alternar(linha); }
+    });
+  })();
+
+  var links = Array.prototype.slice.call(document.querySelectorAll(".nav-link"));
+  var targets = links.map(function (link) {
+    return document.querySelector(link.getAttribute("href"));
+  });
+  if (window.IntersectionObserver && targets.length) {
+    var observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (!entry.isIntersecting) { return; }
+        var index = targets.indexOf(entry.target);
+        links.forEach(function (link, position) {
+          link.classList.toggle("is-active", position === index);
+        });
+      });
+    }, { rootMargin: "-80px 0px -60% 0px", threshold: 0 });
+    targets.forEach(function (target) { if (target) { observer.observe(target); } });
+  }
+
+  syncToggle();
+
+  window.addEventListener("load", function () {
+    if (typeof Plotly === "undefined") {
+      // Sem rede: o PNG estatico de cada grafico assume o lugar do interativo.
+      document.querySelectorAll(".chart-interactive").forEach(function (element) {
+        element.style.display = "none";
+      });
+      document.querySelectorAll(".chart-print-only").forEach(function (element) {
+        element.style.display = "block";
+      });
+      return;
+    }
+    window.__sragPaintCharts();
+  });
+})();
+</script>
+
+</body>
+</html>

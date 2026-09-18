@@ -30,10 +30,11 @@ de arquivo — para continuar identificável fora do repositório, impresso ou a
 | 3 | [`docs/dicionario_metricas.md`](docs/dicionario_metricas.md) | Contrato métrica ↔ campo ↔ regra ↔ limitação |
 | 4 | [`docs/regras_transformacao.md`](docs/regras_transformacao.md) | Contrato de colunas e regras de limpeza |
 | 5 | [`docs/catalogo_tools.md`](docs/catalogo_tools.md) | Catálogo de tools e políticas de guardrail |
-| 6 | [`docs/exemplo_relatorio.md`](docs/exemplo_relatorio.md) | Relatório completo de uma execução real sobre a base oficial |
-| 7 | [`docs/pipeline_dados/README.md`](docs/pipeline_dados/README.md) | Camada de dados: diagnóstico, regras, qualidade e as treze perguntas obrigatórias |
-| 8 | [`docs/pipeline_dados/decisoes.md`](docs/pipeline_dados/decisoes.md) | Log de decisões da revisão da camada de dados |
-| 9 | [`docs/README.md`](docs/README.md) | Índice da documentação, com a origem de cada artefato |
+| 6 | [`docs/exemplo_relatorio.md`](docs/exemplo_relatorio.md) | Relatório completo de uma execução real sobre a base oficial (versão Markdown) |
+| 7 | [`docs/relatorio.html`](docs/relatorio.html) | O mesmo relatório em **HTML** — dashboard executivo com KPIs, gráficos interativos e anexo técnico completo. GitHub não renderiza HTML inline: baixe o arquivo e abra no navegador, ou use a [pré-visualização via htmlpreview.github.io](https://htmlpreview.github.io/?https://github.com/vinibarbaresco/srag-intelligence-agent/blob/main/docs/relatorio.html) |
+| 8 | [`docs/pipeline_dados/README.md`](docs/pipeline_dados/README.md) | Camada de dados: diagnóstico, regras, qualidade e as treze perguntas obrigatórias |
+| 9 | [`docs/pipeline_dados/decisoes.md`](docs/pipeline_dados/decisoes.md) | Log de decisões da revisão da camada de dados |
+| 10 | [`docs/README.md`](docs/README.md) | Índice da documentação, com a origem de cada artefato |
 
 Mais o código-fonte do agente, das ferramentas, do tratamento de dados e dos testes, no próprio
 repositório. As respostas ao questionário de tratamento de dados (o que foi mantido/descartado, como
@@ -707,7 +708,8 @@ docker run --rm -v "$PWD/data:/app/data" -v "$PWD/outputs:/app/outputs" --env-fi
 ```
 
 A chave entra por `--env-file`; nunca é copiada para a imagem (`.dockerignore`). Um relatório de
-exemplo já gerado está em [`docs/exemplo_relatorio.md`](docs/exemplo_relatorio.md).
+exemplo já gerado está em [`docs/exemplo_relatorio.md`](docs/exemplo_relatorio.md) (Markdown) e
+[`docs/relatorio.html`](docs/relatorio.html) (dashboard executivo em HTML).
 
 | Comando | Efeito |
 |---|---|
@@ -801,7 +803,8 @@ registros · arquivos republicados em 14/09/2026 · corte analítico **2026-08-2
 | Vacinação da população | **por exemplo, ~0,2 %** (covid-19) e **~0,19 %** (influenza) numa execução recente | baixo por definição: `cobertura_vacinal_uf.csv` cobre só fevereiro/2026 (1 mês) do SI-PNI contra um denominador anual; sem população-alvo oficial informada, o denominador cai no IBGE, rotulado como subestimativa — não é indicador quebrado, ver `docs/exemplo_relatorio.md` |
 | Alertas | **normal** | nenhuma regra disparada; variação zero frente à execução anterior de mesmo corte |
 
-Relatório completo desta execução: [`docs/exemplo_relatorio.md`](docs/exemplo_relatorio.md).
+Relatório completo desta execução: [`docs/exemplo_relatorio.md`](docs/exemplo_relatorio.md) ·
+[versão HTML](docs/relatorio.html).
 
 ### Base B — CSV distribuído com o enunciado
 
@@ -943,7 +946,8 @@ data/          raw/ · processed/ · analytics/          (não versionado)
                            lado; + cobertura_vacinal_uf.template.csv
 outputs/       reports/ · charts/ · audit/ · history/  (não versionado)
 docs/          arquitetura.pdf · dicionario_metricas.md · regras_transformacao.md
-               catalogo_tools.md · exemplo_relatorio.md · gerar_*.py
+               catalogo_tools.md · exemplo_relatorio.md + .html (dashboard) · gerar_*.py
+               dicionario_datasus_manifesto.json · relatorio_de_entrega.md · charts/
                pipeline_dados/  README.md (diagnóstico + 13 perguntas) · decisoes.md (log de decisões)
 .github/       ci.yml (lint, testes, docs) · monitor.yml (execução agendada com alerta)
 tests/         20 arquivos · suíte hermética com fixture sintética · red team · golden set
