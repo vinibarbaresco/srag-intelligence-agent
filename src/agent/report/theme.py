@@ -795,18 +795,50 @@ _PAGE_SCRIPT = """
 
   syncToggle();
 
-  window.addEventListener("load", function () {
+  // Troca o grafico interativo pelo PNG estatico do mesmo grafico, por par
+  // `.chart-wrap` -- nunca em bloco, para que a falha de um grafico nao
+  // derrube o outro.
+  function useStaticFallback(wrap) {
+    var fallback = wrap.querySelector(".chart-print-only");
+    if (!fallback) { return; }
+    var interactive = wrap.querySelector(".chart-interactive");
+    if (interactive) { interactive.style.display = "none"; }
+    fallback.style.display = "block";
+  }
+
+  // O fallback NAO pode depender do evento `load`, e este era o defeito: num
+  // visualizador que injeta o documento depois que a pagina ja carregou
+  // (htmlpreview.github.io, usado no link do README), o `load` ja ocorreu e o
+  // listener nunca disparava. Pior, ali o <script src> do Plotly entra no DOM
+  // por innerHTML e por isso NUNCA executa -- entao o grafico interativo nao
+  // era pintado e o PNG seguia escondido: dois retangulos vazios no lugar dos
+  // dois graficos.
+  //
+  // Este bloco roda no fim do <body>, quando o <script src> do Plotly (que e
+  // sincrono, no <head>) ja terminou -- com sucesso ou nao. Nesse ponto
+  // `Plotly === undefined` e conclusivo, e a troca pode ser imediata.
+  function settleCharts() {
     if (typeof Plotly === "undefined") {
-      // Sem rede: o PNG estatico de cada grafico assume o lugar do interativo.
-      document.querySelectorAll(".chart-interactive").forEach(function (element) {
-        element.style.display = "none";
-      });
-      document.querySelectorAll(".chart-print-only").forEach(function (element) {
-        element.style.display = "block";
-      });
+      document.querySelectorAll(".chart-wrap").forEach(useStaticFallback);
       return;
     }
     window.__sragPaintCharts();
+    // Segunda passada: cobre o caso em que o Plotly existe mas `newPlot`
+    // falhou (dado invalido, erro do proprio CDN). O atraso da tempo ao
+    // `newPlot`, que e assincrono, de inserir o SVG antes da verificacao.
+    window.setTimeout(function () {
+      document.querySelectorAll(".chart-wrap").forEach(function (wrap) {
+        var interactive = wrap.querySelector(".chart-interactive");
+        if (interactive && interactive.children.length === 0) { useStaticFallback(wrap); }
+      });
+    }, 1200);
+  }
+
+  settleCharts();
+  // O `load` continua repintando o tema: numa carga normal ele chega depois
+  // das fontes, e o Plotly so acerta as cores com o layout ja estabilizado.
+  window.addEventListener("load", function () {
+    if (typeof Plotly !== "undefined") { window.__sragPaintCharts(); }
   });
 })();
 </script>
