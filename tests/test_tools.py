@@ -7,7 +7,7 @@ uma tool que falha deve virar envelope de erro, nunca derrubar a execucao.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -284,6 +284,68 @@ class TestNoticias:
         assert result["janela_dias"] == 45
         assert result["data_mais_recente"] is not None
         assert result["data_mais_antiga"] is not None
+
+    def test_datas_do_envelope_refletem_so_o_recuperado_nao_o_acervo_inteiro(
+        self, tmp_path, monkeypatch
+    ):
+        """Achado real: o acervo pode guardar anos de historico (backfill),
+        mas `data_mais_antiga` tem de ser a mais antiga DENTRO da janela
+        pedida -- nunca a mais antiga do acervo inteiro, sob pena do relatorio
+        anunciar como "dentro da janela" uma noticia que a busca nem devolveu.
+        """
+        from src.news.embeddings import HashingEmbedder
+        from src.news.rss_client import NewsArticle
+        from src.news.vector_store import search, stats, upsert_articles
+        from src.tools.news_tools import search_srag_news
+
+        store = tmp_path / "acervo-com-backfill.duckdb"
+        embedder = HashingEmbedder(dimensions=16)
+        agora = datetime.now(tz=UTC)
+        antiga = NewsArticle(
+            article_id="antiga-do-backfill",
+            title="Casos de SRAG ha quase um ano",
+            source="Fonte oficial",
+            published_at=(agora - timedelta(days=300)).isoformat(),
+            url="https://example.org/antiga",
+            query="SRAG",
+        )
+        recente = NewsArticle(
+            article_id="recente",
+            title="Aumento de casos de SRAG no Brasil",
+            source="Fonte oficial",
+            published_at=(agora - timedelta(days=1)).isoformat(),
+            url="https://example.org/recente",
+            query="SRAG",
+        )
+        upsert_articles([antiga, recente], embedder=embedder, path=store)
+
+        monkeypatch.setattr(
+            "src.news.vector_store.search",
+            lambda query, **kw: search(
+                query,
+                top_k=kw.get("top_k", 5),
+                max_age_days=kw.get("max_age_days"),
+                embedder=embedder,
+                path=store,
+                report=kw.get("report"),
+            ),
+        )
+        monkeypatch.setattr(
+            "src.news.vector_store.stats", lambda **kw: stats(path=store, report=kw.get("report"))
+        )
+
+        result = search_srag_news(query="SRAG casos recentes", max_age_days=45)
+
+        # O acervo (sem filtro) tem a noticia de 300 dias -- confirma que ela
+        # existe, para que o teste nao passe por "acervo vazio".
+        assert (
+            result["vector_db"]["noticia_mais_antiga"]
+            == (agora - timedelta(days=300)).date().isoformat()
+        )
+        # Mas o que foi RECUPERADO por esta busca de 45 dias exclui a antiga.
+        assert result["total"] == 1
+        assert result["data_mais_antiga"] == result["data_mais_recente"]
+        assert result["data_mais_antiga"] == (agora - timedelta(days=1)).date().isoformat()
 
     def test_janela_dias_usa_o_padrao_quando_nao_informada(self, synthetic_database):
         """Sem `max_age_days` explicito, a tool declara a janela padrao configurada."""

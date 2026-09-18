@@ -4,10 +4,8 @@
 
 > **Certificação AI Engineering - Vinícius Barbaresco**
 
-> Arquivo entregue: `docs/exemplo_relatorio.md`
-
-- **Execucao (run_id):** `534cd25b-5504-4cc1-8a3a-5b6289963e04`
-- **Gerado em:** 2026-09-17 13:40 Hora oficial do Brasil
+- **Execucao (run_id):** `9294a6fe-b889-42cd-9c68-f7b3422e9f37`
+- **Gerado em:** 2026-09-17 22:54 Hora oficial do Brasil
 - **Solicitacao:** Gere o relatorio de monitoramento de SRAG com os indicadores de aumento de casos, letalidade entre casos encerrados, UTI (admissao e ocupacao de leitos) e vacinacao, as series diaria e mensal, e o contexto de noticias recentes.
 - **Recorte:** BR (nacional) | todas as classificações finais
 - **Fonte dos dados:** Open DATASUS / SIVEP-Gripe (SRAG 2019-2026) ([dataset](https://dadosabertos.saude.gov.br/dataset/srag-2019-a-2026))
@@ -41,7 +39,7 @@
 
 ### Variacao desde a execucao anterior
 
-- **Execucao anterior:** `49cd4f55-65f1-4fe4-8a59-abc25158862a` (gerada em 2026-09-17T16:25:33, corte 2026-08-23; corte atual 2026-08-23)
+- **Execucao anterior:** `40c510c8-5aa0-456f-b33c-b7c930f618f1` (gerada em 2026-09-18T01:51:41, corte 2026-08-23; corte atual 2026-08-23)
 
 | Indicador | Anterior | Atual | Variacao |
 |-----------|----------|-------|----------|
@@ -194,7 +192,10 @@
 - **Covid-19:** 39.93% (7636 de 19124), completude da informacao 98.9%
 - **Influenza:** 35.48% (6492 de 18300), completude da informacao 94.64%
 
-> **Taxa de vacinacao da populacao: nao calculavel.** Referencia de doses aplicadas (SI-PNI) nao fornecida em data/reference/cobertura_vacinal_uf.csv. O SIVEP-Gripe so contem a informacao vacinal de pessoas notificadas com SRAG, que nao representa a populacao; sem a referencia externa o indicador nao e calculavel. Gere-a com `python -m src.data.reference.vaccination --from-pni <extratos> --year <ano>`.
+**Taxa de vacinacao da populacao** (referencia externa, ano 2026):
+
+- **covid19:** nao calculavel -- A referencia de doses aplicadas para esta campanha nao declara cobertura de periodo completo (`periodo_completo=true`); os registros disponiveis somam 427874 doses, mas podem ser um extrato mensal isolado do SI-PNI. Um recorte parcial dividido pela populacao do ano nao e cobertura vacinal anual nem populacional -- e um numero sem significado epidemiologico. Agregue todos os extratos mensais da campanha com `python -m src.data.reference.vaccination --from-pni ... --periodo-completo` para habilitar este indicador.
+- **influenza:** nao calculavel -- A referencia de doses aplicadas para esta campanha nao declara cobertura de periodo completo (`periodo_completo=true`); os registros disponiveis somam 403884 doses, mas podem ser um extrato mensal isolado do SI-PNI. Um recorte parcial dividido pela populacao do ano nao e cobertura vacinal anual nem populacional -- e um numero sem significado epidemiologico. Agregue todos os extratos mensais da campanha com `python -m src.data.reference.vaccination --from-pni ... --periodo-completo` para habilitar este indicador.
 
 <details><summary>Limitacoes declaradas</summary>
 
@@ -290,13 +291,13 @@
 
 ### Numero diario de casos de SRAG - ultimos 30 dias
 
-![Numero diario de casos de SRAG - ultimos 30 dias](../charts/casos_diarios.png)
+![Numero diario de casos de SRAG - ultimos 30 dias](charts/casos_diarios.png)
 
 Arquivo: `<repo>\outputs\charts\casos_diarios.png`
 
 ### Numero mensal de casos de SRAG - ultimos 12 meses
 
-![Numero mensal de casos de SRAG - ultimos 12 meses](../charts/casos_mensais.png)
+![Numero mensal de casos de SRAG - ultimos 12 meses](charts/casos_mensais.png)
 
 Arquivo: `<repo>\outputs\charts\casos_mensais.png`
 
@@ -305,14 +306,14 @@ Arquivo: `<repo>\outputs\charts\casos_mensais.png`
 
 | Data | Valor | O que e |
 |------|-------|---------|
-| Data atual do sistema | 2026-09-17 | dia em que o relatorio foi executado. NAO e a data ate a qual ha dado disponivel. |
+| Data atual do sistema | 2026-09-18 | dia em que o relatorio foi executado. NAO e a data ate a qual ha dado disponivel. |
 | Sintomas mais recentes na base | 2026-09-13 | ha fichas com sintomas depois da data de corte; elas existem, mas a janela nao as usa porque a digitacao delas ainda esta incompleta |
 | Digitacao mais recente na base | 2026-09-13 | ultima ficha digitada presente no arquivo publicado pelo DATASUS; e a ancora de todas as janelas, no lugar de hoje |
 | **Corte epidemiologico** | **2026-08-23** | ultimo dia considerado confiavel: a data de digitacao menos o atraso de notificacao configurado. Todo indicador termina aqui |
 
 - **Atraso de notificacao configurado:** 21 dias (`REPORTING_LAG_DAYS`)
-- **Defasagem entre hoje e a ultima digitacao:** 4 dias
-- **Defasagem entre hoje e o corte epidemiologico:** 25 dias
+- **Defasagem entre hoje e a ultima digitacao:** 5 dias
+- **Defasagem entre hoje e o corte epidemiologico:** 26 dias
 - **Arquivo bruto obtido da fonte em:** 2026-09-14T04:09:57 (anos 2019, 2022, 2023, 2024, 2025, 2026) -- data em que o arquivo foi baixado do Open DATASUS, nao a data de publicacao da safra pela fonte
 
 > A data de execucao **nao** e a data ate a qual ha dado. O DATASUS publica com defasagem, e o sistema ainda desconta o atraso de notificacao para nao ler digitacao pendente como queda de casos.
@@ -418,30 +419,28 @@ Pacientes de SRAG ocupavam 7.7% da capacidade instalada de UTI no dia de maior c
 Entre os casos notificados com a informacao preenchida, 39.93% declararam vacinacao contra covid-19 (completude de 98.9%) e 35.48% contra influenza (completude de 94.64%). Trata-se de cobertura entre pessoas que adoeceram e foram notificadas, nao da cobertura vacinal da populacao.
 
 ### 4. Leitura do contexto externo
-Foram recuperadas 12 noticias de fontes confiaveis no periodo. Entre elas: "Síndrome Respiratória Aguda Grave - SRAG - Prefeitura de São Paulo" (Prefeitura de São Paulo, 2026-08-14); "Gripe, rinovírus e VSR puxam alta de casos de síndrome respiratória grave - Estadão" (Estadão, 2026-03-27); "Síndrome Respiratória Aguda Grave - SRAG - prefeitura.sp.gov.br" (prefeitura.sp.gov.br, 2026-08-14). Esse material e contexto externo e nao altera nenhum dos indicadores calculados sobre os dados do DATASUS.
+Foram recuperadas 8 noticias de fontes confiaveis no periodo. Entre elas: "Síndrome Respiratória Aguda Grave - SRAG - Prefeitura" (Prefeitura, 2026-08-14); "InfoGripe: cinco estados têm incidência de SRAG em nível de alerta e tendência de aumento - Fundação Oswaldo Cruz (Fiocruz)" (Fundação Oswaldo Cruz (Fiocruz), 2026-09-10); "InfoGripe: maior parte do país tem tendência de queda ou estabilização de casos de SRAG - Fundação Oswaldo Cruz (Fiocruz)" (Fundação Oswaldo Cruz (Fiocruz), 2026-08-13). Esse material e contexto externo e nao altera nenhum dos indicadores calculados sobre os dados do DATASUS.
 
 Este relatório apresenta análise epidemiológica agregada de dados públicos de vigilância. Não constitui diagnóstico, prescrição, recomendação terapêutica nem orientação de conduta clínica individual.
 
 ## CONTEXTO EXTERNO - Noticias recentes
 
-> Noticias complementam a leitura do cenario. Elas **nao** alteram, corrigem nem substituem os indicadores calculados sobre os dados do DATASUS.
+> Noticias complementam a leitura do cenario. Elas **nao** alteram, corrigem nem substituem os indicadores calculados sobre os dados do DATASUS. Janela configurada: ate 45 dias antes da execucao.
 
 | Publicada em | Fonte | Titulo | URL | Recuperada em |
 |--------------|-------|--------|-----|---------------|
-| 2026-08-14 | Prefeitura de São Paulo | Síndrome Respiratória Aguda Grave - SRAG - Prefeitura de São Paulo | [link](https://news.google.com/rss/articles/CBMiigFBVV95cUxPRUxMeU9PR2dFMloyNG1qNVo2eHo4Q0RjVEV1akRmbGgwaXhLdUN2M3RlcHdMcHNzd240MDRkWVJXY1g1RVlWam5xMjQ3dWdPand2UUh4MHRxWlBzZjVNMWVCTE1Hd1dUN2JZUkxpM3hMcUJvblEwc2hMTXJGVUNndGNFSGs4NzRjTGc?oc=5) | 2026-09-14T01:38:15.238701+00:00 |
-| 2026-03-27 | Estadão | Gripe, rinovírus e VSR puxam alta de casos de síndrome respiratória grave - Estadão | [link](https://news.google.com/rss/articles/CBMiygFBVV95cUxQa1VNUDVrZEVRNEFMdWtkVlFGMHg1WTJoSEctYi1hcVZxSWZNVkpBczlqR0htSEJ1TkR6dGYxQjFZYnQ4REtCOHpFcS16eHZ5YTE4Z3pLR1FVT3FFaFhLdldwLXFwR3JZX3p4d05PbnpHVWMyLWc1LWF5MGlZODdwakIxeEhiVjhCZWhLdnN2S0FVbU5aeVpGT1B1QmVrTzExcGRRVkhibXVzVjlHTUVhVGxKM3lsY0VMMnlTZ3NfRG5XMlU1Ykt1S2pR0gHPAUFVX3lxTE01RWFTdzJEenltelVHOU1RZFdTMFV0S0Z5WEdqQ3NEaG9VcDAyRFhmMnhObXREWGNVUGsxak1DRnBwS0w1dTk2eXVLZHJ5OXZmX2xXYWlRVUhvZHFoOVU2RGtWYVNKUUxza0xackpvcUw4cTZmTnZqWVBJekc1SjVEc3JFbVJrTk9XRl9hWmVYTnM0UDFoMW1XN2R3eEs5czJuOVU1SVU0b1lRd01HLURtVjd6cW5tZG9IOTZWQS1nSFRWTHFPUEpSaWkwVU1zWQ?oc=5) | 2026-09-17T16:40:06.842036+00:00 |
-| 2026-08-14 | prefeitura.sp.gov.br | Síndrome Respiratória Aguda Grave - SRAG - prefeitura.sp.gov.br | [link](https://news.google.com/rss/articles/CBMiigFBVV95cUxPRUxMeU9PR2dFMloyNG1qNVo2eHo4Q0RjVEV1akRmbGgwaXhLdUN2M3RlcHdMcHNzd240MDRkWVJXY1g1RVlWam5xMjQ3dWdPand2UUh4MHRxWlBzZjVNMWVCTE1Hd1dUN2JZUkxpM3hMcUJvblEwc2hMTXJGVUNndGNFSGs4NzRjTGc?oc=5) | 2026-09-16T22:38:49.692064+00:00 |
-| 2026-08-14 | Prefeitura | Síndrome Respiratória Aguda Grave - SRAG - Prefeitura | [link](https://news.google.com/rss/articles/CBMiigFBVV95cUxPRUxMeU9PR2dFMloyNG1qNVo2eHo4Q0RjVEV1akRmbGgwaXhLdUN2M3RlcHdMcHNzd240MDRkWVJXY1g1RVlWam5xMjQ3dWdPand2UUh4MHRxWlBzZjVNMWVCTE1Hd1dUN2JZUkxpM3hMcUJvblEwc2hMTXJGVUNndGNFSGs4NzRjTGc?oc=5) | 2026-09-17T16:40:06.842036+00:00 |
-| 2026-03-27 | estadao.com.br | Gripe, rinovírus e VSR puxam alta de casos de síndrome respiratória grave - estadao.com.br | [link](https://news.google.com/rss/articles/CBMiygFBVV95cUxQa1VNUDVrZEVRNEFMdWtkVlFGMHg1WTJoSEctYi1hcVZxSWZNVkpBczlqR0htSEJ1TkR6dGYxQjFZYnQ4REtCOHpFcS16eHZ5YTE4Z3pLR1FVT3FFaFhLdldwLXFwR3JZX3p4d05PbnpHVWMyLWc1LWF5MGlZODdwakIxeEhiVjhCZWhLdnN2S0FVbU5aeVpGT1B1QmVrTzExcGRRVkhibXVzVjlHTUVhVGxKM3lsY0VMMnlTZ3NfRG5XMlU1Ykt1S2pR0gHPAUFVX3lxTE01RWFTdzJEenltelVHOU1RZFdTMFV0S0Z5WEdqQ3NEaG9VcDAyRFhmMnhObXREWGNVUGsxak1DRnBwS0w1dTk2eXVLZHJ5OXZmX2xXYWlRVUhvZHFoOVU2RGtWYVNKUUxza0xackpvcUw4cTZmTnZqWVBJekc1SjVEc3JFbVJrTk9XRl9hWmVYTnM0UDFoMW1XN2R3eEs5czJuOVU1SVU0b1lRd01HLURtVjd6cW5tZG9IOTZWQS1nSFRWTHFPUEpSaWkwVU1zWQ?oc=5) | 2026-09-17T05:19:00.340567+00:00 |
-| 2026-08-03 | cnnbrasil.com.br | RS e SC registram aumento de casos de SRAG por vírus respiratórios - cnnbrasil.com.br | [link](https://news.google.com/rss/articles/CBMipAFBVV95cUxPTC1tN09NenpNR1NZX3F6Z2VEU3Q4Yzg5RG1VTkF4d0JPQkppZWtvbFgtWXEweTlRVjFMMi1qVERHdWtrZ203Qm9vTTBzdzNBR2tWa0NEdVY0Y0NiT0NxdDlnMnRYYmtuQVdZeV8xMS1yRFVIMWhLOUR5ZHFId0Z6VXR2ZnlEVWxJekkteVNyMktjUmhNZ3JfbjhIRUdzeWlwYWcwRw?oc=5) | 2026-09-17T12:38:16.101534+00:00 |
-| 2026-08-03 | CNN Brasil | RS e SC registram aumento de casos de SRAG por vírus respiratórios - CNN Brasil | [link](https://news.google.com/rss/articles/CBMipAFBVV95cUxPTC1tN09NenpNR1NZX3F6Z2VEU3Q4Yzg5RG1VTkF4d0JPQkppZWtvbFgtWXEweTlRVjFMMi1qVERHdWtrZ203Qm9vTTBzdzNBR2tWa0NEdVY0Y0NiT0NxdDlnMnRYYmtuQVdZeV8xMS1yRFVIMWhLOUR5ZHFId0Z6VXR2ZnlEVWxJekkteVNyMktjUmhNZ3JfbjhIRUdzeWlwYWcwRw?oc=5) | 2026-09-17T16:40:06.842036+00:00 |
-| 2026-06-18 | Correio Braziliense | Casos de Síndrome Respiratória Aguda Grave voltam a crescer, diz Fiocruz - Correio Braziliense | [link](https://news.google.com/rss/articles/CBMiwwFBVV95cUxPUmZtSE1JVVVsNUU3NmxhN0JYcWk5c3J0eXJHRW5XaVB6U3h5TXZ5Wmo3TTV0ZGFzZXUxMnJ2a1Z5MW4zR0xhMWVFR1k3QlkyRFdfaWRRRTRmSXhILWMzeTVERHlzSHItOS1QY2E1Tl9qSHozcXgyUW4za1lGSjh6elp2WDB6cXA1NjZGMk5mTHlTX0d3RHFYRnNneWN1ZURDbUpLcVpOMlF0TC1Nbm4xeE8zMF9KT0cwV1gwSGY2SnVBNlnSAcgBQVVfeXFMT0ZNZVo0V19QMWNUeFRjb1lHdDVLWlFyMGhXbXNYWWdocnlpbFh5MUd3dHB5bHBCOFZXR3R3MXUyNTFMbFQ1M2NvQXdPUTZmMGNqaGM5WS16YXB1TVFnNVY2MHIzTW1uRjVUdVZfa05BYXpsUkJBc0FYcGwweXFTY3QxUGZZamYxMndZS091M3k4RmNQNG9kdXRhdWJxd0tvODBNY2RjeGdsTWE0WFdVYXZocHQyQXBxYVBoaTc5UG9BWjlid1RrZDc?oc=5) | 2026-09-17T16:40:06.842036+00:00 |
-| 2026-06-03 | cnnbrasil.com.br | Casos de Síndrome Respiratória Aguda Grave crescem em todos os estados - cnnbrasil.com.br | [link](https://news.google.com/rss/articles/CBMiqgFBVV95cUxPdk9wQTdBSHQybWpzMUpFQ0tsVHNhRmdQTHFEaEtSZ1lHS2pvU1ZJMzJkVG1OMjJXWXJXTGNseVJ3RmVabUl6YlMxUnU4ZjlyWnR2ZXhJYjBQQzFGaUFXVXRfSTh6Wlp3YjM4LTU1VzlZcnJZTjNnMzZkaml6N0FpT0p0ME53WHlzZ0d1MkhBWlZTQUxYVkZCZmcyMUFKY0Fxa1FBazVnT3FtZw?oc=5) | 2026-09-17T12:38:16.101534+00:00 |
-| 2026-06-03 | CNN Brasil | Casos de Síndrome Respiratória Aguda Grave crescem em todos os estados - CNN Brasil | [link](https://news.google.com/rss/articles/CBMiqgFBVV95cUxPdk9wQTdBSHQybWpzMUpFQ0tsVHNhRmdQTHFEaEtSZ1lHS2pvU1ZJMzJkVG1OMjJXWXJXTGNseVJ3RmVabUl6YlMxUnU4ZjlyWnR2ZXhJYjBQQzFGaUFXVXRfSTh6Wlp3YjM4LTU1VzlZcnJZTjNnMzZkaml6N0FpT0p0ME53WHlzZ0d1MkhBWlZTQUxYVkZCZmcyMUFKY0Fxa1FBazVnT3FtZw?oc=5) | 2026-09-17T16:40:06.842036+00:00 |
-| 2026-05-28 | agenciabrasil.ebc.com.br | Casos de síndrome respiratória grave continuam aumentando no país - agenciabrasil.ebc.com.br | [link](https://news.google.com/rss/articles/CBMi-gFBVV95cUxNQVR1LUJfem9aVFg5WmVTZGdNSVRkdDNwekJ6YmF1MWh3RjV4dE9Fc2QycDR4cmRNZG9tMm5nLUhob1VCVVZIbVV2aHh1MjUwOUtmM09SQ3ZfQmdBZk1NT0xoNmhTdmlrYUhOOF9WRy1NdlY0ODdZd1dfczBkRlN4WHRyRi1fNjdEQVJGN0JFU0dCd2pYYmpSUHBDQkdLZzQtWXBucTZLREVyUVVQQjZmT0Fvdml6bWhLbDRKR3o0X0U5YXlVMHF5NzZTUkM0TXFZemEteGVqYzVjc25MWXc1alJ1dWVSSFBUNlNzOWFWZjdycGdTV2I3VmdB?oc=5) | 2026-09-17T15:29:17.430169+00:00 |
-| 2026-04-30 | Estadão | VSR e gripe puxam crescimento dos casos de síndrome respiratória grave na maior parte do Brasil - Estadão | [link](https://news.google.com/rss/articles/CBMi6AFBVV95cUxOaUtTdmdvZG85SkU0R2VqZ1laUlBibGhqZTc4aElfeDJoSUFWYW5ZU3k0NVRtQ1FuMkNJNnhjaTJ1OEQtQmxEWmZxZC1vTF9uSFRibWdSd1BtanZsdGRDU2g5M09hU3kyVU9KLU9aeXNhVjNVaFZkUV92SllYTjN5d0pRbDVDMnM4R2t5QlktN3N1eXgtVkptMlNINnVRYi1XNUZockQ3aDFDTFVxUV9fdjM0U0VMSWVwS3d2ZGF3bzJVdUxuWlpLZloxN3JJVl9mMEFTZWFDdmJkU3BZU0txemprTk1ERDRQ0gHuAUFVX3lxTFBOUnd3RzFXMGxibkxGUnJKWXdiVVdfTEVoenRjcWhJdWdXcVlsdlIwb25LdDlDR0RuQUdXNndLUVZMa083TU1ueUY3M09PTWE0NW1jNG04QnZTSURCVVkzaldnS1N4SEV1QXR6Y2NQcU90WmFKY1hCVXJobWhVd3V0STZFOWZrSVZaVGlHOWxiQV85cU5XanV2QzRJV2xnZjd6QzJLR3E0WFRnR3J5eGFqSlBuNHAwZ0RxNm93RXd6Q3gzVWI3eEVsZXJpU0NqVHo4aTBiZWN3ZEI5S2MtS0hzV0hEanZBLW1BOGhfM1E?oc=5) | 2026-09-17T16:40:06.842036+00:00 |
+| 2026-08-14 | Prefeitura | Síndrome Respiratória Aguda Grave - SRAG - Prefeitura | [link](https://news.google.com/rss/articles/CBMiigFBVV95cUxPRUxMeU9PR2dFMloyNG1qNVo2eHo4Q0RjVEV1akRmbGgwaXhLdUN2M3RlcHdMcHNzd240MDRkWVJXY1g1RVlWam5xMjQ3dWdPand2UUh4MHRxWlBzZjVNMWVCTE1Hd1dUN2JZUkxpM3hMcUJvblEwc2hMTXJGVUNndGNFSGs4NzRjTGc?oc=5) | 2026-09-18T01:33:16.250314+00:00 |
+| 2026-09-10 | Fundação Oswaldo Cruz (Fiocruz) | InfoGripe: cinco estados têm incidência de SRAG em nível de alerta e tendência de aumento - Fundação Oswaldo Cruz (Fiocruz) | [link](https://news.google.com/rss/articles/CBMitgFBVV95cUxNVzU1VjZFdHM4QTZnWWtabkNGeWpTVVZYcGdzNGotODlyeHU4VG15ai1jN2xrVVVja05KbDJfb25mMVhKd29rbWdMajRlWmdmMTdXNHRFUWM1Y3A4Vzh4RlppemtRWHJFV0hCSlZSaWctRkdMeUtlWHcxYnZZU2NKbUw0dnVZcnpTci03QzJhTG9XelBJUE9LQ0J1TDNKaXZ3R0NMU3VpdmlCNmc3SzluMDB0czA1Zw?oc=5) | 2026-09-18T01:33:16.250314+00:00 |
+| 2026-08-13 | Fundação Oswaldo Cruz (Fiocruz) | InfoGripe: maior parte do país tem tendência de queda ou estabilização de casos de SRAG - Fundação Oswaldo Cruz (Fiocruz) | [link](https://news.google.com/rss/articles/CBMitwFBVV95cUxNZDFHTUROQ2dGSWtxaFRrOGlRcm1fbFgwV2UyTTF2U19VbUZUTGZsWWo5dDBSSnNRWk9ON1FORWJ1ck10V3R5dVNQWWZEc3BnODJUUEp1UGpWd3FadkhQTmM2WVVjdXNsN29aOWFjMkJUbmJuVzYybGczNzc1UTFYMjBBVlZwbTFVdXpPSzBaN2tJdkN3TlZrWEVwbzRZdTdFMkNuYmE1ci12SlVzRzAyZE15bHROdkk?oc=5) | 2026-09-18T01:33:16.250314+00:00 |
+| 2026-08-06 | Fundação Oswaldo Cruz (Fiocruz) | InfoGripe: número de casos de SRAG mantém tendência de queda em grande parte do país - Fundação Oswaldo Cruz (Fiocruz) | [link](https://news.google.com/rss/articles/CBMiugFBVV95cUxOSTNlY2VhZzFhUExtSWJseVVuWDZ1R0tjSkhCQnpiY1pkSzUteUg2M1VpdDZJa3Z2aVRmcnc1SC1hdXA5ajMtR1RwTm00V3RsVjVYWDhYak8xOGJ4dmEtOFFPRmU3MUN0QnpIMXczcHdpTEZ6cURWYWxOcHBTaHllaFl0QXNkb01SQlk3NnNKT3FJU1VpM2d2SER6SUhoZnRHb2RmenNvZGo3dEpRQ3dZaUNvVzlVcUhpRkE?oc=5) | 2026-09-18T01:33:16.250314+00:00 |
+| 2026-08-29 | G1 | Leitos extras de UTI para síndrome respiratória grave serão fechados após queda nos casos em Três Corações, MG - G1 | [link](https://news.google.com/rss/articles/CBMigAJBVV95cUxOT05kOFpTV0ZkRXl5UjBFVXA0ZUotaFJqWVpQOU83NWV5Ylg2RzhPR2JBa1pZS2VYZ2ZGOHRjbHBMcWhLZVNKb2JWODlnZ3FTVktpZFZLQkN6R1pIMWlEUWJfckhUU294SXB0c0NBYTBnZ29sM2dyYi1CU3NpRWUtclBYRW9RRm9iUkdYLThRblBRbWhVSXItZFRmVFJ3R3Y1d2YyUVNKMUh2cVJaTUw2LXh2S3dGYWs1T2pmX3VhM1haNDhFLXBXT0pHYTg4REU1S1J1YU1FekhLMEJteE1XVkExbVpBU21kNVdMaF80SFZSZHg2Ynd3Y0RlTUJNTHhS0gGPAkFVX3lxTE9VZU01WUNFVHpndnZGTHdiak1IbXVYY2NwMHpwbFR1V0g3cHQ3alFMTjhjeUVYNzZpeXNfZ1JkTXdISFVSeHIwX1pDUXVmMl84R1JGWmZHeFc1M2FnSnVyV0RaUjVhV1dDeHlOck5yTnF1TWY1cE1mVWI4X3hQRXJGMzJGazlFdmtBVi1sN0VkVDhsanpiVC16ZHFuMFFIU3gwQXhheXFEYXROaUdQWW9ob1ZWTDl3VW42RUJUNGRkbUhGbmVyX243QXV1bE9felV0NFk4cG05VGZmQXZHMGZKYTlPQjFHNm9FVGkxRWZucmQyak5WS1BmR2FqUjNNMXFZUWZpNTJRZUN5MWdPS28?oc=5) | 2026-09-18T01:33:16.250314+00:00 |
+| 2026-08-14 | Prefeitura | Influenza A H3 Sazonal - Prefeitura | [link](https://news.google.com/rss/articles/CBMiigFBVV95cUxOcHl0U2J2cVBJSkcyWGRxdmpjM3p6dEpKenc1b0c4V2k1ejBlX3Z5TkVfMWN1Y0RaZ0tRcmctYmxtR0pfQzJBUTN0Wkh0TUxfc21fSVRxQVB3TVlKVUY4M1RvMk5tVWVyb25RbV9lZDhUR0lMdzRSdmdPdm9vZDYyb212S05wMG0xSXc?oc=5) | 2026-09-18T01:33:16.250314+00:00 |
+| 2026-08-14 | Prefeitura | Influenza B - Prefeitura | [link](https://news.google.com/rss/articles/CBMiigFBVV95cUxNVzNyX2xZU0ZkTGZzckdpd1ZFcnh4a21RMk5ZazU2SmNSeTJJWTNaNEhVZlNqSG1tOVpPdEZfNG41Wms3aEMwLVB1RVdLNDlSNVVCbTgyZ0pnNU52eHdjWWF4bE5rLVlWTkUxTUtsNk4yRlFHVUJ6OFVvYjQ1d1J5bFNqeWRXdG4zanc?oc=5) | 2026-09-18T01:33:16.250314+00:00 |
+| 2026-09-15 | Metrópoles | Escudo materno: a vacina que afasta bebês da UTI com anticorpos da mãe - Metrópoles | [link](https://news.google.com/rss/articles/CBMiswFBVV95cUxORl9VLWhCR0tjc3dRZUtObzNLQmFOQlhRRHZlLURiem50aXo1ekVtVEFhamQwd29rU21VbllENWNjZHBjd2ZNV09QRlBtZ01hX2ZFNWJ5YldvQllrSnFnZWQ3cXpjY2pLTEh2TVFFYy1OWVVDajlyQ240SzBKSFE0eFJ2M3hqRXBUNHRNb0RNVC1JT3hmb0F4bGdCczhfTy15SlU4ZW85cXRGNGhaWU9HOXE4UQ?oc=5) | 2026-09-18T01:33:16.250314+00:00 |
 
-*Acervo consultado: 279 noticias no Vector DB (backend de embedding: `openai:text-embedding-3-small`); ultima ingestao em 2026-09-17T16:40:06.842036.*
+*Noticia mais recente: 2026-09-15; mais antiga dentro da janela: 2026-08-06.*
+
+*Acervo consultado: 141 noticias no Vector DB (backend de embedding: `openai:text-embedding-3-small`); ultima ingestao em 2026-09-18T01:33:16.250314.*
 
 ## Limitacoes conhecidas
 
@@ -455,13 +454,13 @@ Este relatório apresenta análise epidemiológica agregada de dados públicos d
 
 ### Trilha de auditoria
 
-- **run_id:** `534cd25b-5504-4cc1-8a3a-5b6289963e04`
-- **Eventos registrados:** 25
-- **Duracao total:** 10612.32 ms
-- **Status dos eventos:** {"ok": 25}
-- **Arquivo:** `<repo>\outputs\audit\534cd25b-5504-4cc1-8a3a-5b6289963e04.jsonl`
+- **run_id:** `9294a6fe-b889-42cd-9c68-f7b3422e9f37`
+- **Eventos registrados:** 24
+- **Duracao total:** 19799.77 ms
+- **Status dos eventos:** {"ok": 24}
+- **Arquivo:** `<repo>\outputs\audit\9294a6fe-b889-42cd-9c68-f7b3422e9f37.jsonl`
 
-Consulta por SQL, sobre todas as execucoes: `SELECT * FROM audit_events WHERE run_id = '<run_id>' ORDER BY seq;` no banco analitico. Ou, no terminal: `python main.py --audit 534cd25b-5504-4cc1-8a3a-5b6289963e04`.
+Consulta por SQL, sobre todas as execucoes: `SELECT * FROM audit_events WHERE run_id = '<run_id>' ORDER BY seq;` no banco analitico. Ou, no terminal: `python main.py --audit 9294a6fe-b889-42cd-9c68-f7b3422e9f37`.
 
 ### Planejamento
 
@@ -487,7 +486,7 @@ Consulta por SQL, sobre todas as execucoes: `SELECT * FROM audit_events WHERE ru
 | Referencia | Disponivel | Obtida em | sha256 | Linhas |
 |------------|------------|-----------|--------|--------|
 | Populacao residente (IBGE) | sim | 2026-09-14T04:15:04 | `8ab1e5d02523cfc8...` | 81 |
-| Doses aplicadas (SI-PNI) | **nao** | - | - | - |
+| Doses aplicadas (SI-PNI) | sim | 2026-09-17T23:30:04 | `3b2db41f90405358...` | 54 |
 | Leitos de UTI (CNES) | sim | 2026-09-17T13:55:39 | `c7d4b229cd38f7a0...` | 854 |
 
 **Indicadores indisponiveis e causa**
@@ -503,12 +502,12 @@ Consulta por SQL, sobre todas as execucoes: `SELECT * FROM audit_events WHERE ru
 **Contexto externo e resiliencia**
 
 - **Backend de embedding:** `openai:text-embedding-3-small`
-- **Acervo consultado:** 279 noticias (ultima ingestao 2026-09-17T16:40:06.842036)
+- **Acervo consultado:** 141 noticias (ultima ingestao 2026-09-18T01:33:16.250314)
 - **Acesso ao acervo:** ok, 6 tentativa(s), 0 retentativa(s)
 
 ### Verificacao de evidencia
 
-- **Valores lastreados pelas tools:** 407
+- **Valores lastreados pelas tools:** 409
 - **Indicadores calculados:** 7
 - **Indicadores indisponiveis:** 0
 

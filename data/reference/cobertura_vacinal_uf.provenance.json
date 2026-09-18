@@ -30,8 +30,9 @@
   "populacao_alvo_informada": false,
   "nota_de_privacidade": "O extrato bruto do PNI e por dose aplicada e contem identificador pseudonimizado de paciente. Ele nao e persistido: apenas quatro colunas sao lidas em fluxo e somente o agregado por UF, campanha e ano e gravado.",
   "obtido_em": "2026-09-17T23:30:04.070431+00:00",
-  "cobertura_temporal_observacao": "Cobertura temporal PARCIAL: agregado a partir de 1 extrato(s) mensal(is) do PNI (vacinacao_fev_2026_csv.zip), nao do ano civil completo de 2026. Doses aplicadas em meses de 2026 nao incluidos nesta lista NAO estao refletidas neste indicador -- nao interpretar 'ano' como cobertura anual completa.",
+  "cobertura_temporal_observacao": "Cobertura temporal PARCIAL: agregado a partir de 1 extrato(s) mensal(is) do PNI (vacinacao_fev_2026_csv.zip), nao do ano civil completo de 2026. Doses aplicadas em meses de 2026 nao incluidos nesta lista NAO estao refletidas neste indicador -- nao interpretar 'ano' como cobertura anual completa. Nenhum operador declarou --periodo-completo para esta referencia: a cobertura vacinal da populacao (population_vaccination_coverage) e publicada como INDISPONIVEL para as duas campanhas ate que todos os extratos mensais da campanha de 2026 sejam agregados com essa flag. A vacinacao declarada entre casos notificados de SRAG (indicador vaccination_coverage_among_cases) permanece disponivel normalmente.",
+  "periodo_completo_declarado": false,
   "arquivo": "cobertura_vacinal_uf.csv",
   "linhas": 54,
-  "sha256": "d4c5f1fe3b8a30bfa267b7403293d6db0d82a3b374f1b29bb20c25c8aeee774b"
+  "sha256": "3b2db41f90405358752a763b283f9cd0cd420813bc8689ac0b774b8019a20393"
 }

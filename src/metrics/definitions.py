@@ -367,7 +367,10 @@ POPULATION_VACCINATION_COVERAGE = MetricDefinition(
     period="ano de referencia da campanha mais proximo da data de corte analitica",
     missing_data_handling=(
         "Sem o arquivo de referencia de doses aplicadas, o indicador e declarado "
-        "nao calculavel com o motivo. Nunca e estimado a partir dos casos."
+        "nao calculavel com o motivo. Nunca e estimado a partir dos casos. Uma "
+        "referencia presente mas sem `periodo_completo=true` declarado pelo "
+        "operador tambem fica indisponivel: um extrato mensal isolado do SI-PNI "
+        "nao pode ser apresentado como cobertura anual ou populacional."
     ),
     limitations=(
         "O SIVEP-Gripe nao contem este dado: numerador e denominador vem de "
@@ -377,6 +380,10 @@ POPULATION_VACCINATION_COVERAGE = MetricDefinition(
         "(covid-19) ela superestima a cobertura.",
         "Quando nao ha populacao-alvo informada, o denominador e a populacao "
         "total, o que subestima a cobertura do publico-alvo.",
+        "So e publicado quando a referencia declara cobertura de periodo "
+        "completo da campanha (`periodo_completo=true`); um extrato parcial "
+        "(ex.: um unico mes) fica indisponivel em vez de gerar uma taxa anual "
+        "ou populacional sem base temporal equivalente.",
     ),
     source="SI-PNI (doses aplicadas) e IBGE (populacao), via data/reference/",
 )

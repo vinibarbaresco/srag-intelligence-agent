@@ -10,6 +10,11 @@ Agente de monitoramento epidemiológico de **Síndrome Respiratória Aguda Grave
 reais do Open DATASUS. Prova de conceito com orquestração em LangGraph, cálculo determinístico em
 SQL, busca semântica de notícias, guardrails explícitos e trilha de auditoria por execução.
 
+> 📊 **Relatório executivo (dashboard HTML) de uma execução real:**
+> [**abrir renderizado ↗**](https://htmlpreview.github.io/?https://github.com/vinibarbaresco/srag-intelligence-agent/blob/main/docs/relatorio.html)
+> · [código-fonte `docs/relatorio.html`](docs/relatorio.html) · [versão Markdown](docs/exemplo_relatorio.md)
+> (GitHub não renderiza HTML inline — o link acima abre a versão renderizada direto no navegador).
+
 ```bash
 python main.py --setup    # primeira execução: baixa dados e monta os bancos
 python main.py            # atualiza notícias e gera o relatório
@@ -30,10 +35,11 @@ de arquivo — para continuar identificável fora do repositório, impresso ou a
 | 3 | [`docs/dicionario_metricas.md`](docs/dicionario_metricas.md) | Contrato métrica ↔ campo ↔ regra ↔ limitação |
 | 4 | [`docs/regras_transformacao.md`](docs/regras_transformacao.md) | Contrato de colunas e regras de limpeza |
 | 5 | [`docs/catalogo_tools.md`](docs/catalogo_tools.md) | Catálogo de tools e políticas de guardrail |
-| 6 | [`docs/exemplo_relatorio.md`](docs/exemplo_relatorio.md) | Relatório completo de uma execução real sobre a base oficial |
-| 7 | [`docs/pipeline_dados/README.md`](docs/pipeline_dados/README.md) | Camada de dados: diagnóstico, regras, qualidade e as treze perguntas obrigatórias |
-| 8 | [`docs/pipeline_dados/decisoes.md`](docs/pipeline_dados/decisoes.md) | Log de decisões da revisão da camada de dados |
-| 9 | [`docs/README.md`](docs/README.md) | Índice da documentação, com a origem de cada artefato |
+| 6 | [`docs/exemplo_relatorio.md`](docs/exemplo_relatorio.md) | Relatório completo de uma execução real sobre a base oficial (versão Markdown) |
+| 7 | [`docs/relatorio.html`](docs/relatorio.html) | O mesmo relatório em **HTML** — dashboard executivo com KPIs, gráficos interativos e anexo técnico completo. GitHub não renderiza HTML inline: baixe o arquivo e abra no navegador, ou use a [pré-visualização via htmlpreview.github.io](https://htmlpreview.github.io/?https://github.com/vinibarbaresco/srag-intelligence-agent/blob/main/docs/relatorio.html) |
+| 8 | [`docs/pipeline_dados/README.md`](docs/pipeline_dados/README.md) | Camada de dados: diagnóstico, regras, qualidade e as treze perguntas obrigatórias |
+| 9 | [`docs/pipeline_dados/decisoes.md`](docs/pipeline_dados/decisoes.md) | Log de decisões da revisão da camada de dados |
+| 10 | [`docs/README.md`](docs/README.md) | Índice da documentação, com a origem de cada artefato |
 
 Mais o código-fonte do agente, das ferramentas, do tratamento de dados e dos testes, no próprio
 repositório. As respostas ao questionário de tratamento de dados (o que foi mantido/descartado, como
@@ -340,7 +346,8 @@ sobre um numerador nacional produziria ocupação inflada.
 
 **Vacinação da população (SI-PNI).** `VACINA_COV` só existe para quem adoeceu e foi notificado — um
 grupo com viés de seleção por definição. O sistema publica a cobertura declarada entre casos
-notificados (com a completude da informação) **e**, separadamente, a cobertura populacional:
+notificados (com a completude da informação) **e**, separadamente, tenta publicar a cobertura
+populacional:
 
 ```
 cobertura_pct = doses_aplicadas / populacao_alvo * 100
@@ -358,6 +365,19 @@ O denominador é a população-alvo da campanha. Quando ela não é publicada, o
 residente do IBGE e **rotula a substituição**, informando que ela subestima a cobertura do
 público-alvo. Sem o arquivo de referência, o indicador permanece **nulo com o motivo** — nunca
 estimado a partir dos casos.
+
+Um terceiro requisito, independente do denominador, é a **completude temporal**: o arquivo de
+referência só habilita o indicador populacional quando declara `periodo_completo=true` — uma
+afirmação explícita de que `doses_aplicadas` cobre a campanha inteira, e não um extrato mensal
+isolado. A referência distribuída neste repositório (`data/reference/cobertura_vacinal_uf.csv`)
+agrega **apenas fevereiro/2026** do SI-PNI e por isso tem `periodo_completo=false` em toda linha:
+o indicador populacional sai **indisponível**, com o motivo explicado por campanha, em vez de
+publicar uma taxa anual/populacional calculada sobre um mês de doses — um único extrato mensal
+dividido pela população do ano inteiro não é uma aproximação da cobertura, é um número sem
+significado epidemiológico. A cobertura declarada entre casos (`vaccination_coverage_among_cases`)
+não depende dessa referência e continua disponível normalmente. Para habilitar o indicador
+populacional, agregue todos os extratos mensais da campanha e gere a referência com
+`python -m src.data.reference.vaccination --from-pni <extratos> --year <ano> --periodo-completo`.
 
 ### Sensibilidade a linhas idênticas
 
@@ -644,7 +664,10 @@ indisponível — em vez de o leitor descobrir pelo `null` no relatório.
 
 A cobertura vacinal populacional fica de fora dos dois modos, de propósito: o extrato mensal do
 SI-PNI tem alguns GB e a agregação é uma operação deliberada (`python -m
-src.data.reference.vaccination --from-pni <extratos> --year <ano>`).
+src.data.reference.vaccination --from-pni <extratos> --year <ano> --periodo-completo`). A flag
+`--periodo-completo` só deve ser usada depois de agregar **todos** os extratos mensais da campanha —
+sem ela (ou com apenas parte dos meses), o indicador populacional permanece indisponível de
+propósito, para nunca publicar uma taxa anual/populacional calculada sobre um recorte parcial.
 
 **Quer ver o cálculo funcionando sem baixar o extrato real?** Existe uma fixture claramente
 rotulada — nunca o padrão, sempre opt-in:
@@ -707,7 +730,8 @@ docker run --rm -v "$PWD/data:/app/data" -v "$PWD/outputs:/app/outputs" --env-fi
 ```
 
 A chave entra por `--env-file`; nunca é copiada para a imagem (`.dockerignore`). Um relatório de
-exemplo já gerado está em [`docs/exemplo_relatorio.md`](docs/exemplo_relatorio.md).
+exemplo já gerado está em [`docs/exemplo_relatorio.md`](docs/exemplo_relatorio.md) (Markdown) e
+[`docs/relatorio.html`](docs/relatorio.html) (dashboard executivo em HTML).
 
 | Comando | Efeito |
 |---|---|
@@ -724,7 +748,7 @@ exemplo já gerado está em [`docs/exemplo_relatorio.md`](docs/exemplo_relatorio
 | `python -m src.api` | API HTTP (`/health`, `/indicadores/{tool}`, `/series/{tool}`, `POST /relatorios`, `/relatorios/{run_id}`, `/auditoria/{run_id}`) |
 | `python -m src.data.reference.population` | Atualiza a referência populacional do IBGE em `data/reference/` |
 | `python -m src.data.reference.icu_capacity --year 2026` | Atualiza a capacidade de leitos de UTI do CNES (habilita a ocupação) |
-| `python -m src.data.reference.vaccination --from-pni <extratos> --year 2026` | Agrega os extratos do SI-PNI (habilita a cobertura populacional) |
+| `python -m src.data.reference.vaccination --from-pni <extratos> --year 2026 --periodo-completo` | Agrega TODOS os extratos mensais da campanha do SI-PNI e declara período completo (habilita a cobertura populacional) |
 | `make demo` · `make test` · `make check` | Atalhos: demonstração, testes, o mesmo gate do CI |
 | `make setup-completo` · `make referencias` | Preparação completa; atualização só das referências externas |
 | `make venv` | Ambiente isolado nas versões fixadas em `requirements.txt`, para reproduzir o CI |
@@ -770,6 +794,7 @@ push).
 | `API_CORS_ALLOWED_ORIGINS` | *(vazio)* | Lista explícita de origens liberadas por CORS, separadas por vírgula; vazio = sem CORS habilitado, nunca `*` |
 | `NEWS_MAX_AGE_DAYS` | `45` | Janela de notícias |
 | `NEWS_MAX_RESULTS` | `12` | Limite máximo de notícias recuperadas |
+| `SUBMISSION_MODE` | `true` | Em modo de submissão (padrão), a inicialização **recusa** `NEWS_MAX_AGE_DAYS` acima de 45 — falha rápido na config, não silenciosamente no relatório. Defina `false` só para explorar localmente um acervo mais antigo (nunca numa execução de entrega) |
 | `MIN_CELL_SIZE` | `5` | Piso de denominador; abaixo dele a proporção é suprimida |
 | `OPENAI_TEMPERATURE` | `0.0` | Temperatura do modelo (zero: interpretação reproduzível) |
 | `ICU_STAY_CAP_PERCENTILE` | `0.95` | Percentil da permanência real que limita a imputação no censo de UTI |
@@ -798,10 +823,11 @@ registros · arquivos republicados em 14/09/2026 · corte analítico **2026-08-2
 | Incidência por 100 mil hab. | **9,03** | 19.336 casos sobre 214.211.951 habitantes (IBGE 2026) |
 | Excesso sobre o baseline sazonal | **−12,08 %** | 19.336 contra mediana de 21.993 na mesma janela de 2022–2024 — compatível com a sazonalidade |
 | Ocupação de leitos de UTI | **por exemplo, ~7,7 %** numa execução recente | piso da ocupação real (só pacientes de SRAG); ver `docs/exemplo_relatorio.md`, seção "3b", para o valor e o período exatos de uma execução congelada |
-| Vacinação da população | **por exemplo, ~0,2 %** (covid-19) e **~0,19 %** (influenza) numa execução recente | baixo por definição: `cobertura_vacinal_uf.csv` cobre só fevereiro/2026 (1 mês) do SI-PNI contra um denominador anual; sem população-alvo oficial informada, o denominador cai no IBGE, rotulado como subestimativa — não é indicador quebrado, ver `docs/exemplo_relatorio.md` |
+| Vacinação da população | **indisponível** (covid-19 e influenza) | `cobertura_vacinal_uf.csv` cobre só fevereiro/2026 (1 mês) do SI-PNI, sem declarar `periodo_completo=true`; um extrato mensal isolado dividido pela população do ano não é cobertura anual/populacional, então o indicador populacional sai indisponível com o motivo — a cobertura declarada entre casos (linha acima) não depende dessa referência e continua calculada normalmente. Ver `docs/exemplo_relatorio.md` |
 | Alertas | **normal** | nenhuma regra disparada; variação zero frente à execução anterior de mesmo corte |
 
-Relatório completo desta execução: [`docs/exemplo_relatorio.md`](docs/exemplo_relatorio.md).
+Relatório completo desta execução: [`docs/exemplo_relatorio.md`](docs/exemplo_relatorio.md) ·
+[versão HTML](docs/relatorio.html).
 
 ### Base B — CSV distribuído com o enunciado
 
@@ -943,7 +969,8 @@ data/          raw/ · processed/ · analytics/          (não versionado)
                            lado; + cobertura_vacinal_uf.template.csv
 outputs/       reports/ · charts/ · audit/ · history/  (não versionado)
 docs/          arquitetura.pdf · dicionario_metricas.md · regras_transformacao.md
-               catalogo_tools.md · exemplo_relatorio.md · gerar_*.py
+               catalogo_tools.md · exemplo_relatorio.md + relatorio.html (dashboard) · gerar_*.py
+               charts/  imagens usadas por relatorio.html e exemplo_relatorio.md
                pipeline_dados/  README.md (diagnóstico + 13 perguntas) · decisoes.md (log de decisões)
 .github/       ci.yml (lint, testes, docs) · monitor.yml (execução agendada com alerta)
 tests/         20 arquivos · suíte hermética com fixture sintética · red team · golden set
@@ -962,9 +989,12 @@ apenas a parcela ocupada por pacientes de SRAG (um **piso** da ocupação total,
 leitos atendem outras condições); o CNES cadastra leitos, não leitos operacionais no dia, o que
 tende a subestimar a ocupação; e a janela dela é **deslocada para trás** pelo teto de permanência em
 UTI, logo não coincide com o período dos demais indicadores. A **cobertura vacinal populacional**
-depende de uma agregação dos extratos do SI-PNI que não roda no `--setup` (alguns GB por mês) —
-sem ela, o indicador fica explicitamente indisponível. O baseline sazonal compara regimes de
-vigilância que mudaram entre os anos; os anos usados são publicados.
+depende de uma agregação dos extratos do SI-PNI que não roda no `--setup` (alguns GB por mês) e,
+além disso, só é publicada quando a referência declara `periodo_completo=true` — a referência
+distribuída neste repositório cobre apenas fevereiro/2026 e por isso o indicador está
+**atualmente indisponível** (não apenas "sem referência"; ver §7 e `--periodo-completo`). O
+baseline sazonal compara regimes de vigilância que mudaram entre os anos; os anos usados são
+publicados.
 
 **Da duplicidade.** A base não é deduplicada, por decisão documentada (§7). O impacto potencial é
 medido e publicado a cada execução, mas o critério — linhas idênticas nas colunas persistidas — é

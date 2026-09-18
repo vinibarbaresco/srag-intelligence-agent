@@ -384,6 +384,70 @@ class TestJanelaDeNoticias:
 
         assert len(articles) == 1
 
+    @pytest.mark.parametrize(
+        ("dias", "esperado_mantido"),
+        [
+            (44, True),
+            # 45 dias e a borda inclusiva: `_build_article` descarta com `<`,
+            # entao publicado EXATAMENTE no horizonte (45 dias) e mantido.
+            (45, True),
+            (46, False),
+        ],
+    )
+    def test_fronteira_de_45_dias_em_dias_exatos(self, dias, esperado_mantido):
+        """Testa a fronteira em `_build_article` com um horizonte FIXO, sem
+        depender de `datetime.now()` no momento da chamada -- `collect_articles`
+        recalcula "agora" internamente, e comparar dois relogios tornaria o
+        teste no dia exato (45) intermitente por microssegundos de diferenca.
+        """
+        from xml.etree import ElementTree
+
+        from src.news import rss_client
+
+        referencia = datetime(2026, 6, 15, 12, 0, 0, tzinfo=UTC)
+        horizonte = referencia - timedelta(days=45)
+        publicado_em = referencia - timedelta(days=dias)
+
+        xml_bytes = self._feed_xml(
+            pub_date=publicado_em.strftime("%a, %d %b %Y %H:%M:%S GMT"),
+            title=f"Aumento de casos de SRAG ha {dias} dias",
+            link=f"https://agenciabrasil.ebc.com.br/dias-{dias}",
+        )
+        item = list(ElementTree.fromstring(xml_bytes).iterfind(".//item"))[0]
+
+        artigo = rss_client._build_article(item, "SRAG", horizonte, trusted_only=True)
+
+        assert (artigo is not None) is esperado_mantido
+
+    def test_janela_acima_de_45_dias_e_recusada_em_modo_de_submissao(self, monkeypatch):
+        """O defeito real que motivou esta checagem: um .env local com
+        NEWS_MAX_AGE_DAYS=365 (para explorar um backfill) vazando para uma
+        execucao de entrega. A inicializacao tem de recusar, nao o relatorio."""
+        import pydantic
+
+        from src.config import Settings, get_settings, reset_settings_cache
+
+        monkeypatch.setenv("NEWS_MAX_AGE_DAYS", "365")
+        reset_settings_cache()
+        try:
+            with pytest.raises(pydantic.ValidationError, match="excede o teto"):
+                get_settings()
+        finally:
+            monkeypatch.delenv("NEWS_MAX_AGE_DAYS", raising=False)
+            reset_settings_cache()
+
+        # Confirma tambem no construtor direto, sem depender do cache.
+        with pytest.raises(pydantic.ValidationError, match="SUBMISSION_MODE"):
+            Settings(news_max_age_days=365, submission_mode=True)
+
+    def test_janela_acima_de_45_dias_e_permitida_fora_do_modo_de_submissao(self):
+        """SUBMISSION_MODE=false e a valvula de escape explicita para
+        explorar o acervo localmente -- nunca o padrao de uma execucao real."""
+        from src.config import Settings
+
+        settings = Settings(news_max_age_days=365, submission_mode=False)
+        assert settings.news_max_age_days == 365
+
     def test_artigo_fora_da_janela_nao_aparece_na_busca_do_vector_store(self, tmp_path):
         """Mesmo ja gravado, a busca com `max_age_days` nao pode devolve-lo."""
         from src.news.embeddings import HashingEmbedder
@@ -406,3 +470,55 @@ class TestJanelaDeNoticias:
         titulos = [item["titulo"] for item in resultado]
         assert antiga.title not in titulos
         assert recente.title in titulos
+
+    def test_fronteira_de_45_dias_ja_armazenada_no_vector_store(self, tmp_path):
+        """A mesma fronteira de `TestFronteiraDe45Dias`, mas para artigos que
+        ja estao no acervo persistido -- o requisito explicito e que o corte
+        valha tanto na coleta RSS quanto na consulta ao Vector DB.
+
+        Uma pequena folga (segundos) evita instabilidade: `search()` recalcula
+        `datetime.now()` no momento da consulta, alguns milissegundos depois
+        de este teste ter fixado `agora`; sem a folga, o artigo de "45 dias"
+        poderia cair do lado errado da fronteira por pura diferenca de relogio.
+        """
+        from src.news.embeddings import HashingEmbedder
+
+        store = tmp_path / "fronteira.duckdb"
+        embedder = HashingEmbedder(dimensions=16)
+        agora = datetime.now(tz=UTC)
+        folga = timedelta(seconds=5)
+
+        artigos = {
+            44: NewsArticle(
+                article_id="dias-44",
+                title="Casos de SRAG ha 44 dias",
+                source="agenciabrasil.ebc.com.br",
+                published_at=(agora - timedelta(days=44)).isoformat(),
+                url="https://agenciabrasil.ebc.com.br/dias-44",
+                query="SRAG",
+            ),
+            45: NewsArticle(
+                article_id="dias-45",
+                title="Casos de SRAG ha 45 dias",
+                source="agenciabrasil.ebc.com.br",
+                published_at=(agora - timedelta(days=45) + folga).isoformat(),
+                url="https://agenciabrasil.ebc.com.br/dias-45",
+                query="SRAG",
+            ),
+            46: NewsArticle(
+                article_id="dias-46",
+                title="Casos de SRAG ha 46 dias",
+                source="agenciabrasil.ebc.com.br",
+                published_at=(agora - timedelta(days=46)).isoformat(),
+                url="https://agenciabrasil.ebc.com.br/dias-46",
+                query="SRAG",
+            ),
+        }
+        upsert_articles(list(artigos.values()), embedder=embedder, path=store)
+
+        resultado = search("SRAG", top_k=10, max_age_days=45, embedder=embedder, path=store)
+
+        titulos = {item["titulo"] for item in resultado}
+        assert artigos[44].title in titulos
+        assert artigos[45].title in titulos
+        assert artigos[46].title not in titulos

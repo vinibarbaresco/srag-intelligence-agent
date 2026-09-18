@@ -104,10 +104,11 @@ class TestCargaDasReferencias:
     def test_cobertura_populacional_calculada_a_partir_da_referencia(self, tmp_path, monkeypatch):
         reference = tmp_path / "cobertura_vacinal_uf.csv"
         reference.write_text(
-            "uf,ano,campanha,doses_aplicadas,populacao_alvo,fonte,url\n"
-            "SP,2026,influenza,4000000,8000000,SI-PNI,https://exemplo\n"
-            "RJ,2026,influenza,1000000,4000000,SI-PNI,https://exemplo\n"
-            "SP,2026,covid19,2000000,,SI-PNI,https://exemplo\n",
+            "uf,ano,campanha,doses_aplicadas,populacao_alvo,fonte,url,data_extracao,"
+            "periodo_completo\n"
+            "SP,2026,influenza,4000000,8000000,SI-PNI,https://exemplo,,true\n"
+            "RJ,2026,influenza,1000000,4000000,SI-PNI,https://exemplo,,true\n"
+            "SP,2026,covid19,2000000,,SI-PNI,https://exemplo,,true\n",
             encoding="utf-8",
         )
         monkeypatch.setenv("VACCINATION_REFERENCE_PATH", str(reference))

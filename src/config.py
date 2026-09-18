@@ -12,10 +12,17 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Final
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+#: Teto de `NEWS_MAX_AGE_DAYS` tolerado em modo de submissao/producao
+#: (`SUBMISSION_MODE=true`, o padrao). Nao e configuravel por ambiente de
+#: proposito -- ele existe justamente para pegar uma configuracao local (como
+#: `NEWS_MAX_AGE_DAYS=365` para explorar um backfill) que vazou para uma
+#: execucao de entrega. Ver `Settings._validate_submission_mode`.
+NEWS_MAX_AGE_DAYS_SUBMISSION_LIMIT: Final[int] = 45
 
 #: Ausencia ABSOLUTA tolerada por coluna, em pontos percentuais, no detector de
 #: mudanca de esquema (`src/data/drift.py`).
@@ -238,6 +245,19 @@ class Settings(BaseSettings):
     news_max_results: int = Field(default=12, ge=1, le=100)
     news_refresh_on_run: bool = Field(default=True)
 
+    # --- Modo de execucao ------------------------------------------------------
+    # Distingue a execucao de submissao/producao (padrao) de uso exploratorio
+    # local -- por exemplo, revisitar um backfill historico do acervo de
+    # noticias com uma janela mais larga. Existe porque isso ja aconteceu: um
+    # `.env` local com `NEWS_MAX_AGE_DAYS=365` (para explorar um backfill de
+    # anos) vazou para uma execucao que deveria refletir a politica de entrega,
+    # e o relatorio publicado citou noticia de mais de um mes como "recente".
+    # Em modo de submissao, `_validate_submission_mode` abaixo recusa a
+    # inicializacao se `news_max_age_days` exceder
+    # `NEWS_MAX_AGE_DAYS_SUBMISSION_LIMIT` -- falha rapido, na config, em vez
+    # de silenciosamente no relatorio.
+    submission_mode: bool = Field(default=True)
+
     # --- Observabilidade -----------------------------------------------------
     log_level: str = Field(default="INFO")
 
@@ -277,6 +297,26 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [part.strip() for part in value.split(",") if part.strip()]
         return value
+
+    @model_validator(mode="after")
+    def _validate_submission_mode(self) -> Settings:
+        """Rejeita, na inicializacao, uma janela de noticias fora da politica.
+
+        Ver a nota em `submission_mode` acima: o defeito real que motivou esta
+        checagem foi uma configuracao local (janela de 365 dias) vazando para
+        uma execucao de entrega. Falhar aqui -- antes de qualquer coleta ou
+        relatorio -- e mais barato do que descobrir depois que uma noticia
+        fora da janela documentada foi citada como "recente".
+        """
+        if self.submission_mode and self.news_max_age_days > NEWS_MAX_AGE_DAYS_SUBMISSION_LIMIT:
+            raise ValueError(
+                f"NEWS_MAX_AGE_DAYS={self.news_max_age_days} excede o teto de "
+                f"{NEWS_MAX_AGE_DAYS_SUBMISSION_LIMIT} dias permitido em modo de "
+                "submissao (SUBMISSION_MODE=true, o padrao). Reduza NEWS_MAX_AGE_DAYS "
+                "para 45 ou menos, ou defina SUBMISSION_MODE=false explicitamente para "
+                "uso exploratorio local -- nunca para uma execucao de entrega."
+            )
+        return self
 
     # --- Caminhos ------------------------------------------------------------
     @property

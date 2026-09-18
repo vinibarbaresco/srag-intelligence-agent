@@ -4,6 +4,7 @@
 
 # --- Configuracao local do assistente (por maquina, nao do projeto) ----------
 .claude/settings.local.json
+.gstack/
 
 # --- Dados (nunca versionar: sao reproduziveis via src/data/download.py) -----
 data/raw/*
